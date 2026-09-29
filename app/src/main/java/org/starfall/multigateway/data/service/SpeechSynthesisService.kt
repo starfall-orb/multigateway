@@ -49,7 +49,7 @@ class SpeechSynthesisService {
                         setRequestProperty(it, auth.value ?: auth.token)
                     }
                 }
-                AuthMethod.QUERY_PARAM -> Unit
+                AuthMethod.QUERY_PARAM, AuthMethod.OAUTH -> Unit
             }
             provider.config.headers.forEach { (name, value) ->
                 setRequestProperty(name, value)

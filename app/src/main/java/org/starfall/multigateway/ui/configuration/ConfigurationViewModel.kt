@@ -118,6 +118,12 @@ class ConfigurationViewModel(
         }
     }
 
+    suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =
+        llmRepo.authorizeProvider(provider)
+
+    suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> =
+        llmRepo.clearOAuthCredentials(provider)
+
     suspend fun testConnection(provider: LlmProviderInfo, modelId: String): Result<String> {
         return llmRepo.testModel(provider, modelId)
     }

@@ -555,6 +555,7 @@ private fun ProviderMark(
         ProviderType.GOOGLE -> "✦"
         ProviderType.ANTHROPIC -> "A"
         ProviderType.OLLAMA -> "◌"
+        else -> provider.type.displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
     }
     Text(
         text = mark,
@@ -587,9 +588,4 @@ internal fun modelInitial(modelName: String): String {
         ?: "?"
 }
 
-internal fun defaultProviderModels(type: ProviderType): List<String> = when (type) {
-    ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> emptyList()
-    ProviderType.GOOGLE -> emptyList()
-    ProviderType.ANTHROPIC -> emptyList()
-    ProviderType.OLLAMA -> emptyList()
-}
+internal fun defaultProviderModels(type: ProviderType): List<String> = emptyList()

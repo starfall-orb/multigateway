@@ -58,7 +58,8 @@ internal suspend fun ToolHttp.modelResponse(
                 when {
                     responses -> when (value.text("type")) {
                         "response.output_text.delta" -> emitText(value.text("delta"))
-                        "response.reasoning_text.delta" -> emitReasoning(value.text("delta"))
+                        "response.reasoning_text.delta", "response.reasoning_summary_text.delta" ->
+                            emitReasoning(value.text("delta"))
                         "response.completed", "response.incomplete" -> finalResponse = value.requireObject("response")
                         "response.failed" -> error("OpenAI Responses stream failed: " + safeError(value.requireObject("response")["error"], requestSecrets(response.request)))
                     }

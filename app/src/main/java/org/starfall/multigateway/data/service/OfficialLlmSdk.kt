@@ -262,7 +262,7 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         val auth = provider.auth
         when (auth.method) {
             AuthMethod.CUSTOM_HEADER -> if (!auth.key.isNullOrBlank()) result[auth.key] = auth.value.orEmpty()
-            AuthMethod.QUERY_PARAM -> Unit
+            AuthMethod.QUERY_PARAM, AuthMethod.OAUTH -> Unit
             else -> auth.token.takeIf { it.isNotBlank() }?.let {
                 result[nativeHeader] = if (nativeHeader == "Authorization") "Bearer $it" else it
             }
@@ -343,6 +343,7 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
                 ProviderType.ANTHROPIC -> anthropic(provider).useClient { it.models().list() }
                 ProviderType.GOOGLE -> google(provider).use { it.models.list(null).iterator().hasNext() }
                 ProviderType.OLLAMA -> error("Use the native Ollama adapter")
+                else -> error("Use the registered account-provider adapter")
             }
         }
         Result.success("${provider.type.displayName} connection successful!")

@@ -214,6 +214,8 @@ fun MainScreen(
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
                             onDeleteProvider = { configurationViewModel.deleteProvider(it) },
                             onReorderProviders = configurationViewModel::reorderProviders,
+                            onAuthorizeProvider = { provider -> configurationViewModel.authorizeProvider(provider) },
+                            onClearOAuthCredentials = { provider -> configurationViewModel.clearOAuthCredentials(provider) },
                             onTestConnection = { prov, modelId -> configurationViewModel.testConnection(prov, modelId) },
                             onFetchModels = { provider -> configurationViewModel.fetchProviderModels(provider) },
                             onBack = { navController.popBackStack() }

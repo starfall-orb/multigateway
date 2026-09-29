@@ -27,11 +27,47 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         return providerEntityToModel(entity)
     }
 
+    suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
+        val authorized = service.authorizeProvider(provider).getOrThrow()
+        providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)?.let { persisted ->
+            providerDao.insertOrUpdate(
+                providerModelToEntity(
+                    persisted.copy(
+                        type = authorized.type,
+                        baseUrl = authorized.baseUrl,
+                        auth = authorized.auth
+                    )
+                )
+            )
+        }
+        authorized
+    }
+
+    suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
+        service.clearAccountCredentials(provider.type, provider.id)
+        val clearedAuth = Authorization(method = AuthMethod.OAUTH)
+        providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)?.let { persisted ->
+            providerDao.insertOrUpdate(providerModelToEntity(persisted.copy(auth = clearedAuth)))
+        }
+        provider.copy(auth = clearedAuth)
+    }
+
     suspend fun saveProvider(provider: LlmProviderInfo) {
+        val previous = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
+        if (
+            previous != null &&
+            (previous.type != provider.type ||
+                (previous.auth.method == AuthMethod.OAUTH && provider.auth.method != AuthMethod.OAUTH))
+        ) {
+            service.clearAccountCredentials(previous.type, previous.id)
+        }
         providerDao.insertOrUpdate(providerModelToEntity(provider))
     }
 
     suspend fun deleteProvider(id: String) {
+        providerDao.getProviderById(id)?.let(::providerEntityToModel)?.let {
+            service.clearAccountCredentials(it.type, it.id)
+        }
         providerDao.deleteById(id)
     }
 

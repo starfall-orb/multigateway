@@ -269,12 +269,13 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         onReasoning: suspend (String) -> Unit
     ): JsonObject {
         val defs = JsonArray(tools.map { obj("type" to str("function"),"function" to obj("name" to str(it.name),"description" to str(it.description),"parameters" to it.schema)) })
-        val base = providerBase(p)
+        val wireProvider = llm.prepareAccountProvider(p)
+        val base = providerBase(wireProvider)
         val config = p.config.modelConfigs[model] ?: ModelConfiguration()
-        return when(p.type) {
+        return when(wireProvider.type) {
             ProviderType.OPENAI_RESPONSES -> {
                 val sendReasoning = config.sendThinkingContent
-                val isDeepSeek = p.baseUrl.contains("deepseek.com", ignoreCase = true) || model.startsWith("deepseek-", ignoreCase = true)
+                val isDeepSeek = wireProvider.baseUrl.contains("deepseek.com", ignoreCase = true) || model.startsWith("deepseek-", ignoreCase = true)
                 val input = history.flatMap { message ->
                     when {
                         message["responsesOutput"] is JsonArray -> {
@@ -297,7 +298,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         else -> listOf(JsonObject(message.filterKeys { it != "reasoning_content" && it != "reasoning_signature" }))
                     }
                 }
-                val response = http.modelResponse("$base/responses", buildJsonObject {
+                val requestBody = buildJsonObject {
                     put("model", model); put("input", JsonArray(input)); put("store", false)
                     if (!isDeepSeek) put("include", JsonArray(listOf(str("reasoning.encrypted_content"))))
                     put("max_output_tokens", p.config.maxTokens)
@@ -310,11 +311,25 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         obj("type" to str("function"), "name" to str(it.name), "description" to str(it.description),
                             "parameters" to it.schema, "strict" to JsonPrimitive(false))
                     }))
-                }, p, p.streamEnabledFor(model), onText, onReasoning)
-                providerTurn(p.type, response)
+                }
+                val normalizedBody = llm.normalizeAccountToolRequest(
+                    sourceProvider = p,
+                    wireProvider = wireProvider,
+                    body = requestBody,
+                    systemPrompt = prompt
+                )
+                val response = http.modelResponse(
+                    "$base/responses",
+                    normalizedBody,
+                    wireProvider,
+                    p.streamEnabledFor(model),
+                    onText,
+                    onReasoning
+                )
+                providerTurn(wireProvider.type, response)
             }
             ProviderType.OPENAI, ProviderType.OLLAMA -> {
-                val ollama = p.type == ProviderType.OLLAMA
+                val ollama = wireProvider.type == ProviderType.OLLAMA
                 val sendReasoning = config.sendThinkingContent && !ollama
                 val wireHistory = history.map { message ->
                     val clean = JsonObject(message.filterKeys { key ->
@@ -363,9 +378,9 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 }
                 val response = http.modelResponse(
                     if (ollama) base.removeSuffix("/api") + "/api/chat" else "$base/chat/completions",
-                    request, p, p.streamEnabledFor(model), onText, onReasoning
+                    request, wireProvider, p.streamEnabledFor(model), onText, onReasoning
                 )
-                providerTurn(p.type, response)
+                providerTurn(wireProvider.type, response)
             }
             ProviderType.ANTHROPIC -> {
                 val native = mutableListOf<JsonObject>()
@@ -419,8 +434,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     config.temperature?.let { put("temperature", it) }
                     config.topP?.let { put("top_p", it) }
                     config.topK?.let { put("top_k", it) }
-                }, p, p.streamEnabledFor(model), onText, onReasoning)
-                providerTurn(p.type, response)
+                }, wireProvider, p.streamEnabledFor(model), onText, onReasoning)
+                providerTurn(wireProvider.type, response)
             }
             ProviderType.GOOGLE -> {
                 val native=history.map { message ->
@@ -438,9 +453,10 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     put("contents",JsonArray(native)); put("systemInstruction",obj("parts" to JsonArray(listOf(obj("text" to str(prompt))))))
                     if(tools.isNotEmpty()) put("tools",JsonArray(listOf(obj("functionDeclarations" to JsonArray(tools.map { obj("name" to str(it.name),"description" to str(it.description),"parameters" to it.schema) })))))
                     put("generationConfig",buildJsonObject { put("maxOutputTokens",p.config.maxTokens); config.temperature?.let { put("temperature",it) }; config.topP?.let { put("topP",it) }; config.topK?.let { put("topK",it) } })
-                },p,p.streamEnabledFor(model),onText)
-                providerTurn(p.type, response)
+                },wireProvider,p.streamEnabledFor(model),onText)
+                providerTurn(wireProvider.type, response)
             }
+            else -> error("Unsupported provider protocol: ${wireProvider.type.displayName}")
         }
     }
 }

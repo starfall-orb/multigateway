@@ -56,6 +56,7 @@ class ToolHttp(val files: ToolFiles? = null) {
             when (auth.method) {
                 AuthMethod.CUSTOM_HEADER -> auth.key?.takeIf { it.isNotBlank() }?.let { builder.header(it, auth.value.orEmpty()) }
                 AuthMethod.QUERY_PARAM -> builder.url(builder.build().url.newBuilder().setQueryParameter(auth.key ?: "key", auth.value.orEmpty()).build())
+                AuthMethod.OAUTH -> Unit
                 else -> if (token.isNotBlank()) when (p.type) {
                     ProviderType.GOOGLE -> builder.header("x-goog-api-key", token)
                     ProviderType.ANTHROPIC -> builder.header("x-api-key", token)

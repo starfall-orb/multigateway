@@ -59,6 +59,8 @@ fun ProviderScreen(
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onReorderProviders: (List<String>) -> Unit,
+    onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
+    onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
     onFetchModels: (suspend (LlmProviderInfo) -> List<String>)? = null,
     onBack: () -> Unit
@@ -81,6 +83,8 @@ fun ProviderScreen(
         ProviderEditScreen(
             initialProvider = targetProvider,
             isNew = isCreatingNew,
+            onAuthorizeProvider = onAuthorizeProvider,
+            onClearOAuthCredentials = onClearOAuthCredentials,
             onTestConnection = onTestConnection,
             onFetchModels = onFetchModels,
             onSaveModels = onSaveModels,
@@ -320,6 +324,7 @@ fun AuthMethod.displayName(): String = when (this) {
     AuthMethod.BEARER_TOKEN -> "Bearer Token"
     AuthMethod.QUERY_PARAM -> "Query Parameter"
     AuthMethod.CUSTOM_HEADER -> "Custom Header"
+    AuthMethod.OAUTH -> "OAuth"
     AuthMethod.OTHER -> "Other"
 }
 
@@ -328,6 +333,8 @@ fun AuthMethod.displayName(): String = when (this) {
 fun ProviderEditScreen(
     initialProvider: LlmProviderInfo,
     isNew: Boolean,
+    onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
+    onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
     onFetchModels: (suspend (LlmProviderInfo) -> List<String>)? = null,
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
@@ -346,7 +353,33 @@ fun ProviderEditScreen(
         } else ""
     ) }
     var apiKey by remember { mutableStateOf(if (initialProvider.auth.method in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) initialProvider.auth.value.orEmpty() else initialProvider.auth.token) }
-    fun authorization() = Authorization(authMethod, if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) authName.trim() else null, apiKey.trim())
+    var oauthAuthorized by remember(initialProvider.id) {
+        mutableStateOf(
+            initialProvider.auth.method == AuthMethod.OAUTH &&
+                initialProvider.auth.value?.isNotBlank() == true
+        )
+    }
+    var oauthIdentity by remember(initialProvider.id) {
+        mutableStateOf(initialProvider.auth.key?.takeIf { oauthAuthorized })
+    }
+    var oauthMarker by remember(initialProvider.id) {
+        mutableStateOf(initialProvider.auth.value.orEmpty().takeIf { oauthAuthorized }.orEmpty())
+    }
+    var oauthAuthorizing by remember { mutableStateOf(false) }
+    var oauthAuthError by remember { mutableStateOf<String?>(null) }
+    fun authorization() = if (authMethod == AuthMethod.OAUTH) {
+        Authorization(
+            AuthMethod.OAUTH,
+            key = oauthIdentity,
+            value = if (oauthAuthorized) oauthMarker else ""
+        )
+    } else {
+        Authorization(
+            authMethod,
+            if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) authName.trim() else null,
+            apiKey.trim()
+        )
+    }
     var showTestDialog by remember { mutableStateOf(false) }
     val testingModels = remember { mutableStateMapOf<String, Boolean>() }
     val modelTestResults = remember { mutableStateMapOf<String, Result<String>>() }
@@ -367,7 +400,6 @@ fun ProviderEditScreen(
     var configuringModel by remember { mutableStateOf<String?>(null) }
     var selectedModelForDelete by remember { mutableStateOf<String?>(null) }
     var showModelCatalog by remember { mutableStateOf(false) }
-    BackHandler(onBack = onDismiss)
     val activeHeaders = headerRows.filterNot { (key, value) -> key.isBlank() && value.isBlank() }
     val headersValid = activeHeaders.all { (key, value) ->
         key.isNotBlank() &&
@@ -383,6 +415,21 @@ fun ProviderEditScreen(
         supportStream = supportStream, headers = parsedHeaders ?: initialProvider.config.headers,
         modelConfigs = modelConfigs, modelIds = modelConfigs.keys.toList()
     )
+    fun dismissEditor() {
+        if (isNew && oauthAuthorized && onClearOAuthCredentials != null) {
+            val oauthProvider = initialProvider.copy(type = type, auth = authorization())
+            coroutineScope.launch {
+                try {
+                    onClearOAuthCredentials.invoke(oauthProvider)
+                } finally {
+                    onDismiss()
+                }
+            }
+        } else {
+            onDismiss()
+        }
+    }
+    BackHandler(onBack = ::dismissEditor)
     fun updateModels(updated: Map<String, ModelConfiguration>) {
         modelConfigs = updated
         if (!isNew) onSaveModels(initialProvider.id, updated)
@@ -413,14 +460,15 @@ fun ProviderEditScreen(
             TopAppBar(
                 title = { Text(if (isNew) "Add Provider" else "Provider Edit") },
                 navigationIcon = {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = ::dismissEditor) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     if (selectedTab == 0) {
                         Button(
-                            enabled = requestValid && baseUrl.isNotBlank(),
+                            enabled = requestValid && baseUrl.isNotBlank() &&
+                                (authMethod != AuthMethod.OAUTH || (oauthAuthorized && !oauthAuthorizing)),
                             onClick = {
                                 onSave(initialProvider.copy(
                                     name = name.trim().ifEmpty { type.defaultName },
@@ -508,6 +556,10 @@ fun ProviderEditScreen(
                                             authMethod = defaultAuth.method
                                             authName = defaultAuth.key.orEmpty()
                                             apiKey = defaultAuth.value.orEmpty()
+                                            oauthAuthorized = false
+                                            oauthIdentity = null
+                                            oauthMarker = ""
+                                            oauthAuthError = null
                                         }
                                         typeExpanded = false
                                     }
@@ -543,6 +595,13 @@ fun ProviderEditScreen(
                                 icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                         }
+                        ProviderType.OPENAI_CODEX -> {
+                            SuggestionChip(
+                                onClick = { baseUrl = ProviderType.OPENAI_CODEX.defaultBaseUrl },
+                                label = { Text("Default: ChatGPT Codex backend", fontSize = 11.sp) },
+                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                            )
+                        }
                         ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> {
                             SuggestionChip(
                                 onClick = { baseUrl = "https://api.openai.com/v1" },
@@ -570,7 +629,6 @@ fun ProviderEditScreen(
                         Text("HTTP is unencrypted. API keys, headers and messages can be read on the network. Use HTTPS outside a trusted local network.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
 
-                    // Authorization Dropdown (positioned directly above API key input)
                     Text("Authorization", style = MaterialTheme.typography.titleMedium)
                     Box {
                         OutlinedButton(onClick = { authExpanded = true }) {
@@ -579,30 +637,130 @@ fun ProviderEditScreen(
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
                         DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
-                            AuthMethod.entries.forEach { method ->
-                                DropdownMenuItem(
-                                    text = { Text(method.displayName()) },
-                                    onClick = {
-                                        authMethod = method
-                                        authExpanded = false
-                                    }
-                                )
-                            }
+                            AuthMethod.entries
+                                .filter { type != ProviderType.OPENAI_CODEX || it == AuthMethod.OAUTH }
+                                .forEach { method ->
+                                    DropdownMenuItem(
+                                        text = { Text(method.displayName()) },
+                                        onClick = {
+                                            authMethod = method
+                                            oauthAuthError = null
+                                            authExpanded = false
+                                        }
+                                    )
+                                }
                         }
                     }
 
-                    if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) {
-                        OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.CUSTOM_HEADER) "Header name" else "Query parameter name") },
-                            isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (authMethod == AuthMethod.OAUTH) {
+                        Text(
+                            text = when {
+                                oauthAuthorizing -> "Waiting for OAuth authorization in your browser…"
+                                oauthAuthorized && !oauthIdentity.isNullOrBlank() -> "OAuth authorized as $oauthIdentity"
+                                oauthAuthorized -> "OAuth credentials are saved"
+                                type == ProviderType.OPENAI_CODEX -> "Sign in with the ChatGPT account that has Codex access."
+                                else -> "Authorize this provider in your device browser."
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (oauthAuthorized) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                enabled = !oauthAuthorizing && onAuthorizeProvider != null,
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    coroutineScope.launch {
+                                        oauthAuthorizing = true
+                                        oauthAuthError = null
+                                        val draft = initialProvider.copy(
+                                            name = name.trim().ifEmpty { type.defaultName },
+                                            type = type,
+                                            baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
+                                            auth = Authorization(
+                                                AuthMethod.OAUTH,
+                                                key = oauthIdentity,
+                                                value = oauthMarker
+                                            ),
+                                            config = requestConfig()
+                                        )
+                                        val result = onAuthorizeProvider?.invoke(draft)
+                                            ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
+                                        result.onSuccess { authorized ->
+                                            oauthAuthorized = true
+                                            oauthIdentity = authorized.auth.key
+                                            oauthMarker = authorized.auth.value.orEmpty()
+                                            baseUrl = authorized.baseUrl
+                                        }.onFailure { error ->
+                                            oauthAuthError = error.message ?: "OAuth authorization failed."
+                                        }
+                                        oauthAuthorizing = false
+                                    }
+                                }
+                            ) {
+                                if (oauthAuthorizing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (oauthAuthorized) "OAuth again" else "Open OAuth in browser")
+                            }
+
+                            if (oauthAuthorized) {
+                                OutlinedButton(
+                                    enabled = !oauthAuthorizing && onClearOAuthCredentials != null,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            oauthAuthorizing = true
+                                            oauthAuthError = null
+                                            val current = initialProvider.copy(
+                                                name = name.trim().ifEmpty { type.defaultName },
+                                                type = type,
+                                                baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
+                                                auth = authorization(),
+                                                config = requestConfig()
+                                            )
+                                            val result = onClearOAuthCredentials?.invoke(current)
+                                                ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
+                                            result.onSuccess {
+                                                oauthAuthorized = false
+                                                oauthIdentity = null
+                                                oauthMarker = ""
+                                            }.onFailure { error ->
+                                                oauthAuthError = error.message ?: "Could not remove OAuth credentials."
+                                            }
+                                            oauthAuthorizing = false
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Outlined.Delete, contentDescription = null)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Delete OAuth credentials")
+                                }
+                            }
+                        }
+                        oauthAuthError?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else {
+                        if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) {
+                            OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.CUSTOM_HEADER) "Header name" else "Query parameter name") },
+                                isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        }
+                        OutlinedTextField(
+                            value = apiKey,
+                            onValueChange = { apiKey = it },
+                            label = { Text(if (type == ProviderType.OLLAMA) "API Key / Token (Optional)" else "API Key") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
-                    OutlinedTextField(
-                        value = apiKey,
-                        onValueChange = { apiKey = it },
-                        label = { Text(if (type == ProviderType.OLLAMA) "API Key / Token (Optional)" else "API Key") },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth()
-                    )
 
                     HorizontalDivider()
                     Text("Request config", style = MaterialTheme.typography.titleSmall)

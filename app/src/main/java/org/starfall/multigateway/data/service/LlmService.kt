@@ -11,6 +11,7 @@ import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
+import org.starfall.multigateway.data.adapter.AccountProviderAdapterRegistry
 import org.starfall.multigateway.data.model.*
 import java.util.Base64
 
@@ -18,6 +19,7 @@ class LlmService(context: Context) {
 
     private val attachments = AttachmentResolver(context)
     private val sdk = OfficialLlmSdk(attachments)
+    private val accountAdapters = AccountProviderAdapterRegistry(context, attachments)
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -59,7 +61,30 @@ class LlmService(context: Context) {
         return if (clean.endsWith("/api")) "$clean/tags" else "$clean/api/tags"
     }
 
+    suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =
+        accountAdapters.get(provider.type)?.authorize(provider)
+            ?: Result.failure(IllegalArgumentException("${provider.type.displayName} does not use account authorization."))
+
+    suspend fun prepareAccountProvider(provider: LlmProviderInfo): LlmProviderInfo =
+        accountAdapters.get(provider.type)?.prepareAuthenticatedProvider(provider)
+            ?: provider
+
+    fun normalizeAccountToolRequest(
+        sourceProvider: LlmProviderInfo,
+        wireProvider: LlmProviderInfo,
+        body: JsonObject,
+        systemPrompt: String
+    ): JsonObject =
+        accountAdapters.get(sourceProvider.type)
+            ?.normalizeToolRequest(sourceProvider, wireProvider, body, systemPrompt)
+            ?: body
+
+    fun clearAccountCredentials(type: ProviderType, providerId: String) {
+        accountAdapters.clearCredentials(type, providerId)
+    }
+
     suspend fun testConnection(provider: LlmProviderInfo): Result<String> {
+        accountAdapters.get(provider.type)?.let { return it.testConnection(provider) }
         return try {
             when (provider.type) {
                 ProviderType.OLLAMA -> {
@@ -128,6 +153,8 @@ class LlmService(context: Context) {
     }
 
     suspend fun fetchProviderModels(provider: LlmProviderInfo): List<String> {
+        accountAdapters.get(provider.type)?.let { return it.fetchModels(provider) }
+
         var base = provider.baseUrl.trim().trimEnd('/')
         for (suffix in listOf("/chat/completions", "/responses", "/messages", "/models", "/chat", "/tags", "/generate")) {
             base = base.removeSuffix(suffix)
@@ -137,6 +164,7 @@ class LlmService(context: Context) {
             ProviderType.ANTHROPIC -> base.removeSuffix("/v1") + "/v1/models"
             ProviderType.GOOGLE -> if (Regex("/v1(?:beta|alpha)?$").containsMatchIn(base)) "$base/models" else "$base/v1beta/models"
             ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> "$base/models"
+            else -> error("No model discovery endpoint is registered for ${provider.type.displayName}.")
         }
         val models = linkedSetOf<String>()
         var cursor: String? = null
@@ -147,6 +175,7 @@ class LlmService(context: Context) {
                 when (auth.method) {
                     AuthMethod.CUSTOM_HEADER -> auth.key?.takeIf { it.isNotBlank() }?.let { header(it, auth.value.orEmpty()) }
                     AuthMethod.QUERY_PARAM -> parameter(auth.key ?: "key", auth.value.orEmpty())
+                    AuthMethod.OAUTH -> Unit
                     else -> auth.token.takeIf { it.isNotBlank() }?.let { token ->
                         when (provider.type) {
                             ProviderType.ANTHROPIC -> header("x-api-key", token)
@@ -207,22 +236,27 @@ class LlmService(context: Context) {
         if (message.files.isEmpty()) return@map message
         val allowedFiles = message.files.filter { reference ->
             val meta = attachments.metadata(reference) ?: return@filter false
-            when (provider.type) {
-                ProviderType.GOOGLE -> when {
+            when {
+                accountAdapters.get(provider.type) != null -> when {
+                    meta.isImage -> modelConfig.supportsVision
+                    else -> true
+                }
+                provider.type == ProviderType.GOOGLE -> when {
                     meta.isImage -> modelConfig.supportsVision
                     meta.isVideo -> modelConfig.supportsVideoInput
                     else -> true
                 }
-                ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> when {
+                provider.type == ProviderType.OPENAI || provider.type == ProviderType.OPENAI_RESPONSES -> when {
                     meta.isImage -> modelConfig.supportsVision
                     else -> true
                 }
-                ProviderType.ANTHROPIC -> when {
+                provider.type == ProviderType.ANTHROPIC -> when {
                     meta.isImage -> modelConfig.supportsVision
                     meta.isPdf || meta.isText -> true
                     else -> false
                 }
-                ProviderType.OLLAMA -> meta.isImage && modelConfig.supportsVision
+                provider.type == ProviderType.OLLAMA -> meta.isImage && modelConfig.supportsVision
+                else -> false
             }
         }
         if (allowedFiles == message.files) return@map message
@@ -251,6 +285,12 @@ class LlmService(context: Context) {
             ?.coerceAtLeast(1)
             ?.let { minOf(it, provider.config.maxTokens) }
             ?: provider.config.maxTokens
+        accountAdapters.get(provider.type)?.let { adapter ->
+            emitAll(adapter.streamEvents(
+                requestProvider, modelName, requestMessages, systemPrompt, maxTokens
+            ))
+            return@flow
+        }
         when (provider.type) {
             ProviderType.OPENAI -> emitAll(
                 sdk.streamOpenAi(
@@ -280,6 +320,7 @@ class LlmService(context: Context) {
                 requestProvider, modelName, requestMessages, systemPrompt,
                 temperature, topP, maxTokens, topK
             ).collect { emit(GenerationEvent.Text(it)) }
+            else -> error("No request adapter is registered for ${provider.type.displayName}.")
         }
     }
 
@@ -380,6 +421,7 @@ class LlmService(context: Context) {
                 AuthMethod.OTHER -> {
                     bearerAuth(key)
                 }
+                AuthMethod.OAUTH -> Unit
             }
         }
         provider.config.headers.forEach { (k, v) ->

@@ -8,6 +8,8 @@ enum class ProviderType(val displayName: String, val defaultName: String, val de
     OPENAI("Chat Completions", "OpenAI", "https://api.openai.com/v1"),
     @SerialName("openai_responses")
     OPENAI_RESPONSES("OpenAI Responses", "OpenAI Responses", "https://api.openai.com/v1"),
+    @SerialName("openai_codex")
+    OPENAI_CODEX("OpenAI Codex", "OpenAI Codex", "https://chatgpt.com/backend-api/codex/responses"),
     @SerialName("google")
     GOOGLE("Google", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
     @SerialName("anthropic")
@@ -32,6 +34,8 @@ enum class AuthMethod {
     BEARER_TOKEN,
     @SerialName("custom_header")
     CUSTOM_HEADER,
+    @SerialName("oauth")
+    OAUTH,
     @SerialName("other")
     OTHER
 }
@@ -42,8 +46,9 @@ data class Authorization(
     val key: String? = null,
     val value: String? = null
 ) {
-    // New bearer records use value; key is retained as a legacy fallback.
-    val token: String get() = value?.takeIf { it.isNotBlank() } ?: key.orEmpty()
+    // OAuth stores only an opaque adapter marker here; real tokens never enter provider config.
+    val token: String
+        get() = if (method == AuthMethod.OAUTH) "" else value?.takeIf { it.isNotBlank() } ?: key.orEmpty()
 }
 
 fun ProviderType.defaultAuthorization(): Authorization = when (this) {
@@ -52,6 +57,9 @@ fun ProviderType.defaultAuthorization(): Authorization = when (this) {
 
     ProviderType.GOOGLE ->
         Authorization(method = AuthMethod.QUERY_PARAM, key = "key", value = "")
+
+    ProviderType.OPENAI_CODEX ->
+        Authorization(method = AuthMethod.OAUTH, value = "")
 
     ProviderType.OLLAMA ->
         Authorization(method = AuthMethod.OTHER, value = "")

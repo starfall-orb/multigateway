@@ -76,9 +76,14 @@ internal fun providerTurn(type: ProviderType, response: JsonObject): JsonObject 
                         val content = part.requireObject()
                         if (content.text("type") == "output_text") text.append(content.text("text"))
                     }
-                    "reasoning" -> (value["content"] as? JsonArray).orEmpty().forEach { part ->
+                    "reasoning" -> (
+                        (value["content"] as? JsonArray).orEmpty() +
+                            (value["summary"] as? JsonArray).orEmpty()
+                    ).forEach { part ->
                         val content = part.requireObject()
-                        if (content.text("type") == "reasoning_text") reasoning.append(content.text("text"))
+                        if (content.text("type") in setOf("reasoning_text", "summary_text")) {
+                            reasoning.append(content.text("text"))
+                        }
                     }
                     "function_call" -> calls += call(value.text("call_id"), value.text("name"), value["arguments"])
                 }
@@ -145,6 +150,7 @@ internal fun providerTurn(type: ProviderType, response: JsonObject): JsonObject 
                     .takeIf { it.isNotBlank() }
             )
         }
+        else -> error("Unsupported provider response protocol: ${type.displayName}")
     }
 }
 /** Only display bounded error details; redact common secret formats and echoed request credentials. */

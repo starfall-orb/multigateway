@@ -1,6 +1,8 @@
 package org.starfall.multigateway.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -124,7 +126,22 @@ fun MainScreen(
             }
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                NavHost(navController = navController, startDestination = AppDestination.CHAT.route) {
+                NavHost(
+                    navController = navController,
+                    startDestination = AppDestination.CHAT.route,
+                    enterTransition = {
+                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    },
+                    exitTransition = {
+                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    },
+                    popEnterTransition = {
+                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    }
+                ) {
                     composable(AppDestination.CHAT.route) {
                         key(currentConv?.id) {
                             ChatScreen(

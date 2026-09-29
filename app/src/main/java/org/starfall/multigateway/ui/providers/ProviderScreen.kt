@@ -402,6 +402,7 @@ fun ProviderEditScreen(
             initialProvider.config.modelConfigs[it] ?: ModelConfiguration()
         } ?: initialProvider.config.modelConfigs)
     }
+    var modelOrder by remember { mutableStateOf(modelConfigs.keys.toList()) }
     var configuringModel by remember { mutableStateOf<String?>(null) }
     var showModelCatalog by remember { mutableStateOf(false) }
     val activeHeaders = headerRows.filterNot { (key, value) -> key.isBlank() && value.isBlank() }
@@ -417,7 +418,7 @@ fun ProviderEditScreen(
     val requestValid = urlValid && authValid && headersValid
     fun requestConfig() = initialProvider.config.copy(
         supportStream = supportStream, headers = parsedHeaders ?: initialProvider.config.headers,
-        modelConfigs = modelConfigs, modelIds = modelConfigs.keys.toList()
+        modelConfigs = modelOrder.associateWith { modelConfigs.getValue(it) }, modelIds = modelOrder
     )
     fun dismissEditor() {
         if (isNew && oauthAuthorized && onClearOAuthCredentials != null) {
@@ -435,8 +436,11 @@ fun ProviderEditScreen(
     }
     BackHandler(enabled = LocalScreenTransitionActive.current && configuringModel == null, onBack = ::dismissEditor)
     fun updateModels(updated: Map<String, ModelConfiguration>) {
+        val existingIds = modelOrder.toSet()
+        val nextOrder = modelOrder.filter { it in updated } + updated.keys.filterNot { it in existingIds }
+        modelOrder = nextOrder
         modelConfigs = updated
-        if (!isNew) onSaveModels(initialProvider.id, updated)
+        if (!isNew) onSaveModels(initialProvider.id, nextOrder.associateWith { updated.getValue(it) })
     }
 
     SlideScreenContent(editor = configuringModel, label = "Model editor") { editingModelId ->
@@ -833,15 +837,12 @@ fun ProviderEditScreen(
                     }
                 }
             } else {
-                val models = modelConfigs.keys.toList()
+                val models = modelOrder
                 fun moveModel(from: Int, to: Int) {
-                    val reordered = models.moved(from, to)
-                    modelConfigs = reordered.associateWith { id ->
-                        modelConfigs[id] ?: ModelConfiguration()
-                    }
+                    modelOrder = modelOrder.moved(from, to)
                 }
                 fun persistModelOrder() {
-                    if (!isNew) onSaveModels(initialProvider.id, modelConfigs)
+                    if (!isNew) onSaveModels(initialProvider.id, modelOrder.associateWith { modelConfigs.getValue(it) })
                 }
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -941,7 +942,7 @@ fun ProviderEditScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    items(modelConfigs.keys.toList(), key = { it }) { modelId ->
+                    items(modelOrder, key = { it }) { modelId ->
                         val testing = testingModels[modelId] == true
                         val result = modelTestResults[modelId]
                         Surface(

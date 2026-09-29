@@ -7,7 +7,6 @@ import android.widget.Toast
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -398,7 +397,6 @@ fun ProviderEditScreen(
         } ?: initialProvider.config.modelConfigs)
     }
     var configuringModel by remember { mutableStateOf<String?>(null) }
-    var selectedModelForDelete by remember { mutableStateOf<String?>(null) }
     var showModelCatalog by remember { mutableStateOf(false) }
     val activeHeaders = headerRows.filterNot { (key, value) -> key.isBlank() && value.isBlank() }
     val headersValid = activeHeaders.all { (key, value) ->
@@ -484,13 +482,13 @@ fun ProviderEditScreen(
                         IconButton(onClick = { configuringModel = "" }) {
                             Icon(
                                 imageVector = Icons.Outlined.Edit,
-                                contentDescription = "Thêm model thủ công"
+                                contentDescription = "Add model manually"
                             )
                         }
                         IconButton(onClick = { showModelCatalog = true }) {
                             Icon(
                                 imageVector = Icons.Outlined.FormatListBulleted,
-                                contentDescription = "Mở danh sách model"
+                                contentDescription = "Open model catalog"
                             )
                         }
                     }
@@ -832,6 +830,15 @@ fun ProviderEditScreen(
                 }
             } else {
                 val models = modelConfigs.keys.toList()
+                fun moveModel(from: Int, to: Int) {
+                    val reordered = models.moved(from, to)
+                    modelConfigs = reordered.associateWith { id ->
+                        modelConfigs[id] ?: ModelConfiguration()
+                    }
+                }
+                fun persistModelOrder() {
+                    if (!isNew) onSaveModels(initialProvider.id, modelConfigs)
+                }
                 LazyColumn(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
@@ -847,7 +854,7 @@ fun ProviderEditScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    "Chưa có model nào trong provider này.",
+                                    "No models have been added to this provider yet.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -857,44 +864,51 @@ fun ProviderEditScreen(
                                     OutlinedButton(onClick = { configuringModel = "" }) {
                                         Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Thêm thủ công")
+                                        Text("Add manually")
                                     }
                                     Button(onClick = { showModelCatalog = true }) {
                                         Icon(Icons.Outlined.FormatListBulleted, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Mở danh sách model")
+                                        Text("Open model catalog")
                                     }
                                 }
                             }
                         }
                     }
                     items(models, key = { it }) { modelId ->
-                        val selectedForDelete = selectedModelForDelete == modelId
+                        val index = models.indexOf(modelId)
                         ListItem(
-                            headlineContent = { Text(modelConfigs[modelId]?.displayName?.ifBlank { modelId } ?: modelId,
-                                overflow = TextOverflow.Ellipsis, maxLines = 2) },
-                            supportingContent = { Text("$modelId · ${modelConfigs[modelId]?.modelType?.displayName.orEmpty()}") },
-                            trailingContent = {
-                                if (selectedForDelete) {
-                                    IconButton(onClick = {
-                                        updateModels(modelConfigs - modelId)
-                                        selectedModelForDelete = null
-                                    }) {
-                                        Icon(Icons.Outlined.Delete, contentDescription = "Delete $modelId", tint = MaterialTheme.colorScheme.error)
-                                    }
-                                } else {
-                                    IconButton(onClick = { configuringModel = modelId }) {
-                                        Icon(Icons.Outlined.Tune, contentDescription = "Configure $modelId")
-                                    }
-                                }
+                            headlineContent = {
+                                Text(
+                                    modelConfigs[modelId]?.displayName?.ifBlank { modelId } ?: modelId,
+                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 2
+                                )
                             },
-                            modifier = Modifier.combinedClickable(
-                                onClick = {
-                                    if (selectedModelForDelete != null) selectedModelForDelete = null
-                                    else configuringModel = modelId
-                                },
-                                onLongClick = { selectedModelForDelete = modelId }
-                            )
+                            supportingContent = {
+                                Text("$modelId · ${modelConfigs[modelId]?.modelType?.displayName.orEmpty()}")
+                            },
+                            trailingContent = {
+                                ItemOverflowMenu(
+                                    onEdit = { configuringModel = modelId },
+                                    onDelete = { updateModels(modelConfigs - modelId) },
+                                    deleteColor = MaterialTheme.colorScheme.error
+                                )
+                            },
+                            modifier = Modifier
+                                .animateItem(
+                                    placementSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                                .longPressReorder(
+                                    index = index,
+                                    itemCount = models.size,
+                                    columns = 1,
+                                    onMove = ::moveModel,
+                                    onDrop = ::persistModelOrder
+                                )
                         )
                     }
                 }

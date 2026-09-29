@@ -54,7 +54,7 @@ fun ModelEditScreen(
         modifier = Modifier.fillMaxSize().imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text(if (initialModelId.isBlank()) "Thêm model thủ công" else "Edit Model") },
+                title = { Text(if (initialModelId.isBlank()) "Add Model Manually" else "Edit Model") },
                 navigationIcon = {
                     IconButton(onClick = ::saveAndBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")

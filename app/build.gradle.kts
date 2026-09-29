@@ -15,8 +15,8 @@ android {
         applicationId = "org.starfall.multigateway"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.1.1"
+        versionCode = 10
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -33,7 +33,6 @@ workflows:
         - github_release
       vars:
         GITHUB_RELEASE_REPO: starfall-orb/multigateway
-        GITHUB_RELEASE_TAG: v2.0.6
       android_signing:
         - MultiGateway
     scripts:
@@ -77,6 +76,8 @@ workflows:
         ignore_failure: false
         script: |
           set -euo pipefail
+          GITHUB_RELEASE_TAG="$(python3 -c 'import json; print(json.load(open("app/build/outputs/apk/release/output-metadata.json"))["elements"][0]["versionName"])')"
+          export GITHUB_RELEASE_TAG
           bash scripts/publish-github-release.sh
     artifacts:
       - app/build/outputs/apk/release/*.apk

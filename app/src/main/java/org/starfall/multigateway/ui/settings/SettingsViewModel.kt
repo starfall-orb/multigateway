@@ -39,4 +39,7 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     fun setDebugMode(value: Boolean) {
         viewModelScope.launch { repository.setDebugMode(value) }
     }
+    fun setLatexMode(value: String) {
+        viewModelScope.launch { repository.setLatexMode(value) }
+    }
 }

@@ -30,6 +30,7 @@ import org.starfall.multigateway.data.model.Conversation
 fun ConversationsDrawer(
     conversations: List<Conversation>,
     currentConversationId: String?,
+    generatingConversationId: String? = null,
     selectedProfile: ChatProfile?,
     profiles: List<ChatProfile>,
     defaultSystemPrompt: String,
@@ -231,17 +232,27 @@ fun ConversationsDrawer(
                                 )
                             }
 
+                            val isThisConvGenerating = generatingConversationId == conv.id
                             Box {
-                                IconButton(
-                                    onClick = { showItemMenu = true },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Options",
-                                        tint = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier.size(16.dp)
-                                    )
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (isThisConvGenerating) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(32.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { showItemMenu = true },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Options",
+                                            tint = if (isThisConvGenerating) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
 
                                 DropdownMenu(

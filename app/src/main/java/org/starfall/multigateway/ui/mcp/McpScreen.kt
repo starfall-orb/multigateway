@@ -52,6 +52,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.model.McpAuthMethod
 import org.starfall.multigateway.data.model.McpAuthorization
@@ -90,107 +92,6 @@ fun McpScreen(
     var orderedServers by remember(mcpServers) { mutableStateOf(mcpServers) }
     val context = LocalContext.current
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "MCP Servers",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
-                        )
-                        Text(
-                            text = "Model Context Protocol tools",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { onToggleGridView?.invoke(!isGridView) }) {
-                        Icon(
-                            imageVector = if (isGridView) Icons.Default.List else Icons.Default.GridView,
-                            contentDescription = "Toggle Grid/List"
-                        )
-                    }
-                    IconButton(onClick = {
-                        newServerId = UUID.randomUUID().toString()
-                        isCreatingNew = true
-                    }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Server")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            if (mcpServers.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Outlined.Extension,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Text("No MCP Servers", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "Tap + to connect Model Context Protocol servers",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                    }
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (isGridView) 2 else 1),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(orderedServers, key = { it.id }) { server ->
-                        val index = orderedServers.indexOfFirst { it.id == server.id }
-                        McpUnifiedCard(
-                            server = server,
-                            isGrid = isGridView,
-                            modifier = Modifier
-                                .animateItem(
-                                    placementSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    )
-                                )
-                                .longPressReorder(
-                                    index = index,
-                                    itemCount = orderedServers.size,
-                                    columns = if (isGridView) 2 else 1,
-                                    onMove = { from, to -> orderedServers = orderedServers.moved(from, to) },
-                                    onDrop = { onReorderMcpServers(orderedServers.map { it.id }) }
-                                ),
-                            toolCount = (toolsCache[server.id] ?: server.cachedTools)?.size,
-                            toolError = toolErrors[server.id],
-                            loading = server.id in toolsLoading,
-                            onToolErrorClick = { error -> selectedToolError = server.name to error },
-                            onEdit = { editingServer = server },
-                            onDelete = { deletingServerId = server.id }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
     if (editingServer != null || isCreatingNew) {
         val target = editingServer ?: McpInfo(
             id = newServerId,
@@ -200,7 +101,7 @@ fun McpScreen(
             headers = emptyMap()
         )
 
-        AddOrEditMcpDialog(
+        AddOrEditMcpScreenContent(
             initialServer = target,
             isNew = isCreatingNew,
             onRefreshTools = onRefreshTools,
@@ -219,6 +120,107 @@ fun McpScreen(
                 isCreatingNew = false
             }
         )
+    } else {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = "MCP Servers",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
+                            )
+                            Text(
+                                text = "Model Context Protocol tools",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { onToggleGridView?.invoke(!isGridView) }) {
+                            Icon(
+                                imageVector = if (isGridView) Icons.Default.List else Icons.Default.GridView,
+                                contentDescription = "Toggle Grid/List"
+                            )
+                        }
+                        IconButton(onClick = {
+                            newServerId = UUID.randomUUID().toString()
+                            isCreatingNew = true
+                        }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Server")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                if (mcpServers.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Outlined.Extension,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text("No MCP Servers", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Tap + to connect Model Context Protocol servers",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(if (isGridView) 2 else 1),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(orderedServers, key = { it.id }) { server ->
+                            val index = orderedServers.indexOfFirst { it.id == server.id }
+                            McpUnifiedCard(
+                                server = server,
+                                isGrid = isGridView,
+                                modifier = Modifier
+                                    .animateItem(
+                                        placementSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
+                                        )
+                                    )
+                                    .longPressReorder(
+                                        index = index,
+                                        itemCount = orderedServers.size,
+                                        columns = if (isGridView) 2 else 1,
+                                        onMove = { from, to -> orderedServers = orderedServers.moved(from, to) },
+                                        onDrop = { onReorderMcpServers(orderedServers.map { it.id }) }
+                                    ),
+                                toolCount = (toolsCache[server.id] ?: server.cachedTools)?.size,
+                                toolError = toolErrors[server.id],
+                                loading = server.id in toolsLoading,
+                                onToolErrorClick = { error -> selectedToolError = server.name to error },
+                                onEdit = { editingServer = server },
+                                onDelete = { deletingServerId = server.id }
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (deletingServerId != null) {
@@ -395,7 +397,7 @@ fun McpUnifiedCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddOrEditMcpDialog(
+fun AddOrEditMcpScreenContent(
     initialServer: McpInfo,
     isNew: Boolean,
     onRefreshTools: suspend (McpInfo) -> Result<List<ToolDefinition>>,
@@ -416,6 +418,20 @@ fun AddOrEditMcpDialog(
     var authValue by remember(initialServer.id) { mutableStateOf(initialServer.auth.value.orEmpty()) }
     var selectedTab by remember(initialServer.id) { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
+
+    var oauthAuthUrl by remember(initialServer.id, url) {
+        val guess = if (url.isNotBlank()) {
+            if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
+        } else ""
+        mutableStateOf(guess)
+    }
+    var oauthClientId by remember(initialServer.id) { mutableStateOf("multigateway") }
+
+    LaunchedEffect(initialServer.id) {
+        OAuthReceiver.tokenFlow.collect { receivedToken ->
+            authValue = receivedToken
+        }
+    }
 
     fun currentAuth() = McpAuthorization(
         method = authMethod,
@@ -447,58 +463,53 @@ fun AddOrEditMcpDialog(
         scope.launch { onRefreshTools(currentServer()) }
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
-        val view = LocalView.current
-        SideEffect {
-            (view.parent as? DialogWindowProvider)?.window?.let { window ->
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                window.statusBarColor = android.graphics.Color.TRANSPARENT
-                window.navigationBarColor = android.graphics.Color.TRANSPARENT
-                if (android.os.Build.VERSION.SDK_INT >= 29) {
-                    window.isNavigationBarContrastEnforced = false
-                    window.isStatusBarContrastEnforced = false
+        Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            topBar = {
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp
+                ) {
+                    Column(modifier = Modifier.statusBarsPadding()) {
+                        TopAppBar(
+                            windowInsets = WindowInsets(0, 0, 0, 0),
+                            title = {
+                                Text(
+                                    if (isNew) "Add MCP Server" else "Configure MCP Server",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = onDismiss) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                }
+                            },
+                            actions = {
+                                Button(
+                                    onClick = { onSave(currentServer()) },
+                                    enabled = canSave,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text("Save")
+                                }
+                            }
+                        )
+                    }
                 }
             }
-        }
-
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                if (isNew) "Add MCP Server" else "Configure MCP Server",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                            )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
-                        },
-                        actions = {
-                            TextButton(
-                                onClick = { onSave(currentServer()) },
-                                enabled = canSave
-                            ) {
-                                Text("Save", fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    )
-                }
-            ) { innerPadding ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .imePadding()
-                ) {
+        ) { innerPadding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .imePadding()
+            ) {
 
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text("Basic Settings", fontWeight = FontWeight.SemiBold) })
@@ -525,6 +536,10 @@ fun AddOrEditMcpDialog(
                         authValid = authValid,
                         headers = headers,
                         onHeadersChange = { headers = it },
+                        oauthAuthUrl = oauthAuthUrl,
+                        onOauthAuthUrlChange = { oauthAuthUrl = it },
+                        oauthClientId = oauthClientId,
+                        onOauthClientIdChange = { oauthClientId = it },
                         modifier = Modifier.weight(1f)
                     )
                 } else {
@@ -544,7 +559,6 @@ fun AddOrEditMcpDialog(
         }
     }
 }
-}
 
 @Composable
 private fun McpBasicSettings(
@@ -563,8 +577,14 @@ private fun McpBasicSettings(
     authValid: Boolean,
     headers: List<Pair<String, String>>,
     onHeadersChange: (List<Pair<String, String>>) -> Unit,
+    oauthAuthUrl: String,
+    onOauthAuthUrlChange: (String) -> Unit,
+    oauthClientId: String,
+    onOauthClientIdChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var oauthAdvancedExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
@@ -645,6 +665,140 @@ private fun McpBasicSettings(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+
+        if (authMethod == McpAuthMethod.OAUTH2) {
+            Text("OAuth2 Authorization Endpoint", style = MaterialTheme.typography.titleSmall)
+            OutlinedTextField(
+                value = oauthAuthUrl,
+                onValueChange = onOauthAuthUrlChange,
+                placeholder = { Text("https://example.com/oauth/authorize") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { oauthAdvancedExpanded = !oauthAdvancedExpanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = if (oauthAdvancedExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Advanced Client Credentials",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+
+            if (oauthAdvancedExpanded) {
+                Text("Client ID", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = oauthClientId,
+                    onValueChange = onOauthClientIdChange,
+                    placeholder = { Text("multigateway") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Redirect URI", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = "multigateway://oauth",
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                    )
+                )
+            }
+
+            val browserContext = LocalContext.current
+            val scope = rememberCoroutineScope()
+            var isDiscovering by remember { mutableStateOf(false) }
+
+            Button(
+                onClick = {
+                    scope.launch {
+                        isDiscovering = true
+                        var finalAuthUrl = oauthAuthUrl.trim()
+                        
+                        // If no auth URL is entered, perform automatic discovery handshake!
+                        if (finalAuthUrl.isBlank() && url.isNotBlank()) {
+                            try {
+                                val client = okhttp3.OkHttpClient()
+                                val request = okhttp3.Request.Builder().url(url).build()
+                                withContext(Dispatchers.IO) {
+                                    client.newCall(request).execute().use { response ->
+                                        // 1. Check WWW-Authenticate header for OAuth2 endpoints
+                                        val authHeader = response.header("WWW-Authenticate")
+                                        if (authHeader != null) {
+                                            val uriRegex = """authorization_uri="([^"]+)"""".toRegex()
+                                            val match = uriRegex.find(authHeader)
+                                            if (match != null) {
+                                                finalAuthUrl = match.groupValues[1]
+                                            }
+                                        }
+                                        // 2. Or check standard PRM / metadata if JSON is returned
+                                        if (finalAuthUrl.isBlank()) {
+                                            val body = response.body?.string()
+                                            if (body != null && body.contains("authorization_endpoint")) {
+                                                val json = kotlinx.serialization.json.Json.parseToJsonElement(body).jsonObject
+                                                finalAuthUrl = json["authorization_endpoint"]?.jsonPrimitive?.content.orEmpty()
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                // Fallback to a sensible default guess
+                                finalAuthUrl = if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
+                            }
+                        }
+                        
+                        // If still blank, fallback to guess
+                        if (finalAuthUrl.isBlank() && url.isNotBlank()) {
+                            finalAuthUrl = if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
+                        }
+                        
+                        isDiscovering = false
+                        
+                        if (finalAuthUrl.isNotBlank()) {
+                            val computedUrl = android.net.Uri.parse(finalAuthUrl).buildUpon()
+                                .appendQueryParameter("response_type", "token")
+                                .appendQueryParameter("client_id", oauthClientId.trim())
+                                .appendQueryParameter("redirect_uri", "multigateway://oauth")
+                                .build().toString()
+                                
+                            try {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(computedUrl))
+                                browserContext.startActivity(intent)
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(browserContext, "Cannot open browser: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            android.widget.Toast.makeText(browserContext, "Please enter a Server URL first", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                enabled = !isDiscovering && url.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isDiscovering) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Discovering Endpoint...")
+                } else {
+                    Text("Authorize in Browser")
+                }
+            }
+        }
+
         if (authMethod != McpAuthMethod.NONE) {
             OutlinedTextField(
                 value = authValue,
@@ -708,7 +862,8 @@ private fun McpBasicSettings(
             Spacer(Modifier.width(8.dp))
             Text("Add Header")
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(24.dp))
+        Spacer(modifier = Modifier.navigationBarsPadding())
     }
 }
 

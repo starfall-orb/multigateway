@@ -9,6 +9,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
@@ -84,7 +86,7 @@ fun SystemToolsScreen(
                         ToolSwitch(
                             if (name == "generate_image") "Create image" else "Create video",
                             config.enabled,
-                            enabled = available
+                            enabled = true
                         ) { onSave(name, config.copy(enabled = it)) }
                         Text(
                             if (model == null) "Select a model"
@@ -139,11 +141,29 @@ fun SystemToolsScreen(
                         )
                         TextButton(onClick = { choosing = name }) { Text("Choose model") }
                         OutlinedTextField(
-                            value = config.prompt,
+                            value = config.prompt.ifBlank { defaultPrompt },
                             onValueChange = { onSave(name, config.copy(prompt = it)) },
                             label = { Text("Instruction prompt") },
                             placeholder = { Text(defaultPrompt) },
-                            supportingText = { Text("Leave blank to use the default instruction.") },
+                            supportingText = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Custom prompt instructions")
+                                    Text(
+                                        text = "Reset",
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        modifier = Modifier.clickable {
+                                            onSave(name, config.copy(prompt = defaultPrompt))
+                                        }
+                                    )
+                                }
+                            },
                             minLines = 3,
                             maxLines = 8,
                             modifier = Modifier.fillMaxWidth()

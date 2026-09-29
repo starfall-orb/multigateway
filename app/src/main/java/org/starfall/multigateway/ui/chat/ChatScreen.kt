@@ -4,8 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -18,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
@@ -57,6 +61,9 @@ fun ChatScreen(
     onDeleteSummary: () -> Unit,
     onReadMessage: (String) -> Unit,
     onFetchOllamaModels: (suspend (String) -> List<String>)? = null,
+    queuedMessages: List<StoredMessage> = emptyList(),
+    onEditQueuedMessage: (String, String, List<String>) -> Boolean = { _, _, _ -> true },
+    onDeleteQueuedMessage: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val listState = key(conversation?.id) { rememberLazyListState() }
@@ -64,7 +71,10 @@ fun ChatScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
-    val messages = conversation?.messages ?: emptyList()
+    val messages = remember(conversation?.messages, queuedMessages) {
+        val base = conversation?.messages ?: emptyList()
+        base + queuedMessages
+    }
 
     var editDraft by remember(conversation?.id) { mutableStateOf<ChatInputEditDraft?>(null) }
 
@@ -124,7 +134,19 @@ fun ChatScreen(
 
     val topBarClearance = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 80.dp
 
-    Box(modifier = modifier.fillMaxSize()) {
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isAmoled = isDark && MaterialTheme.colorScheme.background == Color(0xFF000000)
+    val chatBgColor = when {
+        !isDark -> Color.White
+        isAmoled -> Color.Black
+        else -> Color(0xFF141218)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(chatBgColor)
+    ) {
         if (messages.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -186,21 +208,37 @@ fun ChatScreen(
                         UserMessageCard(
                             message = msg,
                             onEdit = {
-                                whenIdle {
+                                if (msg.isQueued) {
                                     editDraft = ChatInputEditDraft(
                                         messageId = msg.id,
                                         text = msg.content,
                                         attachments = msg.files,
                                         revision = System.nanoTime()
                                     )
+                                } else {
+                                    whenIdle {
+                                        editDraft = ChatInputEditDraft(
+                                            messageId = msg.id,
+                                            text = msg.content,
+                                            attachments = msg.files,
+                                            revision = System.nanoTime()
+                                        )
+                                    }
                                 }
                             },
                             onDelete = {
-                                whenIdle { deletingMessageId = msg.id }
+                                if (msg.isQueued) {
+                                    onDeleteQueuedMessage(msg.id)
+                                } else {
+                                    whenIdle { deletingMessageId = msg.id }
+                                }
                             },
                             onSwitchVersion = { newIdx ->
-                                whenIdle { onSwitchVersion(msg.id, newIdx) }
-                            }
+                                if (!msg.isQueued) {
+                                    whenIdle { onSwitchVersion(msg.id, newIdx) }
+                                }
+                            },
+                            modifier = if (msg.isQueued) Modifier.alpha(0.5f) else Modifier
                         )
                     } else {
                         AssistantMessageCard(
@@ -288,7 +326,12 @@ fun ChatScreen(
                     onSendMessage(text, files).also { if (it) followBottom = true }
                 },
                 onEditMessage = { id, text, files ->
-                    onEditMessage(id, text, files).also { if (it) followBottom = true }
+                    val isQueued = queuedMessages.any { it.id == id }
+                    if (isQueued) {
+                        onEditQueuedMessage(id, text, files).also { if (it) followBottom = true }
+                    } else {
+                        onEditMessage(id, text, files).also { if (it) followBottom = true }
+                    }
                 },
                 editDraft = editDraft,
                 onCancelEdit = { editDraft = null },

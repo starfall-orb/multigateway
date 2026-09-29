@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -384,39 +385,42 @@ private fun CompletedAssistantContent(
     }
     val content = version.content
 
-    if (blocks.isEmpty()) {
-        if (content.isNotBlank()) {
-            if (animateStreamingContent) SmoothStreamingMarkdownMessage(content) else FormattedMarkdownMessage(content = content)
-        }
-        return
-    }
+    SelectionContainer {
+        Column {
+            if (blocks.isEmpty()) {
+                if (content.isNotBlank()) {
+                    if (animateStreamingContent) SmoothStreamingMarkdownMessage(content) else FormattedMarkdownMessage(content = content)
+                }
+            } else {
+                var cursor = 0
+                var nextItemNumber = 1
+                blocks.forEach { block ->
+                    val offset = block.offset.coerceIn(cursor, content.length)
+                    if (offset > cursor) {
+                        val textBefore = content.substring(cursor, offset)
+                        if (textBefore.isNotBlank()) {
+                            if (animateStreamingContent) SmoothStreamingMarkdownMessage(textBefore) else FormattedMarkdownMessage(content = textBefore)
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
 
-    var cursor = 0
-    var nextItemNumber = 1
-    blocks.forEach { block ->
-        val offset = block.offset.coerceIn(cursor, content.length)
-        if (offset > cursor) {
-            val textBefore = content.substring(cursor, offset)
-            if (textBefore.isNotBlank()) {
-                if (animateStreamingContent) SmoothStreamingMarkdownMessage(textBefore) else FormattedMarkdownMessage(content = textBefore)
-                Spacer(Modifier.height(6.dp))
+                    ProcessingDropdown(
+                        items = block.items,
+                        durationMillis = processingDurationMillis.takeIf { blocks.size == 1 },
+                        startNumber = nextItemNumber,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
+                    )
+                    nextItemNumber += block.items.size
+                    cursor = offset
+                }
+
+                if (cursor < content.length) {
+                    val remaining = content.substring(cursor)
+                    if (remaining.isNotBlank()) {
+                        if (animateStreamingContent) SmoothStreamingMarkdownMessage(remaining) else FormattedMarkdownMessage(content = remaining)
+                    }
+                }
             }
-        }
-
-        ProcessingDropdown(
-            items = block.items,
-            durationMillis = processingDurationMillis.takeIf { blocks.size == 1 },
-            startNumber = nextItemNumber,
-            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
-        )
-        nextItemNumber += block.items.size
-        cursor = offset
-    }
-
-    if (cursor < content.length) {
-        val remaining = content.substring(cursor)
-        if (remaining.isNotBlank()) {
-            if (animateStreamingContent) SmoothStreamingMarkdownMessage(remaining) else FormattedMarkdownMessage(content = remaining)
         }
     }
 }

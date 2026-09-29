@@ -419,7 +419,7 @@ fun ProviderEditScreen(
                 },
                 actions = {
                     if (selectedTab == 0) {
-                        TextButton(
+                        Button(
                             enabled = requestValid && baseUrl.isNotBlank(),
                             onClick = {
                                 onSave(initialProvider.copy(
@@ -429,7 +429,8 @@ fun ProviderEditScreen(
                                     auth = authorization(),
                                     config = requestConfig()
                                 ))
-                            }
+                            },
+                            modifier = Modifier.padding(end = 8.dp)
                         ) { Text("Save") }
                     } else {
                         IconButton(onClick = { configuringModel = "" }) {
@@ -570,24 +571,14 @@ fun ProviderEditScreen(
                     }
 
                     // Authorization Dropdown (positioned directly above API key input)
-                    ExposedDropdownMenuBox(
-                        expanded = authExpanded,
-                        onExpandedChange = { authExpanded = !authExpanded },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        OutlinedTextField(
-                            value = authMethod.displayName(),
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Authorization") },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = authExpanded) },
-                            modifier = Modifier.menuAnchor().fillMaxWidth()
-                        )
-
-                        ExposedDropdownMenu(
-                            expanded = authExpanded,
-                            onDismissRequest = { authExpanded = false }
-                        ) {
+                    Text("Authorization", style = MaterialTheme.typography.titleMedium)
+                    Box {
+                        OutlinedButton(onClick = { authExpanded = true }) {
+                            Text(authMethod.displayName())
+                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
                             AuthMethod.entries.forEach { method ->
                                 DropdownMenuItem(
                                     text = { Text(method.displayName()) },

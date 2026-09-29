@@ -35,9 +35,15 @@ fun QuickActionsSheet(onDismiss: () -> Unit) {
                 ToolSwitch(
                     if (name == "generate_image") "Create image" else "Create video",
                     cfg.enabled,
-                    enabled = available
+                    enabled = true
                 ) { controls.setSystem(name, cfg.copy(enabled = it)) }
-                if (!available) Text("Choose a model in System tools.", style = MaterialTheme.typography.bodySmall)
+                if (!available) {
+                    Text(
+                        "Model not set. AI will be notified if called.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             Text("MCP servers", style = MaterialTheme.typography.titleMedium)

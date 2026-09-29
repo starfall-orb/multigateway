@@ -63,6 +63,7 @@ fun MainScreen(
     val mcpToolsLoading by configurationViewModel.mcpToolsLoading.collectAsStateWithLifecycle()
 
     val toolSettings by viewModel.toolSettings.collectAsStateWithLifecycle()
+    val queuedMessages by viewModel.queuedMessages.collectAsStateWithLifecycle()
 
     val activeProfile: ChatProfile? = appPrefs.selectedProfileId?.let { id -> profiles.find { it.id == id } }
 
@@ -80,6 +81,7 @@ fun MainScreen(
                 ConversationsDrawer(
                     conversations = conversations,
                     currentConversationId = currentConv?.id,
+                    generatingConversationId = generatingConversationId,
                     selectedProfile = activeProfile,
                     profiles = profiles,
                     defaultSystemPrompt = appPrefs.defaultSystemPrompt,
@@ -157,6 +159,13 @@ fun MainScreen(
                                 },
                                 onDeleteMessageVersion = { id ->
                                     viewModel.deleteMessageVersion(id)
+                                },
+                                queuedMessages = queuedMessages,
+                                onEditQueuedMessage = { id, content, files ->
+                                    viewModel.editQueuedMessage(id, content, files)
+                                },
+                                onDeleteQueuedMessage = { id ->
+                                    viewModel.deleteQueuedMessage(id)
                                 },
                                 onSwitchVersion = { id, idx ->
                                     viewModel.switchMessageVersion(id, idx)
@@ -279,6 +288,9 @@ fun MainScreen(
                             },
                             onDebugModeChange = { value ->
                                 settingsViewModel.setDebugMode(value)
+                            },
+                            onLatexModeChange = { mode ->
+                                settingsViewModel.setLatexMode(mode)
                             },
                             onClearAllConversations = {
                                 viewModel.clearAllConversations()

@@ -58,55 +58,11 @@ class DefaultDataInitializer(
     }
 
     private suspend fun initDefaultProviders() {
-        val openAi = LlmProviderInfo(
-            id = "openai",
-            name = "OpenAI",
-            type = ProviderType.OPENAI,
-            baseUrl = "https://api.openai.com/v1",
-            auth = ProviderType.OPENAI.defaultAuthorization(),
-            config = ProviderConfiguration(modelIds = emptyList())
-        )
-        val google = LlmProviderInfo(
-            id = "google",
-            name = "Google Gemini",
-            type = ProviderType.GOOGLE,
-            baseUrl = "https://generativelanguage.googleapis.com/v1beta",
-            auth = ProviderType.GOOGLE.defaultAuthorization(),
-            config = ProviderConfiguration(modelIds = emptyList())
-        )
-        val anthropic = LlmProviderInfo(
-            id = "anthropic",
-            name = "Anthropic",
-            type = ProviderType.ANTHROPIC,
-            baseUrl = "https://api.anthropic.com/v1",
-            auth = ProviderType.ANTHROPIC.defaultAuthorization(),
-            config = ProviderConfiguration(modelIds = emptyList())
-        )
-        val ollama = LlmProviderInfo(
-            id = "ollama",
-            name = "Ollama",
-            type = ProviderType.OLLAMA,
-            baseUrl = "https://ollama.com/api",
-            auth = ProviderType.OLLAMA.defaultAuthorization(),
-            config = ProviderConfiguration(modelIds = emptyList())
-        )
-
-        llmRepo.saveProvider(openAi)
-        llmRepo.saveProvider(google)
-        llmRepo.saveProvider(anthropic)
-        llmRepo.saveProvider(ollama)
-
-        prefsRepo.setSelectedModel("ollama", "")
+        // No default provider presets
     }
 
     private suspend fun initDefaultMcpServers() {
-        listOf(
-            McpInfo("preset_firecrawl", "Firecrawl", McpProtocol.STREAMABLE_HTTP, "https://mcp.firecrawl.dev/v2/mcp"),
-            McpInfo("preset_tavily", "Tavily", McpProtocol.STREAMABLE_HTTP, "https://mcp.tavily.com/mcp"),
-            McpInfo("preset_exa", "Exa", McpProtocol.STREAMABLE_HTTP, "https://mcp.exa.ai/mcp")
-        ).forEach { preset ->
-            if (mcpRepo.getById(preset.id) == null) mcpRepo.saveServer(preset)
-        }
+        // No default MCP server presets
     }
 
     private suspend fun initDefaultSpeechServices() {

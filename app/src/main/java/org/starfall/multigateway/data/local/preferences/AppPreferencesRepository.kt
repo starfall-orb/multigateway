@@ -19,9 +19,9 @@ data class AppPreferences(
     val useDynamicColor: Boolean = true,
     val colorSchemeName: String = "DEFAULT", // DEFAULT, EMERALD, SUNSET, CRIMSON, VIOLET
     val defaultSystemPrompt: String = "",
-    val continueLastConversation: Boolean = true,
-    val persistChatSelection: Boolean = true,
-    val enableVibration: Boolean = true,
+    val continueLastConversation: Boolean = false,
+    val persistChatSelection: Boolean = false,
+    val enableVibration: Boolean = false,
     val hideStatusBar: Boolean = false,
     val hideNavigationBar: Boolean = false,
     val debugMode: Boolean = false,
@@ -30,7 +30,8 @@ data class AppPreferences(
     val showProvidersAsGrid: Boolean = false,
     val showMcpAsGrid: Boolean = false,
     val showSpeechAsGrid: Boolean = false,
-    val mcpPresetsInitialized: Boolean = false
+    val mcpPresetsInitialized: Boolean = false,
+    val latexMode: String = "AUTO" // ON, OFF, AUTO
 )
 
 class AppPreferencesRepository(private val context: Context) {
@@ -57,6 +58,7 @@ class AppPreferencesRepository(private val context: Context) {
         val SHOW_MCP_AS_GRID = booleanPreferencesKey("show_mcp_as_grid")
         val SHOW_SPEECH_AS_GRID = booleanPreferencesKey("show_speech_as_grid")
         val MCP_PRESETS_INITIALIZED = booleanPreferencesKey("mcp_presets_initialized")
+        val LATEX_MODE = stringPreferencesKey("latex_mode")
     }
 
     val appPreferencesFlow: Flow<AppPreferences> = context.dataStore.data
@@ -74,9 +76,9 @@ class AppPreferencesRepository(private val context: Context) {
                 useDynamicColor = preferences[PreferenceKeys.USE_DYNAMIC_COLOR] ?: true,
                 colorSchemeName = preferences[PreferenceKeys.COLOR_SCHEME_NAME] ?: "DEFAULT",
                 defaultSystemPrompt = preferences[PreferenceKeys.DEFAULT_SYSTEM_PROMPT] ?: "",
-                continueLastConversation = preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] ?: true,
-                persistChatSelection = preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] ?: true,
-                enableVibration = preferences[PreferenceKeys.ENABLE_VIBRATION] ?: true,
+                continueLastConversation = preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] ?: false,
+                persistChatSelection = preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] ?: false,
+                enableVibration = preferences[PreferenceKeys.ENABLE_VIBRATION] ?: false,
                 hideStatusBar = preferences[PreferenceKeys.HIDE_STATUS_BAR] ?: false,
                 hideNavigationBar = preferences[PreferenceKeys.HIDE_NAVIGATION_BAR] ?: false,
                 debugMode = preferences[PreferenceKeys.DEBUG_MODE] ?: false,
@@ -85,7 +87,8 @@ class AppPreferencesRepository(private val context: Context) {
                 showProvidersAsGrid = preferences[PreferenceKeys.SHOW_PROVIDERS_AS_GRID] ?: false,
                 showMcpAsGrid = preferences[PreferenceKeys.SHOW_MCP_AS_GRID] ?: false,
                 showSpeechAsGrid = preferences[PreferenceKeys.SHOW_SPEECH_AS_GRID] ?: false,
-                mcpPresetsInitialized = preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] ?: false
+                mcpPresetsInitialized = preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] ?: false,
+                latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO"
             )
         }
 
@@ -217,6 +220,12 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setMcpPresetsInitialized(initialized: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] = initialized
+        }
+    }
+
+    suspend fun setLatexMode(mode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.LATEX_MODE] = mode
         }
     }
 }

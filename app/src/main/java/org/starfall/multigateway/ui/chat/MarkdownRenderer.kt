@@ -49,7 +49,8 @@ import kotlinx.coroutines.delay
 fun MarkdownRenderer(
     content: String,
     modifier: Modifier = Modifier,
-    isStreaming: Boolean = false
+    isStreaming: Boolean = false,
+    latexMode: String = "AUTO"
 ) {
     if (content.isBlank()) return
 
@@ -97,7 +98,7 @@ fun MarkdownRenderer(
                         )
                     }
                     is MarkdownBlock.Paragraph -> {
-                        RenderParagraph(block.text)
+                        RenderParagraph(block.text, latexMode)
                     }
                 }
             }
@@ -550,16 +551,152 @@ private fun RenderTable(headers: List<String>, rows: List<List<String>>) {
 }
 
 @Composable
-private fun RenderParagraph(text: String) {
-    val annotated = rememberMarkdownAnnotatedString(text)
-    MarkdownClickableText(
-        text = annotated,
-        style = MaterialTheme.typography.bodyLarge.copy(
-            lineHeight = 22.sp,
-            color = MaterialTheme.colorScheme.onSurface
+private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
+    val context = LocalContext.current
+    val isError = remember(text) { isErrorText(text) }
+    val isLatex = remember(text, latexMode) { LatexDetector.shouldRenderLatex(text, latexMode) }
+
+    when {
+        isError -> {
+            val errorColor = MaterialTheme.colorScheme.error
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, errorColor.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        androidx.compose.foundation.text.selection.SelectionContainer {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    lineHeight = 22.sp,
+                                    color = errorColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Error Message", text))
+                            Toast.makeText(context, "Copied error text", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.ContentCopy,
+                            contentDescription = "Copy Error",
+                            tint = errorColor,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+        isLatex -> {
+            RenderLatexBlock(text)
+        }
+        else -> {
+            val annotated = rememberMarkdownAnnotatedString(text)
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                MarkdownClickableText(
+                    text = annotated,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        lineHeight = 22.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RenderLatexBlock(text: String) {
+    val context = LocalContext.current
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
         ),
-        modifier = Modifier.fillMaxWidth()
-    )
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "∑",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "LaTeX Equation",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("LaTeX Formula", text))
+                        Toast.makeText(context, "Formula copied", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ContentCopy,
+                        contentDescription = "Copy Formula",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            androidx.compose.foundation.text.selection.SelectionContainer {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontFamily = FontFamily.Serif,
+                        lineHeight = 24.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            }
+        }
+    }
+}
+
+private fun isErrorText(text: String): Boolean {
+    val trimmed = text.trim()
+    return trimmed.startsWith("[Error:", ignoreCase = true) ||
+           trimmed.startsWith("Error:", ignoreCase = true) ||
+           trimmed.startsWith("API Error", ignoreCase = true) ||
+           trimmed.startsWith("Exception:", ignoreCase = true) ||
+           trimmed.startsWith("Failed:", ignoreCase = true) ||
+           trimmed.contains("[Error:", ignoreCase = true)
 }
 
 // ----------------------------------------------------------------------------
@@ -573,10 +710,13 @@ private fun MarkdownClickableText(
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
+    val mergedStyle = style.copy(
+        color = if (style.color != Color.Unspecified) style.color else MaterialTheme.colorScheme.onSurface
+    )
 
     ClickableText(
         text = text,
-        style = style,
+        style = mergedStyle,
         modifier = modifier,
         onClick = { offset ->
             text.getStringAnnotations(tag = "URL", start = offset, end = offset)

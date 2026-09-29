@@ -25,7 +25,8 @@ data class StoredMessage(
     val id: String,
     val role: ChatRole,
     val versions: List<MessageVersion> = emptyList(),
-    @SerialName("active_version_index") val activeVersionIndex: Int = 0
+    @SerialName("active_version_index") val activeVersionIndex: Int = 0,
+    @kotlinx.serialization.Transient val isQueued: Boolean = false
 ) {
     val activeVersion: MessageVersion
         get() {

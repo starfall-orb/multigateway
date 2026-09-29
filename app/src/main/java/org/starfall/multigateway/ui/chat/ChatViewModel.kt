@@ -148,6 +148,48 @@ class ChatViewModel(
         if (_currentConversation.value?.id == updated.id) _currentConversation.value = updated
     }
     val isGenerating = generation.busy
+
+    private val _queuedMessages = MutableStateFlow<List<StoredMessage>>(emptyList())
+    val queuedMessages: StateFlow<List<StoredMessage>> = _queuedMessages.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            isGenerating.collect { busy ->
+                if (!busy) {
+                    val queue = _queuedMessages.value
+                    if (queue.isNotEmpty()) {
+                        val next = queue.first()
+                        _queuedMessages.value = queue.drop(1)
+                        delay(100)
+                        sendMessage(next.content, next.files)
+                    }
+                }
+            }
+        }
+    }
+
+    fun editQueuedMessage(id: String, newContent: String, files: List<String>): Boolean {
+        _queuedMessages.value = _queuedMessages.value.map { msg ->
+            if (msg.id == id) {
+                msg.copy(
+                    versions = listOf(
+                        MessageVersion(
+                            content = newContent,
+                            timestamp = System.currentTimeMillis().toString(),
+                            files = files
+                        )
+                    )
+                )
+            } else {
+                msg
+            }
+        }
+        return true
+    }
+
+    fun deleteQueuedMessage(id: String) {
+        _queuedMessages.value = _queuedMessages.value.filter { it.id != id }
+    }
     val chatError = generation.error
     val generatingConversationId = generation.conversationId
     private var pendingConversationWrites = 0
@@ -160,10 +202,12 @@ class ChatViewModel(
     }
 
     fun selectConversation(conversation: Conversation) {
+        _queuedMessages.value = emptyList()
         _currentConversation.value = generation.snapshot?.takeIf { it.id == conversation.id } ?: conversation
     }
 
     fun startNewChat() {
+        _queuedMessages.value = emptyList()
         val now = System.currentTimeMillis()
         _currentConversation.value = Conversation(
             id = UUID.randomUUID().toString(),
@@ -483,12 +527,24 @@ class ChatViewModel(
     }
 
     fun sendMessage(userText: String, fileAttachments: List<String> = emptyList()): Boolean {
-        if (
-            (userText.isBlank() && fileAttachments.isEmpty()) ||
-            isGenerating.value ||
-            summaryJob?.isActive == true ||
-            pendingConversationWrites > 0
-        ) return false
+        if (userText.isBlank() && fileAttachments.isEmpty()) return false
+
+        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) {
+            val queued = StoredMessage(
+                id = UUID.randomUUID().toString(),
+                role = ChatRole.USER,
+                versions = listOf(
+                    MessageVersion(
+                        content = userText,
+                        timestamp = System.currentTimeMillis().toString(),
+                        files = fileAttachments
+                    )
+                ),
+                isQueued = true
+            )
+            _queuedMessages.value = _queuedMessages.value + queued
+            return true
+        }
 
         val prefs = appPreferences.value
         val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return false

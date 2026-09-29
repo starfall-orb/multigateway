@@ -61,7 +61,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
 
             listOf("generate_image", "generate_video").forEach { name ->
                 val config = settings().system[name]
-                if (config?.enabled == true && systemMediaToolAvailable(name, config, providers)) {
+                if (config?.enabled == true) {
                     tools += ToolDefinition(
                         name = name,
                         description = if (name == "generate_image") {
@@ -118,7 +118,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 val allowed = tools.filter { tool ->
                     if (tool.serverId == null) {
                         val config = settings().system[tool.name]
-                        config?.enabled == true && systemMediaToolAvailable(tool.name, config, providers)
+                        config?.enabled == true
                     } else {
                         toolAllowed(
                             access()[tool.serverId],

@@ -10,6 +10,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -79,7 +81,7 @@ fun ModelConfigDialog(
             }
         },
         confirmButton = {
-            TextButton(enabled = tempValid && topPValid && topKValid, onClick = {
+            Button(enabled = tempValid && topPValid && topKValid, onClick = {
                 onSave(config.copy(temperature = temperature.toDoubleOrNull(), topP = topP.toDoubleOrNull(),
                     topK = if (supportsTopK) topK.toIntOrNull() else null, supportStream = supportStream))
                 onDismiss()

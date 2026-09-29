@@ -260,9 +260,9 @@ private fun StreamingProcessingPreview(version: MessageVersion) {
     val timeline = remember(version.reasoningContent, version.toolActivity, version.content.length) {
         buildProcessingTimeline(version)
     }
-    val visibleItems = timeline.mapIndexed { index, item ->
-        NumberedProcessingItem(index + 1, item)
-    }.takeLast(2)
+    val visibleItems = timeline.takeLast(2).mapIndexed { index, item ->
+        NumberedProcessingItem(timeline.size - 1 + index, item)
+    }
     val lastItem = timeline.lastOrNull()
 
     Column(

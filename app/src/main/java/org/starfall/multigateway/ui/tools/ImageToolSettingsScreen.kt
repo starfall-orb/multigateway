@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.tools
 
 import androidx.activity.compose.BackHandler
+import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -30,7 +31,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
     }.exceptionOrNull()?.message
     val dirty = parsed != config.imageOptions
     fun back() { if (dirty) confirmDiscard = true else onBack() }
-    BackHandler { back() }
+    BackHandler(enabled = LocalScreenTransitionActive.current) { back() }
     Scaffold(
         topBar = { TopAppBar(
             title = { Text("Image settings") },

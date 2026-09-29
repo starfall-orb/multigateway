@@ -3,7 +3,6 @@ package org.starfall.multigateway.ui.settings
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -38,6 +37,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
 import org.starfall.multigateway.data.local.preferences.AppPreferences
+import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     APPEARANCE("Appearance", "Theme, color palette & dynamic color", Icons.Outlined.Palette),
@@ -107,22 +107,7 @@ fun SettingsScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            AnimatedContent(
-                targetState = selectedCategory,
-                transitionSpec = {
-                    if (targetState != null) {
-                        // Slide in from right to left
-                        (slideInHorizontally { width -> width / 4 } + fadeIn())
-                            .togetherWith(slideOutHorizontally { width -> -width / 4 } + fadeOut())
-                    } else {
-                        // Slide in from left to right (going back)
-                        (slideInHorizontally { width -> -width / 4 } + fadeIn())
-                            .togetherWith(slideOutHorizontally { width -> width / 4 } + fadeOut())
-                    }
-                },
-                label = "settings_transition",
-                modifier = Modifier.fillMaxSize()
-            ) { category ->
+            SlideScreenContent(editor = selectedCategory, label = "Settings category") { category ->
                 when (category) {
                     null -> {
                         // Main Settings Categories List

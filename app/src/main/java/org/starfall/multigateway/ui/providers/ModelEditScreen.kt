@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.providers
 
 import androidx.activity.compose.BackHandler
+import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -49,7 +50,7 @@ fun ModelEditScreen(
         }
         onBack()
     }
-    BackHandler(onBack = ::saveAndBack)
+    BackHandler(enabled = LocalScreenTransitionActive.current, onBack = ::saveAndBack)
     Scaffold(
         modifier = Modifier.fillMaxSize().imePadding(),
         topBar = {

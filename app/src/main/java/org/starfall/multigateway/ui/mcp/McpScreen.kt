@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -50,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
+import org.starfall.multigateway.ui.navigation.SlideScreenContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +69,8 @@ import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
+
+private data class McpEditor(val server: McpInfo, val isNew: Boolean)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,40 +89,32 @@ fun McpScreen(
     onRefreshTools: suspend (McpInfo) -> Result<List<ToolDefinition>>,
     onBack: () -> Unit
 ) {
-    var editingServer by remember { mutableStateOf<McpInfo?>(null) }
-    var isCreatingNew by remember { mutableStateOf(false) }
-    var newServerId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var editor by remember { mutableStateOf<McpEditor?>(null) }
     var deletingServerId by remember { mutableStateOf<String?>(null) }
     var selectedToolError by remember { mutableStateOf<Pair<String, String>?>(null) }
     var orderedServers by remember(mcpServers) { mutableStateOf(mcpServers) }
     val context = LocalContext.current
 
-    if (editingServer != null || isCreatingNew) {
-        val target = editingServer ?: McpInfo(
-            id = newServerId,
-            name = "",
-            protocol = McpProtocol.STREAMABLE_HTTP,
-            url = null,
-            headers = emptyMap()
-        )
-
+    SlideScreenContent(
+        editor = editor,
+        label = "MCP editor"
+    ) { page ->
+    if (page != null) {
         AddOrEditMcpScreenContent(
-            initialServer = target,
-            isNew = isCreatingNew,
+            initialServer = page.server,
+            isNew = page.isNew,
             onRefreshTools = onRefreshTools,
-            cachedTools = toolsCache[target.id] ?: target.cachedTools,
-            cachedError = toolErrors[target.id],
-            cachedLoading = target.id in toolsLoading,
+            cachedTools = toolsCache[page.server.id] ?: page.server.cachedTools,
+            cachedError = toolErrors[page.server.id],
+            cachedLoading = page.server.id in toolsLoading,
             toolSettings = toolSettings,
             onSetToolEnabled = onSetToolEnabled,
             onDismiss = {
-                editingServer = null
-                isCreatingNew = false
+                editor = null
             },
             onSave = { saved ->
                 onSaveMcpServer(saved)
-                editingServer = null
-                isCreatingNew = false
+                editor = null
             }
         )
     } else {
@@ -150,8 +147,13 @@ fun McpScreen(
                             )
                         }
                         IconButton(onClick = {
-                            newServerId = UUID.randomUUID().toString()
-                            isCreatingNew = true
+                            editor = McpEditor(McpInfo(
+                                id = UUID.randomUUID().toString(),
+                                name = "",
+                                protocol = McpProtocol.STREAMABLE_HTTP,
+                                url = null,
+                                headers = emptyMap()
+                            ), true)
                         }) {
                             Icon(Icons.Default.Add, contentDescription = "Add Server")
                         }
@@ -190,9 +192,8 @@ fun McpScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(orderedServers, key = { it.id }) { server ->
-                            val index = orderedServers.indexOfFirst { it.id == server.id }
-                            McpUnifiedCard(
+                        itemsIndexed(orderedServers, key = { _, item -> item.id }) { index, server ->
+                                    McpUnifiedCard(
                                 server = server,
                                 isGrid = isGridView,
                                 modifier = Modifier
@@ -213,7 +214,7 @@ fun McpScreen(
                                 toolError = toolErrors[server.id],
                                 loading = server.id in toolsLoading,
                                 onToolErrorClick = { error -> selectedToolError = server.name to error },
-                                onEdit = { editingServer = server },
+                                onEdit = { editor = McpEditor(server, false) },
                                 onDelete = { deletingServerId = server.id }
                             )
                         }
@@ -221,6 +222,8 @@ fun McpScreen(
                 }
             }
         }
+    }
+
     }
 
     if (deletingServerId != null) {
@@ -463,7 +466,7 @@ fun AddOrEditMcpScreenContent(
         scope.launch { onRefreshTools(currentServer()) }
     }
 
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    androidx.activity.compose.BackHandler(enabled = LocalScreenTransitionActive.current, onBack = onDismiss)
 
     Surface(
         modifier = Modifier.fillMaxSize(),

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -42,6 +43,8 @@ import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
 
+private data class SpeechEditor(val service: SpeechService, val isNew: Boolean)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpeechScreen(
@@ -57,11 +60,10 @@ fun SpeechScreen(
     onTestVoice: (SpeechService, String) -> Unit,
     onBack: () -> Unit
 ) {
-    var editingService by remember { mutableStateOf<SpeechService?>(null) }
-    var isCreatingNew by remember { mutableStateOf(false) }
-    var newServiceId by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    var editor by remember { mutableStateOf<SpeechEditor?>(null) }
     var deletingServiceId by remember { mutableStateOf<String?>(null) }
     var orderedServices by remember(speechServices) { mutableStateOf(speechServices) }
+    val providersById = remember(providers) { providers.associateBy { it.id } }
 
     Scaffold(
         topBar = {
@@ -95,8 +97,15 @@ fun SpeechScreen(
                     }
                     IconButton(
                         onClick = {
-                            newServiceId = UUID.randomUUID().toString()
-                            isCreatingNew = true
+                            editor = SpeechEditor(SpeechService(
+                                id = UUID.randomUUID().toString(),
+                                name = "Custom TTS",
+                                provider = "system",
+                                modelId = null,
+                                voice = "Default",
+                                speed = 1.0f,
+                                pitch = 1.0f
+                            ), true)
                         }
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "Add speech service")
@@ -114,12 +123,11 @@ fun SpeechScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            items(orderedServices, key = { it.id }) { service ->
+            itemsIndexed(orderedServices, key = { _, item -> item.id }) { index, service ->
                 val providerName = when {
                     service.provider.equals("system", ignoreCase = true) -> "Android System TTS"
-                    else -> providers.find { it.id == service.provider }?.name ?: service.provider
+                    else -> providersById[service.provider]?.name ?: service.provider
                 }
-                val index = orderedServices.indexOfFirst { it.id == service.id }
                 SpeechServiceUnifiedCard(
                     service = service,
                     isGrid = isGridView,
@@ -147,40 +155,28 @@ fun SpeechScreen(
                             "Hello! This is a preview of the ${service.name} voice."
                         )
                     },
-                    onEdit = { editingService = service },
+                    onEdit = { editor = SpeechEditor(service, false) },
                     onDelete = { deletingServiceId = service.id }
                 )
             }
         }
     }
 
-    if (editingService != null || isCreatingNew) {
-        val target = editingService ?: SpeechService(
-            id = newServiceId,
-            name = "Custom TTS",
-            provider = "system",
-            modelId = null,
-            voice = "Default",
-            speed = 1.0f,
-            pitch = 1.0f
-        )
-
+    editor?.let { page ->
         AddOrEditSpeechDialog(
-            initialService = target,
-            isNew = isCreatingNew,
+            initialService = page.service,
+            isNew = page.isNew,
             providers = providers,
             onTest = onTestVoice,
             onDismiss = {
-                editingService = null
-                isCreatingNew = false
+                editor = null
             },
             onSave = { saved ->
                 onSaveService(saved)
                 if (selectedSpeechServiceId == null && !saved.provider.equals("system", true)) {
                     onSelectService(saved.id)
                 }
-                editingService = null
-                isCreatingNew = false
+                editor = null
             }
         )
     }

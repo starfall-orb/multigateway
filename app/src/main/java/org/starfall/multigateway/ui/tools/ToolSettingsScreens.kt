@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
+import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 @Composable
 fun ToolSwitch(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
@@ -42,20 +44,22 @@ fun SystemToolsScreen(
     val imageConfig = settings.system["generate_image"] ?: SystemToolConfig()
     val imageProvider = providers.find { it.id == imageConfig.providerId }
 
-    if (editingImage && imageProvider != null) {
+    SlideScreenContent(
+        editor = if (editingImage && imageProvider != null) imageProvider to imageConfig else null,
+        label = "Image tool settings"
+    ) { page ->
+    if (page != null) {
         ImageToolSettingsScreen(
-            imageProvider,
-            imageConfig,
+            page.first,
+            page.second,
             onSave = { options ->
-                onSave("generate_image", imageConfig.withImageOptions(options))
+                onSave("generate_image", page.second.withImageOptions(options))
                 editingImage = false
             },
             onBack = { editingImage = false }
         )
-        return
-    }
-
-    BackHandler(onBack = onBack)
+    } else {
+    BackHandler(enabled = LocalScreenTransitionActive.current, onBack = onBack)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -223,6 +227,8 @@ fun SystemToolsScreen(
                 }
             }
         }
+    }
+    }
     }
 }
 

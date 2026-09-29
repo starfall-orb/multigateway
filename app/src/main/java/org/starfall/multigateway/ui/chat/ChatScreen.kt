@@ -7,8 +7,6 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -134,18 +132,10 @@ fun ChatScreen(
 
     val topBarClearance = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 80.dp
 
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val isAmoled = isDark && MaterialTheme.colorScheme.background == Color(0xFF000000)
-    val chatBgColor = when {
-        !isDark -> Color.White
-        isAmoled -> Color.Black
-        else -> Color(0xFF141218)
-    }
-
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(chatBgColor)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         if (messages.isEmpty()) {
             Box(

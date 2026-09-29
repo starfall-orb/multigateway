@@ -67,7 +67,7 @@ fun Modifier.longPressReorder(
             var activeIndex = currentIndexState.value
             var accumulatedX = 0f
             var accumulatedY = 0f
-            val threshold = 72f
+            val threshold = 72.dp.toPx()
 
             detectDragGesturesAfterLongPress(
                 onDragStart = {

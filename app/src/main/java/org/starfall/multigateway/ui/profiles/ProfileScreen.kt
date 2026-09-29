@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +48,8 @@ import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
 
+private data class ProfileEditor(val profile: ChatProfile?)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
@@ -63,8 +66,7 @@ fun ProfileScreen(
     onReorderProfiles: (List<String>) -> Unit,
     onBack: () -> Unit
 ) {
-    var showDialog by remember { mutableStateOf(false) }
-    var editingProfile by remember { mutableStateOf<ChatProfile?>(null) }
+    var editor by remember { mutableStateOf<ProfileEditor?>(null) }
     var deletingProfileId by remember { mutableStateOf<String?>(null) }
     var orderedProfiles by remember(profiles) { mutableStateOf(profiles) }
 
@@ -98,8 +100,7 @@ fun ProfileScreen(
                     }
                     IconButton(
                         onClick = {
-                            editingProfile = null
-                            showDialog = true
+                            editor = ProfileEditor(null)
                         }
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "New Profile")
@@ -120,9 +121,8 @@ fun ProfileScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(orderedProfiles, key = { it.id }) { profile ->
+                itemsIndexed(orderedProfiles, key = { _, item -> item.id }) { index, profile ->
                     val isSelected = profile.id == selectedProfileId
-                    val index = orderedProfiles.indexOfFirst { it.id == profile.id }
                     ProfileUnifiedCard(
                         profile = profile,
                         isGrid = isGridView,
@@ -143,8 +143,7 @@ fun ProfileScreen(
                             ),
                         onSelect = { onSelectProfile(profile.id) },
                         onEdit = {
-                            editingProfile = profile
-                            showDialog = true
+                            editor = ProfileEditor(profile)
                         },
                         onDelete = { deletingProfileId = profile.id }
                     )
@@ -153,16 +152,16 @@ fun ProfileScreen(
         }
     }
 
-    if (showDialog) {
+    editor?.let { page ->
         AddOrEditProfileDialog(
-            profile = editingProfile,
+            profile = page.profile,
             mcpServers = mcpServers,
             mcpToolsCache = mcpToolsCache,
             toolSettings = toolSettings,
-            onDismiss = { showDialog = false },
+            onDismiss = { editor = null },
             onSave = {
                 onSaveProfile(it)
-                showDialog = false
+                editor = null
             }
         )
     }

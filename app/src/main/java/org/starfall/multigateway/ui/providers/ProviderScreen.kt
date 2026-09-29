@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +49,10 @@ import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
+import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
+import org.starfall.multigateway.ui.navigation.SlideScreenContent
+
+private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,36 +71,29 @@ fun ProviderScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var editingProvider by remember { mutableStateOf<LlmProviderInfo?>(null) }
-    var isCreatingNew by remember { mutableStateOf(false) }
+    var editor by remember { mutableStateOf<ProviderEditor?>(null) }
     var deletingProviderId by remember { mutableStateOf<String?>(null) }
     var orderedProviders by remember(providers) { mutableStateOf(providers) }
 
-    if (editingProvider != null || isCreatingNew) {
-        val targetProvider = editingProvider ?: remember { LlmProviderInfo(
-            id = "custom_${System.currentTimeMillis()}",
-            name = "OpenAI",
-            type = ProviderType.OPENAI,
-            baseUrl = "https://api.openai.com/v1",
-            auth = ProviderType.OPENAI.defaultAuthorization()
-        ) }
-
+    SlideScreenContent(
+        editor = editor,
+        label = "Provider editor"
+    ) { page ->
+    if (page != null) {
         ProviderEditScreen(
-            initialProvider = targetProvider,
-            isNew = isCreatingNew,
+            initialProvider = page.provider,
+            isNew = page.isNew,
             onAuthorizeProvider = onAuthorizeProvider,
             onClearOAuthCredentials = onClearOAuthCredentials,
             onTestConnection = onTestConnection,
             onFetchModels = onFetchModels,
             onSaveModels = onSaveModels,
             onDismiss = {
-                editingProvider = null
-                isCreatingNew = false
+                editor = null
             },
             onSave = { saved ->
                 onSaveProvider(saved)
-                editingProvider = saved
-                isCreatingNew = false
+                editor = ProviderEditor(saved, false)
                 Toast.makeText(
                     context,
                     context.getString(org.starfall.multigateway.R.string.provider_saved),
@@ -102,9 +101,7 @@ fun ProviderScreen(
                 ).show()
             }
         )
-        return
-    }
-
+    } else {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -133,7 +130,15 @@ fun ProviderScreen(
                             contentDescription = if (isGridView) "Switch to List View" else "Switch to Grid View"
                         )
                     }
-                    IconButton(onClick = { isCreatingNew = true }) {
+                    IconButton(onClick = {
+                        editor = ProviderEditor(LlmProviderInfo(
+                            id = "custom_${System.currentTimeMillis()}",
+                            name = "OpenAI",
+                            type = ProviderType.OPENAI,
+                            baseUrl = "https://api.openai.com/v1",
+                            auth = ProviderType.OPENAI.defaultAuthorization()
+                        ), true)
+                    }) {
                         Icon(Icons.Default.Add, contentDescription = "Add Provider")
                     }
                 }
@@ -170,9 +175,8 @@ fun ProviderScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(orderedProviders, key = { it.id }) { provider ->
-                        val index = orderedProviders.indexOfFirst { it.id == provider.id }
-                        ProviderUnifiedCard(
+                    itemsIndexed(orderedProviders, key = { _, item -> item.id }) { index, provider ->
+                            ProviderUnifiedCard(
                             provider = provider,
                             isGrid = isGridView,
                             modifier = Modifier
@@ -189,7 +193,7 @@ fun ProviderScreen(
                                     onMove = { from, to -> orderedProviders = orderedProviders.moved(from, to) },
                                     onDrop = { onReorderProviders(orderedProviders.map { it.id }) }
                                 ),
-                            onEdit = { editingProvider = provider },
+                            onEdit = { editor = ProviderEditor(provider, false) },
                             onDelete = { deletingProviderId = provider.id }
                         )
                     }
@@ -221,6 +225,8 @@ fun ProviderScreen(
                 }
             }
         )
+    }
+    }
     }
 }
 
@@ -427,13 +433,13 @@ fun ProviderEditScreen(
             onDismiss()
         }
     }
-    BackHandler(onBack = ::dismissEditor)
+    BackHandler(enabled = LocalScreenTransitionActive.current && configuringModel == null, onBack = ::dismissEditor)
     fun updateModels(updated: Map<String, ModelConfiguration>) {
         modelConfigs = updated
         if (!isNew) onSaveModels(initialProvider.id, updated)
     }
 
-    val editingModelId = configuringModel
+    SlideScreenContent(editor = configuringModel, label = "Model editor") { editingModelId ->
     if (editingModelId != null) {
         key(editingModelId) {
             ModelEditScreen(
@@ -449,9 +455,7 @@ fun ProviderEditScreen(
                 onBack = { configuringModel = null }
             )
         }
-        return
-    }
-
+    } else {
     Scaffold(
         modifier = Modifier.fillMaxSize().imePadding(),
         topBar = {
@@ -875,8 +879,7 @@ fun ProviderEditScreen(
                             }
                         }
                     }
-                    items(models, key = { it }) { modelId ->
-                        val index = models.indexOf(modelId)
+                    itemsIndexed(models, key = { _, id -> id }) { index, modelId ->
                         ListItem(
                             headlineContent = {
                                 Text(
@@ -1044,6 +1047,8 @@ fun ProviderEditScreen(
         )
     }
 
+    }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

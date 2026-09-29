@@ -933,7 +933,7 @@ fun ProviderEditScreen(
                 ) {
                     item {
                         Text(
-                            "Select a model to test. The result is shown directly below that model.",
+                            "Use the Test button for a model to start testing. Results appear directly below that model.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -944,22 +944,7 @@ fun ProviderEditScreen(
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             tonalElevation = 1.dp,
-                            modifier = Modifier.fillMaxWidth().clickable(enabled = !testing) {
-                                testingModels[modelId] = true
-                                modelTestResults.remove(modelId)
-                                coroutineScope.launch {
-                                    val tested = try {
-                                        onTestConnection?.invoke(testTarget, modelId)
-                                            ?: Result.success("Model responded successfully")
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        Result.failure(e)
-                                    }
-                                    modelTestResults[modelId] = tested
-                                    testingModels[modelId] = false
-                                }
-                            }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(Modifier.padding(14.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -970,10 +955,44 @@ fun ProviderEditScreen(
                                             Text(modelId, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
-                                    if (testing) {
-                                        CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        Icon(Icons.Outlined.NetworkCheck, contentDescription = "Test $modelId")
+                                    IconButton(
+                                        enabled = !testing,
+                                        onClick = {
+                                            testingModels[modelId] = true
+                                            modelTestResults.remove(modelId)
+                                            coroutineScope.launch {
+                                                val tested = try {
+                                                    onTestConnection?.invoke(testTarget, modelId)
+                                                        ?: Result.success("Model responded successfully")
+                                                } catch (e: CancellationException) {
+                                                    throw e
+                                                } catch (e: Exception) {
+                                                    Result.failure(e)
+                                                }
+                                                modelTestResults[modelId] = tested
+                                                testingModels[modelId] = false
+                                            }
+                                        }
+                                    ) {
+                                        if (testing) {
+                                            CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Outlined.NetworkCheck, contentDescription = "Test $modelId")
+                                        }
+                                    }
+                                    IconButton(
+                                        enabled = !testing,
+                                        onClick = {
+                                            testingModels.remove(modelId)
+                                            modelTestResults.remove(modelId)
+                                            updateModels(modelConfigs - modelId)
+                                        }
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Delete,
+                                            contentDescription = "Delete $modelId",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
                                     }
                                 }
                                 result?.let { tested ->

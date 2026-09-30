@@ -15,7 +15,6 @@ import org.starfall.multigateway.ui.chat.ChatScreen
 import org.starfall.multigateway.ui.drawer.ConversationsDrawer
 import org.starfall.multigateway.ui.drawer.MenuView
 import org.starfall.multigateway.ui.mcp.McpScreen
-import org.starfall.multigateway.ui.profiles.ProfileScreen
 import org.starfall.multigateway.ui.providers.ProviderScreen
 import org.starfall.multigateway.ui.settings.SettingsScreen
 import org.starfall.multigateway.ui.speech.SpeechScreen
@@ -56,7 +55,6 @@ fun MainScreen(
     val chatError by viewModel.chatError.collectAsStateWithLifecycle()
     val summaryProgress by viewModel.summaryProgress.collectAsStateWithLifecycle()
     val appPrefs: AppPreferences by settingsViewModel.preferences.collectAsStateWithLifecycle()
-    val profiles: List<ChatProfile> by viewModel.profiles.collectAsStateWithLifecycle()
     val providers: List<LlmProviderInfo> by viewModel.providers.collectAsStateWithLifecycle()
     val mcpServers: List<McpInfo> by viewModel.mcpServers.collectAsStateWithLifecycle()
     val speechServices: List<SpeechService> by configurationViewModel.speechServices.collectAsStateWithLifecycle()
@@ -67,11 +65,10 @@ fun MainScreen(
     val toolSettings by viewModel.toolSettings.collectAsStateWithLifecycle()
     val queuedMessages by viewModel.queuedMessages.collectAsStateWithLifecycle()
 
-    val activeProfile: ChatProfile? = appPrefs.selectedProfileId?.let { id -> profiles.find { it.id == id } }
 
     CompositionLocalProvider(LocalToolControls provides ToolControls(
         servers = mcpServers,
-        profile = activeProfile,
+        profile = null,
         settings = toolSettings,
         providers = providers,
         setSystem = viewModel::setSystemTool,
@@ -83,9 +80,11 @@ fun MainScreen(
                 ConversationsDrawer(
                     conversations = conversations,
                     currentConversationId = currentConv?.id,
+                    isOpen = drawerState.isOpen,
                     generatingConversationId = generatingConversationId,
-                    selectedProfile = activeProfile,
-                    profiles = profiles,
+                    organization = appPrefs.sidebar,
+                    onUpdateOrganization = settingsViewModel::updateSidebar,
+                    onDeleteConversations = viewModel::deleteConversations,
                     defaultSystemPrompt = appPrefs.defaultSystemPrompt,
                     onSelectConversation = {
                         viewModel.selectConversation(it)
@@ -101,14 +100,8 @@ fun MainScreen(
                     onDeleteConversation = {
                         viewModel.deleteConversation(it)
                     },
-                    onSelectProfile = { profile ->
-                        viewModel.selectProfile(profile?.id)
-                    },
                     onUpdateDefaultSystemPrompt = { prompt ->
                         viewModel.setDefaultSystemPrompt(prompt)
-                    },
-                    onNavigateToProfiles = {
-                        navigate(AppDestination.PROFILES)
                     },
                     onNavigateToSettings = {
                         navigate(AppDestination.SETTINGS)
@@ -146,13 +139,13 @@ fun MainScreen(
                         key(currentConv?.id) {
                             ChatScreen(
                                 conversation = currentConv,
-                                selectedProfile = activeProfile,
                                 isGenerating = isGenerating,
                                 generatingConversationId = generatingConversationId,
                                 chatError = chatError,
                                 providers = providers,
                                 selectedProviderId = appPrefs.selectedProviderId,
                                 selectedModelName = appPrefs.selectedModelId,
+                                autoScroll = appPrefs.autoScroll,
                                 onSendMessage = { text, files ->
                                     viewModel.sendMessage(text, files)
                                 },
@@ -205,23 +198,6 @@ fun MainScreen(
                         }
                     }
 
-                    composable(AppDestination.PROFILES.route) {
-                        ProfileScreen(
-                            profiles = profiles,
-                            isGridView = appPrefs.showProfilesAsGrid,
-                            onToggleGridView = { configurationViewModel.setShowProfilesAsGrid(it) },
-                            mcpServers = mcpServers,
-                            mcpToolsCache = mcpToolsCache,
-                            toolSettings = toolSettings,
-                            selectedProfileId = appPrefs.selectedProfileId,
-                            onSelectProfile = { viewModel.selectProfile(it) },
-                            onSaveProfile = { configurationViewModel.saveProfile(it) },
-                            onDeleteProfile = { configurationViewModel.deleteProfile(it) },
-                            onReorderProfiles = configurationViewModel::reorderProfiles,
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
-
                     composable(AppDestination.PROVIDERS.route) {
                         ProviderScreen(
                             providers = providers,
@@ -229,6 +205,7 @@ fun MainScreen(
                             onToggleGridView = { configurationViewModel.setShowProvidersAsGrid(it) },
                             onSaveProvider = { configurationViewModel.saveProvider(it) },
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
+                            onReorderModels = configurationViewModel::reorderProviderModels,
                             onDeleteProvider = { configurationViewModel.deleteProvider(it) },
                             onReorderProviders = configurationViewModel::reorderProviders,
                             onAuthorizeProvider = { provider -> configurationViewModel.authorizeProvider(provider) },
@@ -279,7 +256,6 @@ fun MainScreen(
                         SettingsScreen(
                             appPreferences = appPrefs,
                             conversationCount = conversations.size,
-                            profileCount = profiles.size,
                             providerCount = providers.size,
                             onThemeChange = { mode ->
                                 settingsViewModel.setThemeMode(mode)
@@ -299,6 +275,7 @@ fun MainScreen(
                             onPersistChatSelectionChange = { value ->
                                 settingsViewModel.setPersistChatSelection(value)
                             },
+                            onAutoScrollChange = settingsViewModel::setAutoScroll,
                             onEnableVibrationChange = { value ->
                                 settingsViewModel.setEnableVibration(value)
                             },
@@ -328,7 +305,6 @@ fun MainScreen(
                             }
                         }
                         MenuView(
-                            onNavigateToProfiles = { navigateFromMenu(AppDestination.PROFILES) },
                             onNavigateToProviders = { navigateFromMenu(AppDestination.PROVIDERS) },
                             onNavigateToMcp = { navigateFromMenu(AppDestination.MCP) },
                             onNavigateToSpeech = { navigateFromMenu(AppDestination.SPEECH) },

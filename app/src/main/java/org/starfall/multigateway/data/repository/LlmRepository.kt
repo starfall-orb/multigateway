@@ -1,5 +1,6 @@
 package org.starfall.multigateway.data.repository
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -62,6 +63,16 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             service.clearAccountCredentials(previous.type, previous.id)
         }
         providerDao.insertOrUpdate(providerModelToEntity(provider))
+    }
+
+    suspend fun reorderProviderModels(providerId: String, modelIds: List<String>) {
+        db.withTransaction {
+            val entity = providerDao.getProviderById(providerId) ?: return@withTransaction
+            val provider = providerEntityToModel(entity)
+            providerDao.insertOrUpdate(providerModelToEntity(
+                provider.copy(config = provider.config.reorderedModels(modelIds))
+            ))
+        }
     }
 
     suspend fun deleteProvider(id: String) {

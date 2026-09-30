@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.settings
 
+import org.starfall.multigateway.data.model.SidebarOrganization
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -11,6 +12,10 @@ import org.starfall.multigateway.data.local.preferences.AppPreferencesRepository
 class SettingsViewModel(private val repository: AppPreferencesRepository) : ViewModel() {
     val preferences = repository.appPreferencesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppPreferences())
+
+    fun updateSidebar(transform: (SidebarOrganization) -> SidebarOrganization) {
+        viewModelScope.launch { repository.updateSidebar(transform) }
+    }
 
     fun setThemeMode(value: String) {
         viewModelScope.launch { repository.setThemeMode(value) }
@@ -29,6 +34,9 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     }
     fun setPersistChatSelection(value: Boolean) {
         viewModelScope.launch { repository.setPersistChatSelection(value) }
+    }
+    fun setAutoScroll(value: Boolean) {
+        viewModelScope.launch { repository.setAutoScroll(value) }
     }
     fun setEnableVibration(value: Boolean) {
         viewModelScope.launch { repository.setEnableVibration(value) }

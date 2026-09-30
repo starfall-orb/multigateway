@@ -5,9 +5,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -39,6 +36,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.collect
 
 /**
  * High-fidelity Markdown Composable for displaying AI chat responses
@@ -59,7 +58,7 @@ fun MarkdownRenderer(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .then(if (isStreaming) Modifier else Modifier.animateContentSize()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         blocks.forEachIndexed { index, block ->
@@ -112,32 +111,34 @@ fun MarkdownRenderer(
 @Composable
 fun StreamingMarkdownRenderer(
     content: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isStreaming: Boolean = true
 ) {
-    val visibleLength = remember { Animatable(0f) }
-    LaunchedEffect(content.length) {
-        val target = content.length.toFloat()
-        if (target < visibleLength.value) {
-            visibleLength.snapTo(target)
-        } else if (target > visibleLength.value) {
-            val delta = target - visibleLength.value
-            visibleLength.animateTo(
-                targetValue = target,
-                animationSpec = tween(
-                    durationMillis = (delta * 6f).toInt().coerceIn(30, 160),
-                    easing = LinearEasing
-                )
-            )
+    val latestContent by rememberUpdatedState(content)
+    var displayContent by remember { mutableStateOf(content) }
+    var finishingFade by remember { mutableStateOf(isStreaming) }
+    LaunchedEffect(isStreaming, if (isStreaming) null else content) {
+        if (isStreaming) {
+            finishingFade = true
+            snapshotFlow { latestContent }.conflate().collect {
+                // Render a complete received chunk, rather than reparsing every animated character.
+                delay(64)
+                displayContent = latestContent
+            }
+        } else {
+            // Flush the last chunk and let its fade finish before switching to static rendering.
+            displayContent = latestContent
+            if (finishingFade) {
+                delay(STREAM_FADE_DURATION_MS + 32)
+                finishingFade = false
+            }
         }
     }
-    val end = visibleLength.value.toInt().coerceIn(0, content.length)
-    val displayContent = if (end > 0) content.substring(0, end) else ""
-
-    if (displayContent.isNotEmpty()) {
+    CompositionLocalProvider(LocalStreamingTextFade provides (isStreaming || finishingFade)) {
         MarkdownRenderer(
             content = displayContent,
             modifier = modifier,
-            isStreaming = true
+            isStreaming = isStreaming
         )
     }
 }
@@ -153,9 +154,10 @@ private fun RenderCodeBlock(
     isStreaming: Boolean
 ) {
     val context = LocalContext.current
-    var wrapCode by remember(language, code) { mutableStateOf(true) }
+    var wrapCode by remember(language) { mutableStateOf(true) }
     var copied by remember { mutableStateOf(false) }
     val codeScrollState = rememberScrollState()
+    val codePresentation = rememberStreamingTextPresentation(code)
 
     LaunchedEffect(copied) {
         if (copied) {
@@ -267,7 +269,9 @@ private fun RenderCodeBlock(
                     softWrap = wrapCode,
                     modifier = Modifier
                         .padding(12.dp)
-                        .then(if (wrapCode) Modifier.fillMaxWidth() else Modifier),
+                        .then(if (wrapCode) Modifier.fillMaxWidth() else Modifier)
+                        .then(codePresentation.modifier),
+                    onTextLayout = codePresentation.onTextLayout,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
@@ -553,6 +557,7 @@ private fun RenderTable(headers: List<String>, rows: List<List<String>>) {
 @Composable
 private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
     val context = LocalContext.current
+    val presentation = rememberStreamingTextPresentation(text)
     val isError = remember(text) { isErrorText(text) }
     val isLatex = remember(text, latexMode) { LatexDetector.shouldRenderLatex(text, latexMode) }
 
@@ -575,6 +580,8 @@ private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
                         androidx.compose.foundation.text.selection.SelectionContainer {
                             Text(
                                 text = text,
+                                modifier = presentation.modifier,
+                                onTextLayout = presentation.onTextLayout,
                                 style = MaterialTheme.typography.bodyLarge.copy(
                                     lineHeight = 22.sp,
                                     color = errorColor,
@@ -623,6 +630,7 @@ private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
 
 @Composable
 private fun RenderLatexBlock(text: String) {
+    val presentation = rememberStreamingTextPresentation(text)
     val context = LocalContext.current
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -678,6 +686,8 @@ private fun RenderLatexBlock(text: String) {
             androidx.compose.foundation.text.selection.SelectionContainer {
                 Text(
                     text = text,
+                    modifier = presentation.modifier,
+                    onTextLayout = presentation.onTextLayout,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontFamily = FontFamily.Serif,
                         lineHeight = 24.sp,
@@ -710,6 +720,7 @@ private fun MarkdownClickableText(
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
+    val presentation = rememberStreamingTextPresentation(text.text)
     val mergedStyle = style.copy(
         color = if (style.color != Color.Unspecified) style.color else MaterialTheme.colorScheme.onSurface
     )
@@ -717,7 +728,8 @@ private fun MarkdownClickableText(
     ClickableText(
         text = text,
         style = mergedStyle,
-        modifier = modifier,
+        modifier = modifier.then(presentation.modifier),
+        onTextLayout = presentation.onTextLayout,
         onClick = { offset ->
             text.getStringAnnotations(tag = "URL", start = offset, end = offset)
                 .firstOrNull()?.let { annotation ->
@@ -1042,7 +1054,7 @@ fun parseMarkdown(markdown: String): List<MarkdownBlock> {
                 break
             }
             if (currentTrim.startsWith("```") || currentTrim.startsWith("~~~") ||
-                currentTrim.startsWith("#") || currentTrim.startsWith(">") ||
+                Regex("^(#{1,6})\\s+(.*)$").matches(currentTrim) || currentTrim.startsWith(">") ||
                 currentTrim.startsWith("- ") || currentTrim.startsWith("* ") || currentTrim.startsWith("+ ") ||
                 Regex("^(\\d+)\\.\\s+").containsMatchIn(currentTrim) ||
                 (currentTrim.startsWith("|") && currentTrim.endsWith("|") && i + 1 < lines.size && lines[i + 1].trim().contains("---")) ||

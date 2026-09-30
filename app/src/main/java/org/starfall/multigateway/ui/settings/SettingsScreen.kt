@@ -52,7 +52,6 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
 fun SettingsScreen(
     appPreferences: AppPreferences,
     conversationCount: Int,
-    profileCount: Int,
     providerCount: Int,
     onThemeChange: (String) -> Unit,
     onAmoledChange: (Boolean) -> Unit,
@@ -60,6 +59,7 @@ fun SettingsScreen(
     onColorSchemeChange: (String) -> Unit,
     onContinueLastConversationChange: (Boolean) -> Unit,
     onPersistChatSelectionChange: (Boolean) -> Unit,
+    onAutoScrollChange: (Boolean) -> Unit,
     onEnableVibrationChange: (Boolean) -> Unit,
     onHideStatusBarChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
@@ -186,6 +186,7 @@ fun SettingsScreen(
                             appPreferences = appPreferences,
                             onContinueLastConversationChange = onContinueLastConversationChange,
                             onPersistChatSelectionChange = onPersistChatSelectionChange,
+                            onAutoScrollChange = onAutoScrollChange,
                             onEnableVibrationChange = onEnableVibrationChange,
                             onHideStatusBarChange = onHideStatusBarChange,
                             onDebugModeChange = onDebugModeChange,
@@ -196,7 +197,6 @@ fun SettingsScreen(
                     SettingsCategory.USER_DATA -> {
                         UserDataSettingsView(
                             conversationCount = conversationCount,
-                            profileCount = profileCount,
                             providerCount = providerCount,
                             onClearAllConversations = onClearAllConversations,
                             onResetAllData = onResetAllData
@@ -360,6 +360,7 @@ fun PreferencesSettingsView(
     appPreferences: AppPreferences,
     onContinueLastConversationChange: (Boolean) -> Unit,
     onPersistChatSelectionChange: (Boolean) -> Unit,
+    onAutoScrollChange: (Boolean) -> Unit,
     onEnableVibrationChange: (Boolean) -> Unit,
     onHideStatusBarChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
@@ -378,9 +379,18 @@ fun PreferencesSettingsView(
         item {
             PreferenceToggle(
                 title = "Persist Selection",
-                subtitle = "Remember last selected model and profile across sessions",
+                subtitle = "Remember the last selected model across sessions",
                 checked = appPreferences.persistChatSelection,
                 onCheckedChange = onPersistChatSelectionChange
+            )
+        }
+
+        item {
+            PreferenceToggle(
+                title = "Auto scroll",
+                subtitle = "Follow the response as it generates. When off, scroll only to the start of each new message.",
+                checked = appPreferences.autoScroll,
+                onCheckedChange = onAutoScrollChange
             )
         }
 
@@ -470,7 +480,6 @@ fun PreferenceToggle(
 @Composable
 fun UserDataSettingsView(
     conversationCount: Int,
-    profileCount: Int,
     providerCount: Int,
     onClearAllConversations: () -> Unit,
     onResetAllData: () -> Unit
@@ -496,7 +505,6 @@ fun UserDataSettingsView(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         DataStatItem(label = "Chats", count = conversationCount.toString())
-                        DataStatItem(label = "Profiles", count = profileCount.toString())
                         DataStatItem(label = "Providers", count = providerCount.toString())
                     }
                 }
@@ -554,7 +562,7 @@ fun UserDataSettingsView(
         AlertDialog(
             onDismissRequest = { showResetConfirm = false },
             title = { Text("Factory Reset Data") },
-            text = { Text("This will wipe all conversations, custom chat profiles, and provider credentials.") },
+            text = { Text("This will wipe all conversations and provider credentials.") },
             confirmButton = {
                 Button(
                     onClick = {

@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun MenuView(
-    onNavigateToProfiles: () -> Unit,
     onNavigateToProviders: () -> Unit,
     onNavigateToMcp: () -> Unit,
     onNavigateToSpeech: () -> Unit,
@@ -87,16 +86,6 @@ fun MenuView(
                         title = "Providers",
                         subtitle = "Configure API keys & endpoints",
                         onClick = onNavigateToProviders
-                    )
-                }
-
-                // 3. Chat Profiles (Normal item)
-                item {
-                    MenuItemTile(
-                        icon = Icons.Outlined.AccountCircle,
-                        title = "Chat Profiles",
-                        subtitle = "System prompts & tool configurations",
-                        onClick = onNavigateToProfiles
                     )
                 }
 

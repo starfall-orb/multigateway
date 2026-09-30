@@ -1,0 +1,49 @@
+package org.starfall.multigateway
+
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.starfall.multigateway.data.local.db.AppDatabase
+import org.starfall.multigateway.data.local.preferences.AppPreferencesRepository
+import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.data.repository.ConversationRepository
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
+class SidebarStorageTest {
+    @Test fun bulkDeleteKeepsUnselectedConversationAndItsMessages() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java).build()
+        try {
+            val repository = ConversationRepository(db)
+            val chats = (1..3).map { number -> Conversation(id = "$number", title = "Chat $number", createdAt = 1, updatedAt = 1,
+                messages = listOf(StoredMessage("m$number", ChatRole.USER, listOf(MessageVersion(content = "Keep $number"))))) }
+            chats.forEach { repository.saveConversation(it) }
+            repository.deleteConversations(listOf("1", "3"))
+            assertNull(repository.getById("1"))
+            assertNull(repository.getById("3"))
+            assertEquals(chats[1], repository.getById("2"))
+            repository.deleteConversations(emptyList())
+            assertEquals(chats[1], repository.getById("2"))
+        } finally { db.close() }
+    }
+    @Test fun folderAndPinChangesPersistAcrossRepositoryInstances() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repository = AppPreferencesRepository(context)
+        val saved = SidebarOrganization(listOf(ChatFolder("f", "Folder", true, false)), mapOf("chat" to "f"), setOf("chat"))
+        try {
+            repository.updateSidebar { saved }
+            assertEquals(saved, AppPreferencesRepository(context).appPreferencesFlow.first().sidebar)
+            repository.updateSidebar { it.removeFolder("f") }
+            val updated = repository.appPreferencesFlow.first().sidebar
+            assertTrue(updated.folders.isEmpty())
+            assertTrue(updated.chatFolders.isEmpty())
+            assertEquals(setOf("chat"), updated.pinnedChatIds)
+        } finally { repository.updateSidebar { SidebarOrganization() } }
+    }
+}

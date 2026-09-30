@@ -4,12 +4,16 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import org.starfall.multigateway.data.model.SidebarOrganization
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
 
 data class AppPreferences(
+    val sidebar: SidebarOrganization = SidebarOrganization(),
     val selectedProfileId: String? = null,
     val selectedProviderId: String = "",
     val selectedModelId: String = "",
@@ -21,6 +25,7 @@ data class AppPreferences(
     val defaultSystemPrompt: String = "",
     val continueLastConversation: Boolean = false,
     val persistChatSelection: Boolean = false,
+    val autoScroll: Boolean = false,
     val enableVibration: Boolean = false,
     val hideStatusBar: Boolean = false,
     val hideNavigationBar: Boolean = false,
@@ -37,6 +42,7 @@ data class AppPreferences(
 class AppPreferencesRepository(private val context: Context) {
 
     private object PreferenceKeys {
+        val SIDEBAR = stringPreferencesKey("sidebar_organization")
         val SELECTED_PROFILE_ID = stringPreferencesKey("selected_profile_id")
         val SELECTED_PROVIDER_ID = stringPreferencesKey("selected_provider_id")
         val SELECTED_MODEL_ID = stringPreferencesKey("selected_model_id")
@@ -48,6 +54,7 @@ class AppPreferencesRepository(private val context: Context) {
         val DEFAULT_SYSTEM_PROMPT = stringPreferencesKey("default_system_prompt")
         val CONTINUE_LAST_CONVERSATION = booleanPreferencesKey("continue_last_conversation")
         val PERSIST_CHAT_SELECTION = booleanPreferencesKey("persist_chat_selection")
+        val AUTO_SCROLL = booleanPreferencesKey("auto_scroll")
         val ENABLE_VIBRATION = booleanPreferencesKey("enable_vibration")
         val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
         val HIDE_NAVIGATION_BAR = booleanPreferencesKey("hide_navigation_bar")
@@ -67,6 +74,7 @@ class AppPreferencesRepository(private val context: Context) {
             val storedThemeMode = preferences[PreferenceKeys.THEME_MODE] ?: "SYSTEM"
             val legacyAmoled = storedThemeMode == "AMOLED"
             AppPreferences(
+                sidebar = decodeSidebar(preferences[PreferenceKeys.SIDEBAR]),
                 selectedProfileId = if (profileId.isNullOrEmpty()) null else profileId,
                 selectedProviderId = preferences[PreferenceKeys.SELECTED_PROVIDER_ID] ?: "",
                 selectedModelId = preferences[PreferenceKeys.SELECTED_MODEL_ID] ?: "",
@@ -78,6 +86,7 @@ class AppPreferencesRepository(private val context: Context) {
                 defaultSystemPrompt = preferences[PreferenceKeys.DEFAULT_SYSTEM_PROMPT] ?: "",
                 continueLastConversation = preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] ?: false,
                 persistChatSelection = preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] ?: false,
+                autoScroll = preferences[PreferenceKeys.AUTO_SCROLL] ?: false,
                 enableVibration = preferences[PreferenceKeys.ENABLE_VIBRATION] ?: false,
                 hideStatusBar = preferences[PreferenceKeys.HIDE_STATUS_BAR] ?: false,
                 hideNavigationBar = preferences[PreferenceKeys.HIDE_NAVIGATION_BAR] ?: false,
@@ -91,6 +100,16 @@ class AppPreferencesRepository(private val context: Context) {
                 latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO"
             )
         }
+
+    private fun decodeSidebar(raw: String?): SidebarOrganization = raw?.let {
+        runCatching { Json.decodeFromString<SidebarOrganization>(it) }.getOrNull()
+    } ?: SidebarOrganization()
+
+    suspend fun updateSidebar(transform: (SidebarOrganization) -> SidebarOrganization) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.SIDEBAR] = Json.encodeToString(transform(decodeSidebar(preferences[PreferenceKeys.SIDEBAR])))
+        }
+    }
 
     suspend fun setSelectedProfileId(profileId: String?) {
         context.dataStore.edit { preferences ->
@@ -160,6 +179,12 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setPersistChatSelection(enable: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] = enable
+        }
+    }
+
+    suspend fun setAutoScroll(enable: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.AUTO_SCROLL] = enable
         }
     }
 

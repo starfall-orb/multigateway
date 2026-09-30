@@ -23,7 +23,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
-import org.starfall.multigateway.data.model.ChatProfile
+import kotlinx.coroutines.launch
 import org.starfall.multigateway.data.model.ChatRole
 import org.starfall.multigateway.data.model.Conversation
 import org.starfall.multigateway.data.model.LlmProviderInfo
@@ -35,7 +35,6 @@ import org.starfall.multigateway.data.model.SummaryRole
 @Composable
 fun ChatScreen(
     conversation: Conversation?,
-    selectedProfile: ChatProfile?,
     isGenerating: Boolean,
     generatingConversationId: String?,
     chatError: String?,
@@ -62,10 +61,13 @@ fun ChatScreen(
     queuedMessages: List<StoredMessage> = emptyList(),
     onEditQueuedMessage: (String, String, List<String>) -> Boolean = { _, _, _ -> true },
     onDeleteQueuedMessage: (String) -> Unit = {},
+    autoScroll: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val listState = key(conversation?.id) { rememberLazyListState() }
     var followBottom by remember(conversation?.id) { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
+    val seenMessageIds = remember(conversation?.id) { mutableSetOf<String>() }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
@@ -83,7 +85,7 @@ fun ChatScreen(
     var showSummaryDialog by remember(conversation?.id) { mutableStateOf(false) }
     val streamingHere = isGenerating && generatingConversationId == conversation?.id
     val lastMessage = messages.lastOrNull()
-    val autoScrollTick = if (streamingHere) {
+    val autoScrollTick = if (!autoScroll) null else if (streamingHere) {
         ((lastMessage?.content?.length ?: 0) + (lastMessage?.reasoningContent?.length ?: 0)) / 48
     } else {
         lastMessage?.activeVersionIndex
@@ -104,18 +106,29 @@ fun ChatScreen(
             }
         }
     }
+    val messageIndexOffset = if (isGenerating && !streamingHere) 1 else 0
+    val messageIds = remember(messages) { messages.map { it.id } }
+    LaunchedEffect(conversation?.id, messageIds, autoScroll) {
+        val newMessageIndex = messageIds.indexOfLast { it !in seenMessageIds }
+        seenMessageIds.addAll(messageIds)
+        if (!autoScroll && newMessageIndex >= 0) {
+            listState.scrollToItem(newMessageIndex + messageIndexOffset)
+        }
+    }
     LaunchedEffect(
         conversation?.id,
         messages.size,
+        autoScroll,
         autoScrollTick,
         followBottom,
         streamingHere,
-        summaryProgress?.progress
+        if (autoScroll) summaryProgress?.progress else null
     ) {
-        if (followBottom && messages.isNotEmpty()) {
-            listState.scrollToItem(messages.lastIndex)
-            val height = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.size ?: 0
-            if (height > 0) listState.scrollToItem(messages.lastIndex, height)
+        if (autoScroll && followBottom && messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex + messageIndexOffset)
+            val height = listState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == lastMessage?.id }?.size ?: 0
+            if (height > 0) listState.scrollToItem(messages.lastIndex + messageIndexOffset, height)
         }
     }
     LaunchedEffect(chatError) {
@@ -132,7 +145,7 @@ fun ChatScreen(
 
     val topBarClearance = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 80.dp
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -155,8 +168,7 @@ fun ChatScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = selectedProfile?.config?.systemPrompt?.take(90)?.plus("...")
-                            ?: "Connect to multiple LLM providers and agents seamlessly.",
+                        text = "Connect to multiple LLM providers and agents seamlessly.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.outline,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -284,7 +296,10 @@ fun ChatScreen(
                 }
 
                 item(key = "chat-bottom-spacer") {
-                    Spacer(modifier = Modifier.height(96.dp))
+                    // Leave enough room to align even a short new bubble below the top bar.
+                    val spacerHeight = if (autoScroll) 96.dp else
+                        (maxHeight - topBarClearance - 104.dp).coerceAtLeast(96.dp)
+                    Spacer(modifier = Modifier.height(spacerHeight))
                 }
             }
         }
@@ -296,7 +311,18 @@ fun ChatScreen(
         ) {
             if (messages.isNotEmpty() && !followBottom) {
                 TextButton(
-                    onClick = { followBottom = true },
+                    onClick = {
+                        followBottom = true
+                        coroutineScope.launch {
+                            val index = messages.lastIndex + messageIndexOffset
+                            listState.scrollToItem(index)
+                            if (autoScroll) {
+                                val height = listState.layoutInfo.visibleItemsInfo
+                                    .firstOrNull { it.key == lastMessage?.id }?.size ?: 0
+                                if (height > 0) listState.scrollToItem(index, height)
+                            }
+                        }
+                    },
                     modifier = Modifier
                         .align(Alignment.End)
                         .padding(end = 12.dp)
@@ -339,7 +365,6 @@ fun ChatScreen(
 
         ChatAppBar(
             currentSession = conversation,
-            selectedProfile = selectedProfile,
             onOpenDrawer = onOpenDrawer,
             onOpenEndDrawer = onOpenEndDrawer,
             modifier = Modifier.align(Alignment.TopCenter)

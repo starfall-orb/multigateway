@@ -3,7 +3,6 @@ package org.starfall.multigateway.ui.navigation
 /** Stable route names are persisted by Navigation across Activity/process recreation. */
 enum class AppDestination(val route: String) {
     CHAT("chat"),
-    PROFILES("profiles"),
     PROVIDERS("providers"),
     MCP("mcp"),
     SPEECH("speech"),

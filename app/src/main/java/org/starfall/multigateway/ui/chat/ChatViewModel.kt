@@ -39,15 +39,12 @@ class ChatViewModel(
             }
         }
     }
-    private fun toolEvents(provider: LlmProviderInfo, model: String, messages: List<StoredMessage>, profile: ChatProfile?, prompt: String) =
+    private fun toolEvents(provider: LlmProviderInfo, model: String, messages: List<StoredMessage>, prompt: String) =
         toolChat.generate(provider, model, messages, prompt, mcpServers.value, providers.value,
-            access = { profiles.value.find { it.id == profile?.id }?.config?.mcpAccess ?: emptyMap() },
+            access = { emptyMap() },
             settings = { toolSettings.value })
 
     val conversations: StateFlow<List<Conversation>> = conversationRepo.allConversations
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-
-    val profiles: StateFlow<List<ChatProfile>> = profileRepo.allProfiles
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val providers: StateFlow<List<LlmProviderInfo>> = llmRepo.allProviders
@@ -221,8 +218,22 @@ class ChatViewModel(
         writeConversation {
             if (generation.snapshot?.id == id) generation.stopAndJoin()
             conversationRepo.deleteConversation(id)
+            prefsRepo.updateSidebar { it.removeChats(setOf(id)) }
             if (_currentConversation.value?.id == id) {
                 _currentConversation.value = null
+                _queuedMessages.value = emptyList()
+            }
+        }
+    }
+
+    fun deleteConversations(ids: Set<String>) {
+        writeConversation {
+            if (generation.snapshot?.id in ids) generation.stopAndJoin()
+            conversationRepo.deleteConversations(ids.toList())
+            prefsRepo.updateSidebar { it.removeChats(ids) }
+            if (_currentConversation.value?.id in ids) {
+                _currentConversation.value = null
+                _queuedMessages.value = emptyList()
             }
         }
     }
@@ -243,6 +254,8 @@ class ChatViewModel(
         writeConversation {
             generation.stopAndJoin()
             conversationRepo.deleteAll()
+            _queuedMessages.value = emptyList()
+            prefsRepo.updateSidebar { org.starfall.multigateway.data.model.SidebarOrganization() }
             _currentConversation.value = null
         }
     }
@@ -251,6 +264,8 @@ class ChatViewModel(
         writeConversation {
             generation.stopAndJoin()
             conversationRepo.deleteAll()
+            _queuedMessages.value = emptyList()
+            prefsRepo.updateSidebar { org.starfall.multigateway.data.model.SidebarOrganization() }
             _currentConversation.value = null
             // Also reset active profile to default
             prefsRepo.setSelectedProfileId(null)
@@ -263,11 +278,6 @@ class ChatViewModel(
         stopSpeaking()
     }
 
-    fun selectProfile(profileId: String?) {
-        viewModelScope.launch {
-            prefsRepo.setSelectedProfileId(profileId)
-        }
-    }
 
     fun setDefaultSystemPrompt(prompt: String) {
         viewModelScope.launch {
@@ -549,7 +559,6 @@ class ChatViewModel(
         val prefs = appPreferences.value
         val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return false
         val modelId = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return false
-        val profile = profiles.value.find { it.id == prefs.selectedProfileId }
         val now = System.currentTimeMillis()
         val user = StoredMessage(
             UUID.randomUUID().toString(),
@@ -582,7 +591,7 @@ class ChatViewModel(
             updatedAt = now,
             providerId = baseProvider.id,
             modelId = modelId,
-            profileId = profile?.id
+            profileId = null
         )
         _currentConversation.value = conv
 
@@ -590,12 +599,12 @@ class ChatViewModel(
         val context = effectiveContext(
             conv,
             conv.messages.dropLast(1),
-            profile?.config?.systemPrompt ?: prefs.defaultSystemPrompt
+            prefs.defaultSystemPrompt
         )
         val started = generation.startEvents(
             conv,
             assistant.id,
-            toolEvents(provider, modelId, context.messages, profile, context.systemPrompt)
+            toolEvents(provider, modelId, context.messages, context.systemPrompt)
         )
         if (started && firstMessage) {
             generateConversationTitle(
@@ -714,11 +723,10 @@ class ChatViewModel(
         val prefs = appPreferences.value
         val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return
         val model = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return
-        val profile = profiles.value.find { it.id == prefs.selectedProfileId }
         var conv = prepareRegeneration(current, messageId)?.copy(
             providerId = baseProvider.id,
             modelId = model,
-            profileId = profile?.id
+            profileId = null
         ) ?: return
 
         val summaryBoundary = current.summary?.throughMessageId
@@ -729,12 +737,12 @@ class ChatViewModel(
         val context = effectiveContext(
             conv,
             conv.messages.dropLast(1),
-            profile?.config?.systemPrompt ?: prefs.defaultSystemPrompt
+            prefs.defaultSystemPrompt
         )
         generation.startEvents(
             conv,
             messageId,
-            toolEvents(provider, model, context.messages, profile, context.systemPrompt)
+            toolEvents(provider, model, context.messages, context.systemPrompt)
         )
     }
 

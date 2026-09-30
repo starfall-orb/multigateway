@@ -86,6 +86,10 @@ class ConfigurationViewModel(
         }
     }
 
+    fun reorderProviderModels(providerId: String, modelIds: List<String>) {
+        viewModelScope.launch { llmRepo.reorderProviderModels(providerId, modelIds) }
+    }
+
     fun saveProviderModels(providerId: String, modelConfigs: Map<String, ModelConfiguration>) {
         viewModelScope.launch {
             val provider = llmRepo.getProviderById(providerId) ?: return@launch

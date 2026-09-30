@@ -58,17 +58,17 @@ fun AssistantMessageCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        if (isStreaming) {
-            if (message.content.isBlank()) {
-                StreamingProcessingPreview(activeVersion)
-            } else {
-                CompletedAssistantContent(
-                    version = activeVersion,
-                    processingDurationMillis = null,
-                    animateStreamingContent = true
-                )
-            }
+        if (isStreaming && message.content.isBlank()) {
+            StreamingProcessingPreview(activeVersion)
+        } else {
+            CompletedAssistantContent(
+                version = activeVersion,
+                processingDurationMillis = processingDurationMillis.takeUnless { isStreaming },
+                animateStreamingContent = isStreaming
+            )
+        }
 
+        if (isStreaming) {
             Row(
                 modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -85,12 +85,6 @@ fun AssistantMessageCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        } else {
-            CompletedAssistantContent(
-                version = activeVersion,
-                processingDurationMillis = processingDurationMillis,
-                animateStreamingContent = false
-            )
         }
 
         if (!isStreaming && message.versions.size > 1) {
@@ -365,8 +359,8 @@ private fun LiveToolBlock(activity: ToolActivity, blockNumber: Int) {
 }
 
 @Composable
-private fun SmoothStreamingMarkdownMessage(content: String) {
-    StreamingMarkdownRenderer(content = content)
+private fun SmoothStreamingMarkdownMessage(content: String, isStreaming: Boolean) {
+    StreamingMarkdownRenderer(content = content, isStreaming = isStreaming)
 }
 
 private data class ProcessingBlock(
@@ -389,7 +383,7 @@ private fun CompletedAssistantContent(
         Column {
             if (blocks.isEmpty()) {
                 if (content.isNotBlank()) {
-                    if (animateStreamingContent) SmoothStreamingMarkdownMessage(content) else FormattedMarkdownMessage(content = content)
+                    SmoothStreamingMarkdownMessage(content, isStreaming = animateStreamingContent)
                 }
             } else {
                 var cursor = 0
@@ -399,7 +393,7 @@ private fun CompletedAssistantContent(
                     if (offset > cursor) {
                         val textBefore = content.substring(cursor, offset)
                         if (textBefore.isNotBlank()) {
-                            if (animateStreamingContent) SmoothStreamingMarkdownMessage(textBefore) else FormattedMarkdownMessage(content = textBefore)
+                            FormattedMarkdownMessage(content = textBefore)
                             Spacer(Modifier.height(6.dp))
                         }
                     }
@@ -417,7 +411,7 @@ private fun CompletedAssistantContent(
                 if (cursor < content.length) {
                     val remaining = content.substring(cursor)
                     if (remaining.isNotBlank()) {
-                        if (animateStreamingContent) SmoothStreamingMarkdownMessage(remaining) else FormattedMarkdownMessage(content = remaining)
+                        SmoothStreamingMarkdownMessage(remaining, isStreaming = animateStreamingContent)
                     }
                 }
             }

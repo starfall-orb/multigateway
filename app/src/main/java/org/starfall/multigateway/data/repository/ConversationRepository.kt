@@ -1,5 +1,6 @@
 package org.starfall.multigateway.data.repository
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -25,6 +26,10 @@ class ConversationRepository(private val db: AppDatabase) {
 
     suspend fun deleteConversation(id: String) {
         dao.deleteById(id)
+    }
+
+    suspend fun deleteConversations(ids: List<String>) {
+        db.withTransaction { ids.chunked(500).forEach { dao.deleteByIds(it) } }
     }
 
     suspend fun deleteAll() {

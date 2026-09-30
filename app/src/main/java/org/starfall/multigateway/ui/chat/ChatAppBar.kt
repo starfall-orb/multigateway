@@ -16,13 +16,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.R
-import org.starfall.multigateway.data.model.ChatProfile
 import org.starfall.multigateway.data.model.Conversation
 
 @Composable
 fun ChatAppBar(
     currentSession: Conversation?,
-    selectedProfile: ChatProfile?,
     onOpenDrawer: () -> Unit,
     onOpenEndDrawer: () -> Unit,
     modifier: Modifier = Modifier
@@ -71,13 +69,7 @@ fun ChatAppBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
-                text = selectedProfile?.name ?: "No Profile",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+
         }
 
         Surface(
@@ -91,21 +83,12 @@ fun ChatAppBar(
             tonalElevation = 2.dp
         ) {
             Box(contentAlignment = Alignment.Center) {
-                val profileIcon = selectedProfile?.icon?.trim()?.takeIf { it.isNotEmpty() }
-                if (profileIcon != null) {
-                    Text(
-                        text = profileIcon,
-                        style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp),
-                        maxLines = 1
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Open menu",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Open menu",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }

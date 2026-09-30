@@ -9,6 +9,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -49,6 +50,9 @@ import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
+import org.starfall.multigateway.ui.components.rememberLazyListReorderState
+import org.starfall.multigateway.ui.components.reorderGestures
+import org.starfall.multigateway.ui.components.reorderItem
 import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
@@ -62,6 +66,7 @@ fun ProviderScreen(
     onToggleGridView: ((Boolean) -> Unit)? = null,
     onSaveProvider: (LlmProviderInfo) -> Unit,
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
+    onReorderModels: (String, List<String>) -> Unit,
     onDeleteProvider: (String) -> Unit,
     onReorderProviders: (List<String>) -> Unit,
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
@@ -88,6 +93,7 @@ fun ProviderScreen(
             onTestConnection = onTestConnection,
             onFetchModels = onFetchModels,
             onSaveModels = onSaveModels,
+            onReorderModels = onReorderModels,
             onDismiss = {
                 editor = null
             },
@@ -343,6 +349,7 @@ fun ProviderEditScreen(
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
     onFetchModels: (suspend (LlmProviderInfo) -> List<String>)? = null,
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
+    onReorderModels: (String, List<String>) -> Unit,
     onDismiss: () -> Unit,
     onSave: (LlmProviderInfo) -> Unit
 ) {
@@ -842,10 +849,17 @@ fun ProviderEditScreen(
                     modelOrder = modelOrder.moved(from, to)
                 }
                 fun persistModelOrder() {
-                    if (!isNew) onSaveModels(initialProvider.id, modelOrder.associateWith { modelConfigs.getValue(it) })
+                    if (!isNew) onReorderModels(initialProvider.id, modelOrder)
                 }
+                val modelListState = rememberLazyListState()
+                val reorderState = rememberLazyListReorderState(
+                    listState = modelListState,
+                    onMove = ::moveModel,
+                    onDrop = ::persistModelOrder
+                )
                 LazyColumn(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    state = modelListState,
+                    modifier = Modifier.weight(1f).fillMaxWidth().reorderGestures(reorderState),
                     contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -880,7 +894,7 @@ fun ProviderEditScreen(
                             }
                         }
                     }
-                    itemsIndexed(models, key = { _, id -> id }) { index, modelId ->
+                    items(models, key = { it }) { modelId ->
                         ListItem(
                             headlineContent = {
                                 Text(
@@ -901,18 +915,12 @@ fun ProviderEditScreen(
                             },
                             modifier = Modifier
                                 .animateItem(
-                                    placementSpec = spring(
+                                    placementSpec = if (reorderState.draggedKey == modelId) null else spring(
                                         dampingRatio = Spring.DampingRatioNoBouncy,
                                         stiffness = Spring.StiffnessMediumLow
                                     )
                                 )
-                                .longPressReorder(
-                                    index = index,
-                                    itemCount = models.size,
-                                    columns = 1,
-                                    onMove = ::moveModel,
-                                    onDrop = ::persistModelOrder
-                                )
+                                .reorderItem(reorderState, modelId)
                         )
                     }
                 }

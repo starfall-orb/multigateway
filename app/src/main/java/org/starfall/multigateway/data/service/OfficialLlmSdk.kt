@@ -545,9 +545,12 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
                     params.addUserMessage(message.content)
                 }
             }
-            temperature?.let { params.temperature(it) }
-            topP?.let { params.topP(it) }
-            topK?.let { params.topK(it.toLong()) }
+            @Suppress("DEPRECATION")
+            run {
+                temperature?.let { params.temperature(it) }
+                topP?.let { params.topP(it) }
+                topK?.let { params.topK(it.toLong()) }
+            }
 
             if (!provider.config.supportStream) {
                 sdkCall { client.messages().create(params.build()) }.content().forEach { block ->

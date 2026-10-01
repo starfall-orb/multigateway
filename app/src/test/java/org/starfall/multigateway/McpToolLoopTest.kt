@@ -10,6 +10,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.starfall.multigateway.data.adapter.codex.*
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.*
 import org.starfall.multigateway.data.tools.*
@@ -45,7 +46,8 @@ class McpToolLoopTest {
                     val first=rounds==1
                     val tools=body["tools"]!!.jsonArray
                     val name=when(type){
-                        ProviderType.ANTHROPIC, ProviderType.OPENAI_RESPONSES -> tools[0].jsonObject["name"]!!.jsonPrimitive.content
+                        ProviderType.ANTHROPIC -> tools[0].jsonObject["name"]!!.jsonPrimitive.content
+                        ProviderType.OPENAI_RESPONSES, ProviderType.OPENAI_CODEX -> tools[0].jsonObject["name"]?.jsonPrimitive?.content ?: tools[0].jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content
                         ProviderType.GOOGLE->tools[0].jsonObject["functionDeclarations"]!!.jsonArray[0].jsonObject["name"]!!.jsonPrimitive.content
                         else->tools[0].jsonObject["function"]!!.jsonObject["name"]!!.jsonPrimitive.content
                     }
@@ -53,7 +55,7 @@ class McpToolLoopTest {
                     val message=buildJsonObject{put("role","assistant");put("content",if(first) "" else "done");if(first)put("tool_calls",buildJsonArray{add(call)})}
                     return json(when(type){
                         ProviderType.OPENAI->buildJsonObject{put("choices",buildJsonArray{add(buildJsonObject{put("message",message)})})}
-                        ProviderType.OPENAI_RESPONSES->buildJsonObject{
+                        ProviderType.OPENAI_RESPONSES, ProviderType.OPENAI_CODEX->buildJsonObject{
                             put("status","completed")
                             put("output",buildJsonArray{
                                 add(if(first) buildJsonObject{
@@ -66,11 +68,16 @@ class McpToolLoopTest {
                         ProviderType.OLLAMA->buildJsonObject{put("message",message)}
                         ProviderType.ANTHROPIC->buildJsonObject{put("content",buildJsonArray{add(if(first)buildJsonObject{put("type","tool_use");put("id","c1");put("name",name);put("input",buildJsonObject{})}else buildJsonObject{put("type","text");put("text","done")})})}
                         ProviderType.GOOGLE->buildJsonObject{put("candidates",buildJsonArray{add(buildJsonObject{put("content",buildJsonObject{put("parts",buildJsonArray{add(if(first)buildJsonObject{put("functionCall",buildJsonObject{put("name",name);put("args",buildJsonObject{})});put("thoughtSignature","sig")}else buildJsonObject{put("text","done")})})})})})}
+                        else->error("Unsupported provider type: $type")
                     })
                 }
             }
             try {
-                val p=LlmProviderInfo("p","P",type,baseUrl=server.url(if(type==ProviderType.GOOGLE)"/v1beta" else if(type==ProviderType.OLLAMA)"/api" else "/v1").toString(),config=ProviderConfiguration(supportStream=false,modelConfigs=mapOf("chat" to ModelConfiguration(supportsToolCalls=true))))
+                val auth = if (type == ProviderType.OPENAI_CODEX) {
+                    CodexTokenStore(context).save("p", CodexTokenState("test_token", "test_refresh", accountId = "acc"))
+                    Authorization(AuthMethod.OAUTH, key = "test@example.com", value = OpenAICodexAdapter.AUTH_MARKER)
+                } else type.defaultAuthorization()
+                val p=LlmProviderInfo("p","P",type,auth=auth,baseUrl=server.url(if(type==ProviderType.GOOGLE)"/v1beta" else if(type==ProviderType.OLLAMA)"/api" else "/v1").toString(),config=ProviderConfiguration(supportStream=false,modelConfigs=mapOf("chat" to ModelConfiguration(supportsToolCalls=true))))
                 val m=McpInfo("s","MCP",McpProtocol.STREAMABLE_HTTP,server.url("/mcp").toString())
                 val http=ToolHttp(ToolFiles(root))
                 val events=ToolChat(http,McpService(http),LlmService(context)).generate(p,"chat",listOf(StoredMessage("u",ChatRole.USER,listOf(MessageVersion("Call echo")))),"",listOf(m),listOf(p),{mapOf("s" to McpAccess(true))},{ToolSettings()}).toList()

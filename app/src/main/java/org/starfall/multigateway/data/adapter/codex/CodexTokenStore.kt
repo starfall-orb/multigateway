@@ -49,21 +49,25 @@ internal class CodexTokenStore(context: Context) {
     }
 
     private fun key(create: Boolean): SecretKey {
-        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        check(create) { "Codex credential key is unavailable." }
+        return runCatching {
+            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+            check(create) { "Codex credential key is unavailable." }
 
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-            init(
-                KeyGenParameterSpec.Builder(
-                    KEY_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+                init(
+                    KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .build()
                 )
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .build()
-            )
-        }.generateKey()
+            }.generateKey()
+        }.getOrElse {
+            fallbackKey ?: KeyGenerator.getInstance("AES").apply { init(256) }.generateKey().also { fallbackKey = it }
+        }
     }
 
     private fun encrypt(value: String): String {
@@ -89,5 +93,6 @@ internal class CodexTokenStore(context: Context) {
     private companion object {
         const val KEY_ALIAS = "multigateway.codex.oauth.v1"
         const val PREFIX = "keystore:v1:"
+        var fallbackKey: SecretKey? = null
     }
 }

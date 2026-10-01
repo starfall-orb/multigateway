@@ -13,9 +13,10 @@ internal suspend fun ToolHttp.modelResponse(
     provider: LlmProviderInfo,
     stream: Boolean,
     onText: suspend (String) -> Unit,
-    onReasoning: suspend (String) -> Unit = {}
+    onReasoning: suspend (String) -> Unit = {},
+    unwrapResponse: (JsonObject) -> JsonObject = { it }
 ): JsonObject {
-    if (!stream) return post(url, body, provider)
+    if (!stream) return unwrapResponse(post(url, body, provider))
     val google = provider.type == ProviderType.GOOGLE
     val ollama = provider.type == ProviderType.OLLAMA
     val anthropic = provider.type == ProviderType.ANTHROPIC
@@ -35,7 +36,8 @@ internal suspend fun ToolHttp.modelResponse(
             val googleParts = mutableListOf<JsonElement>()
             var finalResponse: JsonObject? = null
 
-            suspend fun consume(value: JsonObject) {
+            suspend fun consume(raw: JsonObject) {
+                val value = unwrapResponse(raw)
                 received = true
                 if (value["error"] != null || value.text("type") == "error") {
                     error("Provider stream error: " + safeError(value["error"], requestSecrets(response.request)))

@@ -49,7 +49,7 @@ class ToolHttp(val files: ToolFiles? = null) {
         }
     }
     fun request(url: String, provider: LlmProviderInfo? = null): Request.Builder {
-        val builder = Request.Builder().url(url)
+        val builder = Request.Builder().url(url).header("Accept", "application/json")
         provider?.let { p ->
             val auth = p.auth
             val token = auth.token
@@ -68,11 +68,11 @@ class ToolHttp(val files: ToolFiles? = null) {
         }
         return builder
     }
-    suspend fun json(request: Request): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun json(request: Request, allowOAuthError: Boolean = false): JsonObject = withContext(Dispatchers.IO) {
         withResponse(request) { response ->
             requireSuccess(response)
             val parsed = Json.parseToJsonElement(readJson(response)) as? JsonObject ?: error("Provider returned invalid JSON: expected an object")
-            check(parsed["error"] == null || parsed["error"] == JsonNull) { "Provider error: " + safeError(parsed["error"], requestSecrets(request)) }
+            check(allowOAuthError || parsed["error"] == null || parsed["error"] == JsonNull) { "Provider error: " + safeError(parsed["error"], requestSecrets(request)) }
             parsed
         }
     }

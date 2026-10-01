@@ -10,12 +10,20 @@ enum class ProviderType(val displayName: String, val defaultName: String, val de
     OPENAI_RESPONSES("OpenAI Responses", "OpenAI Responses", "https://api.openai.com/v1"),
     @SerialName("openai_codex")
     OPENAI_CODEX("OpenAI Codex", "OpenAI Codex", "https://chatgpt.com/backend-api/codex/responses"),
+    @SerialName("claude_code")
+    CLAUDE_CODE("Claude Code", "Claude Code", "https://api.anthropic.com/v1"),
+    @SerialName("antigravity")
+    ANTIGRAVITY("Antigravity", "Antigravity", "https://daily-cloudcode-pa.sandbox.googleapis.com"),
+    @SerialName("github_copilot")
+    GITHUB_COPILOT("GitHub Copilot", "GitHub Copilot", "https://api.githubcopilot.com"),
     @SerialName("google")
     GOOGLE("Google", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
     @SerialName("anthropic")
     ANTHROPIC("Anthropic", "Anthropic", "https://api.anthropic.com/v1"),
     @SerialName("ollama")
     OLLAMA("Ollama", "Ollama", "https://ollama.com/api");
+
+    val isAccountProvider: Boolean get() = this in setOf(OPENAI_CODEX, CLAUDE_CODE, ANTIGRAVITY, GITHUB_COPILOT)
 
     val isOpenAi: Boolean get() = this == OPENAI || this == OPENAI_RESPONSES
 }
@@ -58,7 +66,7 @@ fun ProviderType.defaultAuthorization(): Authorization = when (this) {
     ProviderType.GOOGLE ->
         Authorization(method = AuthMethod.QUERY_PARAM, key = "key", value = "")
 
-    ProviderType.OPENAI_CODEX ->
+    ProviderType.OPENAI_CODEX, ProviderType.CLAUDE_CODE, ProviderType.ANTIGRAVITY, ProviderType.GITHUB_COPILOT ->
         Authorization(method = AuthMethod.OAUTH, value = "")
 
     ProviderType.OLLAMA ->

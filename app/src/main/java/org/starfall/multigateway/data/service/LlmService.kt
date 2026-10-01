@@ -65,8 +65,10 @@ class LlmService(context: Context) {
         accountAdapters.get(provider.type)?.authorize(provider)
             ?: Result.failure(IllegalArgumentException("${provider.type.displayName} does not use account authorization."))
 
-    suspend fun prepareAccountProvider(provider: LlmProviderInfo): LlmProviderInfo =
-        accountAdapters.get(provider.type)?.prepareAuthenticatedProvider(provider)
+    suspend fun prepareAccountProvider(provider: LlmProviderInfo, modelName: String? = null): LlmProviderInfo =
+        accountAdapters.get(provider.type)?.let { adapter ->
+            if (modelName == null) adapter.prepareAuthenticatedProvider(provider) else adapter.prepareModelProvider(provider, modelName)
+        }
             ?: provider
 
     fun normalizeAccountToolRequest(
@@ -78,6 +80,15 @@ class LlmService(context: Context) {
         accountAdapters.get(sourceProvider.type)
             ?.normalizeToolRequest(sourceProvider, wireProvider, body, systemPrompt)
             ?: body
+
+    fun prepareAccountRequest(source: LlmProviderInfo, wire: LlmProviderInfo, body: JsonObject): LlmProviderInfo =
+        accountAdapters.get(source.type)?.prepareRequestProvider(source, wire, body) ?: wire
+
+    fun accountRequestUrl(source: LlmProviderInfo, wire: LlmProviderInfo, url: String): String =
+        accountAdapters.get(source.type)?.requestUrl(source, wire, url) ?: url
+
+    fun unwrapAccountResponse(source: LlmProviderInfo, response: JsonObject): JsonObject =
+        accountAdapters.get(source.type)?.unwrapResponse(response) ?: response
 
     fun clearAccountCredentials(type: ProviderType, providerId: String) {
         accountAdapters.clearCredentials(type, providerId)

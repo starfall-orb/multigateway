@@ -1,0 +1,236 @@
+package org.starfall.multigateway.data.adapter.common
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.SocketTimeoutException
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.util.Base64
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.*
+import okhttp3.FormBody
+import org.starfall.multigateway.data.adapter.AccountProviderAdapter
+import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.data.service.AttachmentResolver
+import org.starfall.multigateway.data.tools.*
+
+/** Shared PKCE and encrypted persistence; protocol details stay in each adapter. */
+internal abstract class OAuthAccountAdapter(
+    context: Context,
+    private val attachments: AttachmentResolver,
+    final override val providerType: ProviderType,
+    private val clientId: String,
+    private val authorizationUrl: String,
+    private val tokenUrl: String,
+    private val scope: String,
+    private val callbackPort: Int,
+    private val callbackPath: String,
+    private val clientSecret: String? = null,
+    private val jsonTokens: Boolean = false
+) : AccountProviderAdapter {
+    protected val appContext = context.applicationContext
+    protected val http = ToolHttp()
+    protected val store = AccountTokenStore(context, providerType.name.lowercase())
+    private val refreshLock = Mutex()
+    private val redirectUri get() = "http://localhost:$callbackPort$callbackPath"
+    protected val marker get() = "account:${providerType.name.lowercase()}:v1"
+
+    protected suspend fun <T> result(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) { throw e }
+    catch (e: Exception) { Result.failure(e) }
+
+    protected suspend fun openBrowser(url: String) = withContext(Dispatchers.Main) {
+        appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    override suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo> = result {
+        require(provider.type == providerType)
+        require(clientId.isNotBlank() && (clientSecret == null || clientSecret.isNotBlank())) {
+            "${providerType.displayName} OAuth client configuration is missing from this build."
+        }
+        val verifier = randomValue(96)
+        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8)))
+        val state = randomValue(32)
+        val fields = linkedMapOf("client_id" to clientId, "redirect_uri" to redirectUri,
+            "response_type" to "code", "scope" to scope, "state" to state,
+            "code_challenge" to challenge, "code_challenge_method" to "S256")
+        if (jsonTokens) fields["code"] = "true"
+        else { fields["access_type"] = "offline"; fields["prompt"] = "consent" }
+        val url = Uri.parse(authorizationUrl).buildUpon().apply {
+            fields.forEach { (key, value) -> appendQueryParameter(key, value) }
+        }.build().toString()
+        val code = awaitCode(url, state)
+        val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
+            "redirect_uri" to redirectUri, "code_verifier" to verifier, "state" to state)))
+        store.save(provider.id, token)
+        authorized(provider, token)
+    }
+
+    protected fun authorized(provider: LlmProviderInfo, token: AccountTokenState) = provider.copy(
+        auth = Authorization(AuthMethod.OAUTH, key = token.email, value = marker))
+
+    protected open suspend fun enrichToken(token: AccountTokenState): AccountTokenState = token
+
+    protected suspend fun ensureToken(provider: LlmProviderInfo): AccountTokenState = refreshLock.withLock {
+        require(provider.type == providerType && provider.auth.method == AuthMethod.OAUTH && provider.auth.value == marker) {
+            "${providerType.displayName} is not authorized. Sign in from Provider settings."
+        }
+        val current = store.load(provider.id) ?: error("Credentials are missing. Sign in again.")
+        if (current.expiresAt != null && current.expiresAt <= System.currentTimeMillis() + 60_000) {
+            require(current.refreshToken.isNotBlank()) { "Authorization expired. Sign in again." }
+            exchange(mapOf("grant_type" to "refresh_token", "refresh_token" to current.refreshToken), current)
+                .also { store.save(provider.id, it) }
+        } else current
+    }
+
+    private suspend fun exchange(fields: Map<String, String>, previous: AccountTokenState? = null): AccountTokenState {
+        val values = fields + mapOf("client_id" to clientId) + (clientSecret?.let { mapOf("client_secret" to it) } ?: emptyMap())
+        val payload = if (jsonTokens) http.post(tokenUrl, JsonObject(values.mapValues { JsonPrimitive(it.value) }))
+        else http.json(http.request(tokenUrl).post(FormBody.Builder().apply { values.forEach { (k,v) -> add(k,v) } }.build()).build())
+        val access = payload.text("access_token").also { require(it.isNotBlank()) { "OAuth response has no access token" } }
+        return AccountTokenState(accessToken = access,
+            refreshToken = payload.text("refresh_token").ifBlank { previous?.refreshToken.orEmpty() },
+            expiresAt = (payload["expires_in"] as? JsonPrimitive)?.longOrNull?.let { System.currentTimeMillis() + it * 1000 },
+            email = (payload["account"] as? JsonObject)?.text("email_address")?.takeIf { it.isNotBlank() } ?: previous?.email,
+            projectId = previous?.projectId)
+    }
+
+    private suspend fun awaitCode(url: String, state: String): String = withContext(Dispatchers.IO) {
+        ServerSocket().use { server ->
+            server.reuseAddress = true
+            server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), callbackPort))
+            server.soTimeout = 1000
+            openBrowser(url)
+            val deadline = System.currentTimeMillis() + 5 * 60_000
+            while (System.currentTimeMillis() < deadline) {
+                currentCoroutineContext().ensureActive()
+                val socket = try { server.accept() } catch (_: SocketTimeoutException) { continue }
+                socket.use {
+                    it.soTimeout = 2000
+                    val line = it.getInputStream().bufferedReader().readLine().orEmpty()
+                    val uri = Uri.parse("http://localhost" + line.split(' ').getOrNull(1).orEmpty())
+                    val valid = line.startsWith("GET ") && uri.path == callbackPath && uri.getQueryParameter("state") == state
+                    val code = uri.getQueryParameter("code")
+                    val success = valid && !code.isNullOrBlank() && uri.getQueryParameter("error") == null
+                    val body = if (success) "Authorization complete. Return to MultiGateway." else "Invalid authorization callback."
+                    it.getOutputStream().write("HTTP/1.1 ${if (success) "200 OK" else "400 Bad Request"}\r\nContent-Type: text/plain\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body".toByteArray())
+                    if (valid && uri.getQueryParameter("error") != null) error("OAuth authorization was denied")
+                    if (success) return@withContext code!!
+                }
+            }
+            error("Authorization timed out")
+        }
+    }
+
+    override suspend fun testConnection(provider: LlmProviderInfo): Result<String> = result {
+        check(fetchModels(provider).isNotEmpty()) { "Provider returned no models" }
+        "${providerType.displayName} connection is ready."
+    }
+    override fun clearCredentials(providerId: String) = store.delete(providerId)
+
+    override fun streamEvents(provider: LlmProviderInfo, modelName: String, messages: List<StoredMessage>,
+        systemPrompt: String, maxOutputTokens: Int): Flow<GenerationEvent> = flow {
+        val wire = prepareModelProvider(provider, modelName)
+        val body = chatBody(wire.type, modelName, messages, systemPrompt, maxOutputTokens, provider.config.modelConfigs[modelName] ?: ModelConfiguration())
+        val base = providerBase(wire)
+        val url = when (wire.type) {
+            ProviderType.ANTHROPIC -> base.removeSuffix("/v1") + "/v1/messages"
+            ProviderType.GOOGLE -> "$base/models/$modelName:generateContent"
+            ProviderType.OPENAI_RESPONSES -> "$base/responses"
+            else -> "$base/chat/completions"
+        }
+        val response = http.modelResponse(requestUrl(provider, wire, url),
+            normalizeToolRequest(provider, wire, body, systemPrompt), prepareRequestProvider(provider, wire, body), provider.streamEnabledFor(modelName),
+            { emit(GenerationEvent.Text(it)) }, { emit(GenerationEvent.Reasoning(it)) }, ::unwrapResponse)
+        if (!provider.streamEnabledFor(modelName)) {
+            when (wire.type) {
+                ProviderType.ANTHROPIC -> (response["content"] as? JsonArray).orEmpty().forEach {
+                    val part = it.jsonObject
+                    if (part.text("type") == "thinking") emit(GenerationEvent.Reasoning(part.text("thinking")))
+                    else if (part.text("type") == "text") emit(GenerationEvent.Text(part.text("text")))
+                }
+                ProviderType.GOOGLE -> (response["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
+                    ?.get("content")?.jsonObject?.get("parts")?.jsonArray.orEmpty().forEach {
+                        val part = it.jsonObject
+                        if ((part["thought"] as? JsonPrimitive)?.booleanOrNull == true) emit(GenerationEvent.Reasoning(part.text("text")))
+                        else emit(GenerationEvent.Text(part.text("text")))
+                    }
+                ProviderType.OPENAI_RESPONSES -> (response["output"] as? JsonArray).orEmpty().forEach { item ->
+                    (item.jsonObject["content"] as? JsonArray).orEmpty().forEach { part ->
+                        if (part.jsonObject.text("type") == "output_text") emit(GenerationEvent.Text(part.jsonObject.text("text")))
+                    }
+                }
+                else -> (response["choices"] as? JsonArray)?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.let {
+                    if (it.text("reasoning_content").isNotEmpty()) emit(GenerationEvent.Reasoning(it.text("reasoning_content")))
+                    emit(GenerationEvent.Text(it.text("content")))
+                }
+            }
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private fun chatBody(type: ProviderType, model: String, messages: List<StoredMessage>, prompt: String, maxTokens: Int, config: ModelConfiguration): JsonObject {
+        fun parts(message: StoredMessage): JsonArray = buildJsonArray {
+            if (message.content.isNotBlank()) add(if (type == ProviderType.ANTHROPIC) obj("type" to str("text"), "text" to str(message.content)) else obj("text" to str(message.content)))
+            message.files.forEach { reference ->
+                val meta = attachments.metadata(reference) ?: error("Attachment metadata is missing")
+                val bytes = attachments.readBytes(reference) ?: error("Attachment data is missing")
+                val encoded = Base64.getEncoder().encodeToString(bytes)
+                when (type) {
+                    ProviderType.GOOGLE -> add(obj("inlineData" to obj("mimeType" to str(meta.mimeType), "data" to str(encoded))))
+                    ProviderType.ANTHROPIC -> {
+                        require(meta.mimeType.startsWith("image/") || meta.mimeType == "application/pdf") { "Unsupported Claude attachment" }
+                        add(obj("type" to str(if (meta.mimeType == "application/pdf") "document" else "image"),
+                            "source" to obj("type" to str("base64"), "media_type" to str(meta.mimeType), "data" to str(encoded))))
+                    }
+                    else -> { require(meta.mimeType.startsWith("image/")) { "Unsupported Copilot attachment" }
+                        add(obj("type" to str("image_url"), "image_url" to obj("url" to str("data:${meta.mimeType};base64,$encoded")))) }
+                }
+            }
+        }
+        val body = buildJsonObject {
+            if (type == ProviderType.GOOGLE) {
+                put("model", model)
+                put("systemInstruction", obj("parts" to JsonArray(listOf(obj("text" to str(prompt))))))
+                put("contents", JsonArray(messages.filter { it.role != ChatRole.SYSTEM }.map {
+                    obj("role" to str(if (it.role == ChatRole.MODEL) "model" else "user"), "parts" to parts(it)) }))
+                put("generationConfig", buildJsonObject {
+                    put("maxOutputTokens", maxTokens); config.temperature?.let { put("temperature", it) }
+                    config.topP?.let { put("topP", it) }; config.topK?.let { put("topK", it) }
+                })
+            } else {
+                put("model", model); put("max_tokens", maxTokens)
+                config.temperature?.let { put("temperature", it) }; config.topP?.let { put("top_p", it) }
+                if (type == ProviderType.ANTHROPIC) config.topK?.let { put("top_k", it) }
+                if (type == ProviderType.ANTHROPIC) put("system", prompt)
+                val native = messages.filter { it.role != ChatRole.SYSTEM }.map {
+                    val content = if (type == ProviderType.ANTHROPIC) parts(it) else buildJsonArray {
+                        add(obj("type" to str("text"), "text" to str(it.content))); parts(it).filter { p -> p.jsonObject["type"] != null }.forEach { add(it) }
+                    }
+                    obj("role" to str(if (it.role == ChatRole.MODEL) "assistant" else "user"), "content" to content)
+                }
+                put("messages", JsonArray((if (type != ProviderType.ANTHROPIC && prompt.isNotBlank()) listOf(obj("role" to str("system"), "content" to str(prompt))) else emptyList()) + native))
+            }
+        }
+        return if (type == ProviderType.OPENAI_RESPONSES) JsonObject(body.filterKeys { it != "messages" && it != "max_tokens" } +
+            mapOf("input" to JsonArray(body.getValue("messages").jsonArray.map { message ->
+                val item = message.jsonObject
+                val content = item["content"]
+                JsonObject(item + ("content" to if (content is JsonArray) JsonArray(content.map { part ->
+                    val value = part.jsonObject
+                    if (value.text("type") == "image_url") obj("type" to str("input_image"), "image_url" to value.getValue("image_url").jsonObject.getValue("url"))
+                    else obj("type" to str(if (item.text("role") == "assistant") "output_text" else "input_text"), "text" to value.getValue("text"))
+                }) else content!!))
+            }), "max_output_tokens" to JsonPrimitive(maxTokens))) else body
+    }
+
+    private fun randomValue(size: Int) = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(size).also(SecureRandom()::nextBytes))
+}

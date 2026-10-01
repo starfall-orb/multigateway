@@ -608,10 +608,10 @@ fun ProviderEditScreen(
                                 icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                         }
-                        ProviderType.OPENAI_CODEX -> {
+                        ProviderType.OPENAI_CODEX, ProviderType.CLAUDE_CODE, ProviderType.ANTIGRAVITY, ProviderType.GITHUB_COPILOT -> {
                             SuggestionChip(
-                                onClick = { baseUrl = ProviderType.OPENAI_CODEX.defaultBaseUrl },
-                                label = { Text("Default: ChatGPT Codex backend", fontSize = 11.sp) },
+                                onClick = { baseUrl = type.defaultBaseUrl },
+                                label = { Text("Default: ${type.defaultBaseUrl}", fontSize = 11.sp) },
                                 icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
                             )
                         }
@@ -651,7 +651,7 @@ fun ProviderEditScreen(
                         }
                         DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
                             AuthMethod.entries
-                                .filter { type != ProviderType.OPENAI_CODEX || it == AuthMethod.OAUTH }
+                                .filter { !type.isAccountProvider || it == AuthMethod.OAUTH }
                                 .forEach { method ->
                                     DropdownMenuItem(
                                         text = { Text(method.displayName()) },

@@ -22,6 +22,9 @@ internal interface AccountProviderAdapter {
     suspend fun testConnection(provider: LlmProviderInfo): Result<String>
     suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo
 
+    suspend fun prepareModelProvider(provider: LlmProviderInfo, modelName: String): LlmProviderInfo =
+        prepareAuthenticatedProvider(provider)
+
     fun normalizeToolRequest(
         sourceProvider: LlmProviderInfo,
         wireProvider: LlmProviderInfo,
@@ -36,6 +39,12 @@ internal interface AccountProviderAdapter {
         systemPrompt: String,
         maxOutputTokens: Int
     ): Flow<GenerationEvent>
+
+    fun prepareRequestProvider(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo, body: JsonObject): LlmProviderInfo = wireProvider
+
+    fun requestUrl(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo, defaultUrl: String): String = defaultUrl
+
+    fun unwrapResponse(response: JsonObject): JsonObject = response
 
     fun clearCredentials(providerId: String)
 }

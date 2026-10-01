@@ -269,9 +269,17 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         onReasoning: suspend (String) -> Unit
     ): JsonObject {
         val defs = JsonArray(tools.map { obj("type" to str("function"),"function" to obj("name" to str(it.name),"description" to str(it.description),"parameters" to it.schema)) })
-        val wireProvider = llm.prepareAccountProvider(p)
+        val wireProvider = llm.prepareAccountProvider(p, model)
         val base = providerBase(wireProvider)
         val config = p.config.modelConfigs[model] ?: ModelConfiguration()
+        suspend fun modelResponse(url: String, body: JsonObject, provider: LlmProviderInfo,
+            stream: Boolean, text: suspend (String) -> Unit, reasoning: suspend (String) -> Unit = {}): JsonObject {
+            val requestBody = if (p.type == ProviderType.ANTIGRAVITY) JsonObject(body + ("model" to str(model))) else body
+            return http.modelResponse(llm.accountRequestUrl(p, provider, url),
+                llm.normalizeAccountToolRequest(p, provider, requestBody, prompt), llm.prepareAccountRequest(p, provider, requestBody), stream, text, reasoning,
+                { llm.unwrapAccountResponse(p, it) })
+        }
+
         return when(wireProvider.type) {
             ProviderType.OPENAI_RESPONSES -> {
                 val sendReasoning = config.sendThinkingContent
@@ -312,15 +320,9 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                             "parameters" to it.schema, "strict" to JsonPrimitive(false))
                     }))
                 }
-                val normalizedBody = llm.normalizeAccountToolRequest(
-                    sourceProvider = p,
-                    wireProvider = wireProvider,
-                    body = requestBody,
-                    systemPrompt = prompt
-                )
-                val response = http.modelResponse(
+                val response = modelResponse(
                     "$base/responses",
-                    normalizedBody,
+                    requestBody,
                     wireProvider,
                     p.streamEnabledFor(model),
                     onText,
@@ -376,7 +378,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         }
                     }
                 }
-                val response = http.modelResponse(
+                val response = modelResponse(
                     if (ollama) base.removeSuffix("/api") + "/api/chat" else "$base/chat/completions",
                     request, wireProvider, p.streamEnabledFor(model), onText, onReasoning
                 )
@@ -426,7 +428,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         native += obj("role" to str(targetRole), "content" to JsonArray(blocks))
                     }
                 }
-                val response = http.modelResponse(base.removeSuffix("/v1") + "/v1/messages", buildJsonObject {
+                val response = modelResponse(base.removeSuffix("/v1") + "/v1/messages", buildJsonObject {
                     put("model", model); put("max_tokens", p.config.maxTokens); put("system", prompt); put("messages", JsonArray(native))
                     if (tools.isNotEmpty()) put("tools", JsonArray(tools.map {
                         obj("name" to str(it.name), "description" to str(it.description), "input_schema" to it.schema)
@@ -449,11 +451,11 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     obj("role" to str(if(role=="assistant") "model" else "user"),"parts" to JsonArray(parts))
                 }
                 val root=if(Regex("/v1(?:beta|alpha)?$").containsMatchIn(base)) base else "$base/v1beta"
-                val response=http.modelResponse("$root/models/$model:generateContent",buildJsonObject {
+                val response=modelResponse("$root/models/$model:generateContent",buildJsonObject {
                     put("contents",JsonArray(native)); put("systemInstruction",obj("parts" to JsonArray(listOf(obj("text" to str(prompt))))))
                     if(tools.isNotEmpty()) put("tools",JsonArray(listOf(obj("functionDeclarations" to JsonArray(tools.map { obj("name" to str(it.name),"description" to str(it.description),"parameters" to it.schema) })))))
                     put("generationConfig",buildJsonObject { put("maxOutputTokens",p.config.maxTokens); config.temperature?.let { put("temperature",it) }; config.topP?.let { put("topP",it) }; config.topK?.let { put("topK",it) } })
-                },wireProvider,p.streamEnabledFor(model),onText)
+                },wireProvider,p.streamEnabledFor(model),onText,onReasoning)
                 providerTurn(wireProvider.type, response)
             }
             else -> error("Unsupported provider protocol: ${wireProvider.type.displayName}")

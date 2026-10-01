@@ -11,6 +11,7 @@ MultiGateway is a native Android client for chatting with multiple AI providers 
 ## Features
 
 - **Multiple LLM providers** — OpenAI/OpenAI-compatible, Anthropic, Google Gemini, and Ollama.
+- **Account providers** — ChatGPT Codex, Claude Code, Google Antigravity, and GitHub Copilot with browser authorization and encrypted local credentials.
 - **Custom endpoints** — configure custom base URLs, authentication, headers, and model catalogs for compatible gateways.
 - **Per-model configuration** — model type, temperature, top-p/top-k, capabilities, tool support, reasoning/vision flags, and streaming overrides.
 - **Streaming chat** — provider-level streaming defaults with optional per-model overrides.
@@ -33,6 +34,16 @@ MultiGateway separates settings by scope:
 - **Profile settings:** system prompt and profile-specific tool/MCP access.
 
 A model-level streaming setting takes precedence over the provider default. Leaving the model setting unset makes it inherit the provider setting.
+
+### Account authorization
+
+Select Codex, Claude Code, Antigravity, or GitHub Copilot in Provider settings and use the OAuth sign-in button. Codex, Claude Code, and Antigravity return to a localhost callback on the same Android device. Copilot copies a device code to the clipboard; paste it into the GitHub verification page. Credentials are stored with Android Keystore encryption, scoped to the provider ID; exported configuration contains only an authorization marker. Sign in again after importing configuration on another device.
+
+Antigravity provisions the account's Code Assist project and maps canonical model names to backend routes. Copilot discovers available models and selects the appropriate Chat Completions, Responses, or Anthropic protocol. All account providers share the chat/tool dispatch used by Codex, including streaming overrides.
+
+For Antigravity, supply the OAuth application's client ID and client secret when building: set `ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` in your local environment or CI secrets, or use the `antigravityOAuthClientId` and `antigravityOAuthClientSecret` properties in your user-level Gradle configuration. Use the OAuth client expected by the Antigravity service; arbitrary Google OAuth clients may not have Code Assist access. Builds without these values show a configuration error when authorizing Antigravity. Do not commit these values to the repository.
+
+Protocol reference: [smallmain/vscode-unify-chat-provider](https://github.com/smallmain/vscode-unify-chat-provider), especially its auth providers and Claude Code, Code Assist, and Copilot clients.
 
 ## MCP
 

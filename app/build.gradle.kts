@@ -18,6 +18,18 @@ android {
         versionCode = 10
         versionName = "1.0.0"
 
+        // Supply OAuth client configuration locally or through CI; never commit credentials.
+        fun oauthBuildValue(property: String, environment: String): String {
+            val value = providers.gradleProperty(property)
+                .orElse(providers.environmentVariable(environment)).orElse("").get()
+            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r") + "\""
+        }
+        buildConfigField("String", "ANTIGRAVITY_OAUTH_CLIENT_ID",
+            oauthBuildValue("antigravityOAuthClientId", "ANTIGRAVITY_OAUTH_CLIENT_ID"))
+        buildConfigField("String", "ANTIGRAVITY_OAUTH_CLIENT_SECRET",
+            oauthBuildValue("antigravityOAuthClientSecret", "ANTIGRAVITY_OAUTH_CLIENT_SECRET"))
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -68,6 +80,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

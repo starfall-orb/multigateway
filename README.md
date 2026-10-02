@@ -37,9 +37,9 @@ A model-level streaming setting takes precedence over the provider default. Leav
 
 ### Account authorization
 
-Select Codex, Claude Code, Antigravity, or GitHub Copilot in Provider settings and use the OAuth sign-in button. Codex, Claude Code, and Antigravity return to a localhost callback on the same Android device. Copilot copies a device code to the clipboard; paste it into the GitHub verification page. Credentials are stored with Android Keystore encryption, scoped to the provider ID; exported configuration contains only an authorization marker. Sign in again after importing configuration on another device.
+Select Codex, Claude Code, Antigravity, or GitHub Copilot in Provider settings and use the OAuth sign-in button. Codex and Claude Code return to a localhost callback; Antigravity uses an explicit 127.0.0.1 callback. The browser and app must be on the same Android device. Browser account sign-in keeps a temporary foreground notification active so the local callback stays responsive while the browser is open. Copilot copies a device code to the clipboard; paste it into the GitHub verification page. Credentials are stored with Android Keystore encryption, scoped to the provider ID; exported configuration contains only an authorization marker. Sign in again after importing configuration on another device.
 
-Antigravity provisions the account's Code Assist project and maps canonical model names to backend routes. Copilot discovers available models and selects the appropriate Chat Completions, Responses, or Anthropic protocol. All account providers share the chat/tool dispatch used by Codex, including streaming overrides.
+Antigravity offers Gemini 3 Flash and Gemini 3.1 Pro, provisions the account's Code Assist project, and maps canonical model names to backend routes. Copilot discovers available models and selects the appropriate Chat Completions, Responses, or Anthropic protocol. All account providers share the chat/tool dispatch used by Codex, including streaming overrides.
 
 Antigravity uses the native-app OAuth client defaults from the protocol reference; no additional build secrets or separate OAuth application are required.
 

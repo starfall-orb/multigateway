@@ -2,8 +2,7 @@ package org.starfall.multigateway.data.adapter.antigravity
 
 /** Canonical IDs and wire routes from vscode-unify-chat-provider's model resolver. */
 internal object AntigravityModels {
-    val available = listOf("gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-pro",
-        "gemini-3-flash", "claude-sonnet-4-6", "claude-opus-4-6")
+    val available = listOf("gemini-3-flash", "gemini-3.1-pro")
 
     fun resolve(model: String, effort: String? = null): String {
         val id = model.trim().removePrefix("models/")

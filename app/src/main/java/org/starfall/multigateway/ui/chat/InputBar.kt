@@ -59,7 +59,7 @@ fun InputBar(
                 maxLines = 5
             )
 
-            if (isGenerating) {
+            if (isGenerating && textState.isEmpty()) {
                 IconButton(
                     onClick = onStopGenerating,
                     colors = IconButtonDefaults.iconButtonColors(

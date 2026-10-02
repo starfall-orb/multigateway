@@ -29,6 +29,7 @@ class AccountAdapterTest {
 
     @Test fun antigravityResolvesCanonicalIdsToBackendRoutes() {
         val models = org.starfall.multigateway.data.adapter.antigravity.AntigravityModels
+        assertEquals(listOf("gemini-3-flash", "gemini-3.1-pro"), models.available)
         assertEquals("gemini-pro-agent", models.resolve("gemini-3.1-pro"))
         assertEquals("gemini-3.1-pro-low", models.resolve("gemini-3.1-pro", "low"))
         assertEquals("gemini-3-flash-agent", models.resolve("gemini-3.5-flash"))

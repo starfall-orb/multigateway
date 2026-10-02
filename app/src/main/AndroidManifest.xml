@@ -42,6 +42,15 @@
         </activity>
 
         <service
+            android:name="org.starfall.multigateway.data.adapter.common.OAuthCallbackService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Receive a local OAuth browser callback while the user signs in" />
+        </service>
+
+        <service
             android:name="org.starfall.multigateway.data.service.ChatBackgroundService"
             android:enabled="true"
             android:exported="false"

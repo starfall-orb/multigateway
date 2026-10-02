@@ -33,13 +33,14 @@ internal abstract class OAuthAccountAdapter(
     private val callbackPort: Int,
     private val callbackPath: String,
     private val clientSecret: String? = null,
-    private val jsonTokens: Boolean = false
+    private val jsonTokens: Boolean = false,
+    private val callbackHost: String = "localhost"
 ) : AccountProviderAdapter {
     protected val appContext = context.applicationContext
     protected val http = ToolHttp()
     protected val store = AccountTokenStore(context, providerType.name.lowercase())
     private val refreshLock = Mutex()
-    private val redirectUri get() = "http://localhost:$callbackPort$callbackPath"
+    private val redirectUri get() = "http://$callbackHost:$callbackPort$callbackPath"
     protected val marker get() = "account:${providerType.name.lowercase()}:v1"
 
     protected suspend fun <T> result(block: suspend () -> T): Result<T> = try {
@@ -47,7 +48,7 @@ internal abstract class OAuthAccountAdapter(
     } catch (e: CancellationException) { throw e }
     catch (e: Exception) { Result.failure(e) }
 
-    protected suspend fun openBrowser(url: String) = withContext(Dispatchers.Main) {
+    protected open suspend fun openBrowser(url: String) = withContext(Dispatchers.Main) {
         appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -68,11 +69,17 @@ internal abstract class OAuthAccountAdapter(
         val url = Uri.parse(authorizationUrl).buildUpon().apply {
             fields.forEach { (key, value) -> appendQueryParameter(key, value) }
         }.build().toString()
-        val code = awaitCode(url, state)
-        val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
-            "redirect_uri" to redirectUri, "code_verifier" to verifier, "state" to state)))
-        store.save(provider.id, token)
-        authorized(provider, token)
+        val service = Intent(appContext, OAuthCallbackService::class.java)
+        appContext.startForegroundService(service)
+        try {
+            val code = awaitCode(url, state)
+            val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
+                "redirect_uri" to redirectUri, "code_verifier" to verifier, "state" to state)))
+            store.save(provider.id, token)
+            authorized(provider, token)
+        } finally {
+            appContext.stopService(service)
+        }
     }
 
     protected fun authorized(provider: LlmProviderInfo, token: AccountTokenState) = provider.copy(
@@ -114,24 +121,31 @@ internal abstract class OAuthAccountAdapter(
                     val line = try {
                         val reader = it.getInputStream().bufferedReader()
                         val readDeadline = minOf(deadline, System.currentTimeMillis() + 2000)
-                        buildString {
+                        var total = 0
+                        suspend fun readLine(): String = buildString {
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 require(System.currentTimeMillis() < readDeadline) { "OAuth callback read timed out" }
                                 val c = reader.read()
-                                if (c < 0 || c == 10) break
+                                require(c >= 0) { "Incomplete OAuth callback" }
+                                if (c == 10) break
                                 if (c != 13) append(c.toChar())
-                                require(length <= 8192) { "OAuth callback is too large" }
+                                require(++total <= 16384 && length <= 8192) { "OAuth callback is too large" }
                             }
                         }
+                        val requestLine = readLine()
+                        while (readLine().isNotEmpty()) { /* Consume bounded HTTP headers. */ }
+                        requestLine
                     } catch (e: CancellationException) { throw e }
                     catch (_: Exception) { null } ?: return@use
-                    val uri = Uri.parse("http://localhost" + line.split(' ').getOrNull(1).orEmpty())
-                    val valid = line.startsWith("GET ") && uri.path == callbackPath && uri.getQueryParameter("state") == state
+                    val fields = line.split(' ')
+                    val uri = Uri.parse("http://127.0.0.1" + fields.getOrNull(1).orEmpty())
+                    val valid = fields.size == 3 && fields[0] == "GET" &&
+                        fields[2] in listOf("HTTP/1.0", "HTTP/1.1") && uri.path == callbackPath && uri.getQueryParameter("state") == state
                     val code = uri.getQueryParameter("code")
                     val success = valid && !code.isNullOrBlank() && uri.getQueryParameter("error") == null
                     val body = if (success) "Authorization complete. Return to MultiGateway." else "Invalid authorization callback."
-                    it.getOutputStream().write("HTTP/1.1 ${if (success) "200 OK" else "400 Bad Request"}\r\nContent-Type: text/plain\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body".toByteArray())
+                    runCatching { it.getOutputStream().write("HTTP/1.1 ${if (success) "200 OK" else "400 Bad Request"}\r\nContent-Type: text/plain\r\nContent-Length: ${body.toByteArray().size}\r\nConnection: close\r\n\r\n$body".toByteArray()) }
                     if (valid && uri.getQueryParameter("error") != null) error("OAuth authorization was denied")
                     if (success) return@withContext code!!
                 }

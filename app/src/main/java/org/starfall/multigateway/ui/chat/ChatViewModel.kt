@@ -152,17 +152,16 @@ class ChatViewModel(
     init {
         viewModelScope.launch {
             isGenerating.collect { busy ->
-                if (!busy) {
-                    val queue = _queuedMessages.value
-                    if (queue.isNotEmpty()) {
-                        val next = queue.first()
-                        _queuedMessages.value = queue.drop(1)
-                        delay(100)
-                        sendMessage(next.content, next.files)
-                    }
-                }
+                if (!busy) drainQueuedMessages()
             }
         }
+    }
+
+    private fun drainQueuedMessages() {
+        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return
+        val next = _queuedMessages.value.firstOrNull() ?: return
+        _queuedMessages.value = _queuedMessages.value.drop(1)
+        sendMessage(next.content, next.files)
     }
 
     fun editQueuedMessage(id: String, newContent: String, files: List<String>): Boolean {
@@ -194,7 +193,10 @@ class ChatViewModel(
     private fun writeConversation(block: suspend () -> Unit) {
         pendingConversationWrites++
         viewModelScope.launch {
-            try { block() } finally { pendingConversationWrites-- }
+            try { block() } finally {
+                pendingConversationWrites--
+                drainQueuedMessages()
+            }
         }
     }
 
@@ -486,6 +488,8 @@ class ChatViewModel(
                 delay(2500)
             } finally {
                 _summaryProgress.value = null
+                summaryJob = null
+                drainQueuedMessages()
             }
         }
         return true
@@ -557,8 +561,9 @@ class ChatViewModel(
         }
 
         val prefs = appPreferences.value
-        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return false
-        val modelId = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return false
+        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId }
+        val modelId = prefs.selectedModelId
+        val canGenerate = baseProvider != null && modelId.isNotBlank()
         val now = System.currentTimeMillis()
         val user = StoredMessage(
             UUID.randomUUID().toString(),
@@ -587,15 +592,21 @@ class ChatViewModel(
             updatedAt = now
         )).copy(
             title = if (firstMessage) fallbackTitle else existing?.title ?: fallbackTitle,
-            messages = (existing?.messages ?: emptyList()) + user + assistant,
+            messages = (existing?.messages ?: emptyList()) + user +
+                if (canGenerate) listOf(assistant) else emptyList(),
             updatedAt = now,
-            providerId = baseProvider.id,
+            providerId = baseProvider?.id.orEmpty(),
             modelId = modelId,
             profileId = null
         )
         _currentConversation.value = conv
 
-        val provider = providerWithReasoning(baseProvider, modelId, conv)
+        if (!canGenerate) {
+            writeConversation { conversationRepo.saveConversation(conv) }
+            return true
+        }
+
+        val provider = providerWithReasoning(requireNotNull(baseProvider), modelId, conv)
         val context = effectiveContext(
             conv,
             conv.messages.dropLast(1),

@@ -121,7 +121,8 @@ fun UserInputArea(
         attachments = (attachments + picked.map(Uri::toString)).distinct()
     }
 
-    val canSend = !isGenerating && (textState.isNotBlank() || attachments.isNotEmpty())
+    val canSend = textState.isNotBlank() || attachments.isNotEmpty()
+    val showStop = isGenerating && textState.isEmpty() && attachments.isEmpty()
 
     Box(
         modifier = modifier
@@ -237,15 +238,15 @@ fun UserInputArea(
                             .clip(CircleShape)
                             .background(
                                 when {
-                                    isGenerating -> MaterialTheme.colorScheme.errorContainer
+                                    showStop -> MaterialTheme.colorScheme.errorContainer
                                     canSend -> MaterialTheme.colorScheme.primaryContainer
                                     else -> MaterialTheme.colorScheme.surfaceContainerHighest
                                 }
                             )
                             .clickable(
-                                enabled = isGenerating || canSend,
+                                enabled = showStop || canSend,
                                 onClick = {
-                                    if (isGenerating) {
+                                    if (showStop) {
                                         onStopGenerating()
                                     } else if (canSend) {
                                         val submitted = editDraft?.let { draft ->
@@ -259,7 +260,7 @@ fun UserInputArea(
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Select an available provider and model, or wait for the current response.",
+                                                "Unable to submit this edit. Wait for the current response and try again.",
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
@@ -268,7 +269,7 @@ fun UserInputArea(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        if (isGenerating) {
+                        if (showStop) {
                             Icon(
                                 imageVector = Icons.Default.Stop,
                                 contentDescription = "Stop generation",

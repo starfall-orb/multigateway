@@ -17,7 +17,8 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
     "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
     "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token",
     "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs",
-    51121, "/oauth-callback", "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"
+    51121, "/oauth-callback", "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",
+    callbackHost = "127.0.0.1"
 ) {
     private val metadata = obj("ideType" to str("ANTIGRAVITY"), "platform" to str("MACOS"), "pluginType" to str("GEMINI"))
     private fun wire(provider: LlmProviderInfo, token: AccountTokenState) = provider.copy(type = ProviderType.GOOGLE,

@@ -147,7 +147,7 @@ internal abstract class OAuthAccountAdapter(
     override fun clearCredentials(providerId: String) = store.delete(providerId)
 
     override fun streamEvents(provider: LlmProviderInfo, modelName: String, messages: List<StoredMessage>,
-        systemPrompt: String, maxOutputTokens: Int): Flow<GenerationEvent> = flow {
+        systemPrompt: String, maxOutputTokens: Int): Flow<GenerationEvent> = channelFlow {
         val wire = prepareModelProvider(provider, modelName)
         val body = chatBody(wire.type, modelName, messages, systemPrompt, maxOutputTokens, provider.config.modelConfigs[modelName] ?: ModelConfiguration())
         val base = providerBase(wire)
@@ -159,12 +159,12 @@ internal abstract class OAuthAccountAdapter(
         }
         val response = http.modelResponse(requestUrl(provider, wire, url),
             normalizeToolRequest(provider, wire, body, systemPrompt), prepareRequestProvider(provider, wire, body), provider.streamEnabledFor(modelName),
-            { emit(GenerationEvent.Text(it)) }, { emit(GenerationEvent.Reasoning(it)) }, ::unwrapResponse)
+            { send(GenerationEvent.Text(it)) }, { send(GenerationEvent.Reasoning(it)) }, ::unwrapResponse)
         if (provider.streamEnabledFor(modelName) && wire.type == ProviderType.ANTHROPIC) {
             (response["content"] as? JsonArray).orEmpty().forEach {
                 val part = it.jsonObject
                 part.text("signature").takeIf(String::isNotBlank)?.let { signature ->
-                    emit(GenerationEvent.Reasoning("", signature))
+                    send(GenerationEvent.Reasoning("", signature))
                 }
             }
         }
@@ -172,27 +172,27 @@ internal abstract class OAuthAccountAdapter(
             when (wire.type) {
                 ProviderType.ANTHROPIC -> (response["content"] as? JsonArray).orEmpty().forEach {
                     val part = it.jsonObject
-                    if (part.text("type") == "thinking") emit(GenerationEvent.Reasoning(part.text("thinking"), part.text("signature").takeIf(String::isNotBlank)))
-                    else if (part.text("type") == "text") emit(GenerationEvent.Text(part.text("text")))
+                    if (part.text("type") == "thinking") send(GenerationEvent.Reasoning(part.text("thinking"), part.text("signature").takeIf(String::isNotBlank)))
+                    else if (part.text("type") == "text") send(GenerationEvent.Text(part.text("text")))
                 }
                 ProviderType.GOOGLE -> (response["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
                     ?.get("content")?.jsonObject?.get("parts")?.jsonArray.orEmpty().forEach {
                         val part = it.jsonObject
-                        if ((part["thought"] as? JsonPrimitive)?.booleanOrNull == true) emit(GenerationEvent.Reasoning(part.text("text")))
-                        else emit(GenerationEvent.Text(part.text("text")))
+                        if ((part["thought"] as? JsonPrimitive)?.booleanOrNull == true) send(GenerationEvent.Reasoning(part.text("text")))
+                        else send(GenerationEvent.Text(part.text("text")))
                     }
                 ProviderType.OPENAI_RESPONSES -> (response["output"] as? JsonArray).orEmpty().forEach { item ->
                     if (item.jsonObject.text("type") == "reasoning")
                         (item.jsonObject["summary"] as? JsonArray).orEmpty().forEach {
-                            emit(GenerationEvent.Reasoning(it.jsonObject.text("text")))
+                            send(GenerationEvent.Reasoning(it.jsonObject.text("text")))
                         }
                     (item.jsonObject["content"] as? JsonArray).orEmpty().forEach { part ->
-                        if (part.jsonObject.text("type") == "output_text") emit(GenerationEvent.Text(part.jsonObject.text("text")))
+                        if (part.jsonObject.text("type") == "output_text") send(GenerationEvent.Text(part.jsonObject.text("text")))
                     }
                 }
                 else -> (response["choices"] as? JsonArray)?.firstOrNull()?.jsonObject?.get("message")?.jsonObject?.let {
-                    if (it.text("reasoning_content").isNotEmpty()) emit(GenerationEvent.Reasoning(it.text("reasoning_content")))
-                    emit(GenerationEvent.Text(it.text("content")))
+                    if (it.text("reasoning_content").isNotEmpty()) send(GenerationEvent.Reasoning(it.text("reasoning_content")))
+                    send(GenerationEvent.Text(it.text("content")))
                 }
             }
         }

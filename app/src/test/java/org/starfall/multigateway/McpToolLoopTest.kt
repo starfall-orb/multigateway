@@ -22,7 +22,11 @@ import java.nio.file.Files
 @Config(sdk = [28])
 @RunWith(RobolectricTestRunner::class)
 class McpToolLoopTest {
-    @Before fun prepareKeystore() = installTestAndroidKeyStore()
+    @Before fun prepareKeystore() {
+        installTestAndroidKeyStore()
+        org.robolectric.Shadows.shadowOf(android.webkit.MimeTypeMap.getSingleton())
+            .addExtensionMimeTypeMapping("png", "image/png")
+    }
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @Test fun allProviderAdaptersExecuteMcpAndReturnToolResultToModel() = runBlocking {

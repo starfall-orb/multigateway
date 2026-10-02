@@ -13,7 +13,7 @@ import javax.crypto.*
 /** JVM-only Keystore stand-in; production still requires Android Keystore. */
 internal fun installTestAndroidKeyStore() {
     if (Security.getProvider("AndroidKeyStore") == null) {
-        Security.addProvider(object : Provider("AndroidKeyStore", "1.0", "Test-only Android Keystore") {
+        Security.addProvider(object : Provider("AndroidKeyStore", 1.0, "Test-only Android Keystore") {
             init {
                 put("KeyStore.AndroidKeyStore", TestKeyStore::class.java.name)
                 put("KeyGenerator.AES", TestKeyGenerator::class.java.name)

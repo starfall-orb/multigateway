@@ -240,4 +240,55 @@ class AccountAdapterTest {
         }
     }
 
+    private fun refreshingAdapter(tokenUrl: String) = object : OAuthAccountAdapter(
+        context, AttachmentResolver(context), ProviderType.CLAUDE_CODE, "test-client",
+        "https://example.com/authorize", tokenUrl, "scope", 0, "/callback", jsonTokens = true
+    ) {
+        override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo {
+            val token = ensureToken(provider)
+            return provider.copy(type = ProviderType.ANTHROPIC,
+                auth = Authorization(AuthMethod.CUSTOM_HEADER, "Authorization", "Bearer ${token.accessToken}"))
+        }
+        override suspend fun fetchModels(provider: LlmProviderInfo) = listOf("chat")
+    }
+
+    @Test fun concurrentRefreshIsSerializedAndPersistsRotatedToken() = runBlocking {
+        MockWebServer().use { server ->
+            val store = AccountTokenStore(context, "claude_code")
+            store.save("refresh", AccountTokenState("expired", "old-refresh", expiresAt = 1,
+                accountId = "account", email = "user@example.com", projectId = "project"))
+            server.enqueue(MockResponse().setBody("""{"access_token":"fresh","refresh_token":"rotated","expires_in":3600}"""))
+            val provider = LlmProviderInfo("refresh", "Claude", ProviderType.CLAUDE_CODE,
+                auth = Authorization(AuthMethod.OAUTH, value = "account:claude_code:v1"), baseUrl = "https://example.com")
+            val adapter = refreshingAdapter(server.url("/token").toString())
+            val prepared = (1..10).map { async { adapter.prepareAuthenticatedProvider(provider) } }.awaitAll()
+            assertTrue(prepared.all { it.auth.value == "Bearer fresh" })
+            assertEquals(1, server.requestCount)
+            val saved = store.load("refresh")!!
+            assertEquals("rotated", saved.refreshToken); assertEquals("account", saved.accountId)
+            assertEquals("user@example.com", saved.email); assertEquals("project", saved.projectId)
+            assertEquals("account:claude_code:v1", provider.auth.value)
+            val request = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
+            assertEquals("refresh_token", request.text("grant_type"))
+            assertEquals("old-refresh", request.text("refresh_token"))
+        }
+    }
+
+    @Test fun cancellingRefreshKeepsStoredCredentialsAndPropagatesCancellation() = runBlocking {
+        MockWebServer().use { server ->
+            val original = AccountTokenState("expired", "refresh", expiresAt = 1)
+            val store = AccountTokenStore(context, "claude_code")
+            store.save("cancel-refresh", original)
+            server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.NO_RESPONSE))
+            val provider = LlmProviderInfo("cancel-refresh", "Claude", ProviderType.CLAUDE_CODE,
+                auth = Authorization(AuthMethod.OAUTH, value = "account:claude_code:v1"), baseUrl = "https://example.com")
+            val adapter = refreshingAdapter(server.url("/token").toString())
+            val job = async { adapter.prepareAuthenticatedProvider(provider) }
+            withContext(Dispatchers.IO) { assertNotNull(server.takeRequest(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            job.cancel()
+            try { job.await(); fail("Refresh cancellation must propagate") } catch (_: CancellationException) { }
+            assertEquals(original, store.load("cancel-refresh"))
+        }
+    }
+
 }

@@ -83,8 +83,21 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
         }
     }
     override fun normalizeToolRequest(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo,
-        body: JsonObject, systemPrompt: String): JsonObject = if (wireProvider.type == ProviderType.OPENAI_RESPONSES)
-            JsonObject(body + mapOf("instructions" to JsonPrimitive(systemPrompt), "store" to JsonPrimitive(false))) else body
+        body: JsonObject, systemPrompt: String): JsonObject {
+        val values = body.toMutableMap()
+        if (wireProvider.type == ProviderType.OPENAI_RESPONSES) {
+            values["instructions"] = JsonPrimitive(systemPrompt)
+            values["store"] = JsonPrimitive(false)
+            (values["input"] as? JsonArray)?.let { input ->
+                values["input"] = JsonArray(input.filterNot { (it as? JsonObject)?.text("role") == "system" })
+            }
+        }
+        // Copilot's GPT routes manage their output-token limit, as in the reference client.
+        if (body.text("model").startsWith("gpt-")) {
+            values.remove("max_tokens"); values.remove("max_output_tokens")
+        }
+        return JsonObject(values)
+    }
 
     override fun prepareRequestProvider(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo, body: JsonObject): LlmProviderInfo {
         val messages = (body["messages"] ?: body["input"]) as? JsonArray

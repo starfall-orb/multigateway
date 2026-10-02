@@ -89,15 +89,20 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme == "multigateway" && data.host == "oauth") {
-            val fullUrl = data.toString()
-            val token = data.getQueryParameter("access_token")
-                ?: data.fragment?.split("&")?.find { it.startsWith("access_token=") }?.substringAfter("access_token=")
-                ?: Uri.parse(fullUrl.replace("#", "?")).getQueryParameter("access_token")
-            if (token != null) {
+            val fragment = data.encodedFragment?.let { Uri.parse("https://callback.invalid/?$it") }
+            fun parameter(name: String) = data.getQueryParameter(name) ?: fragment?.getQueryParameter(name)
+            val state = parameter("state")
+            val token = parameter("access_token")
+            if (token != null && OAuthReceiver.postToken(token, state)) {
+                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(this)
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("OAuth Token", token))
                 Toast.makeText(this, "OAuth2 Authenticated! Token copied and auto-filled.", Toast.LENGTH_LONG).show()
-                OAuthReceiver.postToken(token)
+                intent.data = null
+            } else if (parameter("error") != null && OAuthReceiver.cancel(state)) {
+                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(this)
+                Toast.makeText(this, "OAuth authorization was denied.", Toast.LENGTH_LONG).show()
+                intent.data = null
             }
         }
     }

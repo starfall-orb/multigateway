@@ -16,13 +16,6 @@ import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readUTF8Line
-import java.io.BufferedReader
-import java.io.BufferedWriter
-import java.io.InputStreamReader
-import java.io.OutputStreamWriter
-import java.net.InetAddress
-import java.net.ServerSocket
-import java.net.SocketTimeoutException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
@@ -45,6 +38,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
+import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
 import org.starfall.multigateway.data.adapter.AccountProviderAdapter
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.Authorization
@@ -98,19 +93,21 @@ internal class OpenAICodexAdapter(
             .build()
             .toString()
 
-        val code = awaitAuthorizationCode(authorizationUrl, state)
-        val exchanged = exchangeAuthorizationCode(code, verifier)
-        tokenStore.save(provider.id, exchanged)
+        OAuthCallbackService.keepAlive(appContext) {
+            val code = awaitAuthorizationCode(authorizationUrl, state)
+            val exchanged = exchangeAuthorizationCode(code, verifier)
+            withContext(Dispatchers.IO) { tokenStore.save(provider.id, exchanged) }
 
-        provider.copy(
-            name = provider.name.ifBlank { ProviderType.OPENAI_CODEX.defaultName },
-            baseUrl = provider.baseUrl.ifBlank { ProviderType.OPENAI_CODEX.defaultBaseUrl },
-            auth = Authorization(
-                method = AuthMethod.OAUTH,
-                key = exchanged.email ?: exchanged.accountId,
-                value = AUTH_MARKER
+            provider.copy(
+                name = provider.name.ifBlank { ProviderType.OPENAI_CODEX.defaultName },
+                baseUrl = provider.baseUrl.ifBlank { ProviderType.OPENAI_CODEX.defaultBaseUrl },
+                auth = Authorization(
+                    method = AuthMethod.OAUTH,
+                    key = exchanged.email ?: exchanged.accountId,
+                    value = AUTH_MARKER
+                )
             )
-        )
+        }
     }
 
     override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
@@ -398,82 +395,13 @@ internal class OpenAICodexAdapter(
             ?.takeIf { it.isNotBlank() }
     }
 
-    private suspend fun awaitAuthorizationCode(
-        authorizationUrl: String,
-        expectedState: String
-    ): String = withContext(Dispatchers.IO) {
-        ServerSocket().use { server ->
-            server.reuseAddress = true
-            server.bind(java.net.InetSocketAddress(InetAddress.getLoopbackAddress(), CALLBACK_PORT))
-            server.soTimeout = 1000
-
+    private suspend fun awaitAuthorizationCode(authorizationUrl: String, expectedState: String): String =
+        awaitOAuthAuthorizationCode(REDIRECT_URI, authorizationUrl, expectedState) { url ->
             withContext(Dispatchers.Main) {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                appContext.startActivity(intent)
+                appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
-
-            val deadline = System.currentTimeMillis() + AUTH_TIMEOUT_MS
-            while (System.currentTimeMillis() < deadline) {
-                currentCoroutineContext().ensureActive()
-                val socket = try {
-                    server.accept()
-                } catch (_: SocketTimeoutException) {
-                    continue
-                }
-
-                socket.use {
-                    it.soTimeout = 10_000
-                    val reader = BufferedReader(InputStreamReader(it.getInputStream(), Charsets.UTF_8))
-                    val firstLine = reader.readLine().orEmpty()
-                    val target = firstLine.split(' ').getOrNull(1).orEmpty()
-                    val callback = runCatching { Uri.parse("http://localhost$target") }.getOrNull()
-
-                    val callbackState = callback?.getQueryParameter("state")
-                    val error = callback?.getQueryParameter("error")
-                    val errorDescription = callback?.getQueryParameter("error_description")
-                    val code = callback?.getQueryParameter("code")
-
-                    when {
-                        !error.isNullOrBlank() -> {
-                            sendBrowserResponse(it, false)
-                            error(errorDescription ?: error)
-                        }
-                        callbackState != expectedState -> {
-                            sendBrowserResponse(it, false)
-                            error("OpenAI Codex OAuth state did not match.")
-                        }
-                        code.isNullOrBlank() -> {
-                            sendBrowserResponse(it, false)
-                            error("OpenAI Codex OAuth callback did not include an authorization code.")
-                        }
-                        else -> {
-                            sendBrowserResponse(it, true)
-                            return@withContext code
-                        }
-                    }
-                }
-            }
-            error("OpenAI Codex authorization timed out.")
         }
-    }
-
-    private fun sendBrowserResponse(socket: java.net.Socket, success: Boolean) {
-        val message = if (success) {
-            "Authorization complete. You can return to MultiGateway."
-        } else {
-            "Authorization failed. Return to MultiGateway and try again."
-        }
-        val body = "<!doctype html><html><body><h3>$message</h3></body></html>"
-        BufferedWriter(OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8)).use { writer ->
-            writer.write("HTTP/1.1 ${if (success) "200 OK" else "400 Bad Request"}\r\n")
-            writer.write("Content-Type: text/html; charset=utf-8\r\n")
-            writer.write("Content-Length: ${body.toByteArray(Charsets.UTF_8).size}\r\n")
-            writer.write("Connection: close\r\n\r\n")
-            writer.write(body)
-            writer.flush()
-        }
-    }
 
     private fun buildRequest(
         modelName: String,

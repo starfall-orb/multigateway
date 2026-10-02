@@ -122,8 +122,10 @@ class ConfigurationViewModel(
         }
     }
 
+    private val oauthAuthorizations = OAuthAuthorizations(viewModelScope, llmRepo::authorizeProvider)
+
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =
-        llmRepo.authorizeProvider(provider)
+        oauthAuthorizations.authorize(provider)
 
     suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> =
         llmRepo.clearOAuthCredentials(provider)

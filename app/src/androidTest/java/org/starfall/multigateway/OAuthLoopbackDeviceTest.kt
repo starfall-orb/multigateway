@@ -53,6 +53,14 @@ class OAuthLoopbackDeviceTest {
             val pending = async(Dispatchers.IO) { adapter.authorize(provider()) }
             val url = Uri.parse(withTimeout(5000) { browser.await() })
             val redirect = Uri.parse(url.getQueryParameter("redirect_uri"))
+            val notifications = context.getSystemService(android.app.NotificationManager::class.java)
+            withTimeout(5000) {
+                while (notifications.activeNotifications.none { it.id == 4557 }) delay(50)
+            }
+            assertEquals(android.app.NotificationManager.IMPORTANCE_HIGH,
+                notifications.getNotificationChannel(OAuthCallbackService.CHANNEL_ID).importance)
+            assertTrue(notifications.activeNotifications.first { it.id == 4557 }.notification.flags and
+                android.app.Notification.FLAG_ONGOING_EVENT != 0)
             assertEquals("127.0.0.1", redirect.host)
             assertEquals(port, redirect.port)
             assertEquals("/oauth-callback", redirect.path)

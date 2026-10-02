@@ -36,6 +36,10 @@ fun LlmProviderInfo.withType(newType: ProviderType): LlmProviderInfo = copy(
 )
 
 enum class AuthMethod {
+    @SerialName("platform_default")
+    PLATFORM_DEFAULT,
+    @SerialName("none")
+    NONE,
     @SerialName("query_param")
     QUERY_PARAM,
     @SerialName("bearer_token")
@@ -50,27 +54,59 @@ enum class AuthMethod {
 
 @Serializable
 data class Authorization(
-    val method: AuthMethod = AuthMethod.BEARER_TOKEN,
+    val method: AuthMethod = AuthMethod.PLATFORM_DEFAULT,
     val key: String? = null,
     val value: String? = null
 ) {
     // OAuth stores only an opaque adapter marker here; real tokens never enter provider config.
     val token: String
-        get() = if (method == AuthMethod.OAUTH) "" else value?.takeIf { it.isNotBlank() } ?: key.orEmpty()
+        get() = when {
+            method in listOf(AuthMethod.OAUTH, AuthMethod.NONE) -> ""
+            value != null -> value
+            method in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM) -> ""
+            else -> key.orEmpty() // Legacy API keys were stored in this field.
+        }
 }
 
 fun ProviderType.defaultAuthorization(): Authorization = when (this) {
-    ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES, ProviderType.ANTHROPIC ->
-        Authorization(method = AuthMethod.BEARER_TOKEN, value = "")
-
-    ProviderType.GOOGLE ->
-        Authorization(method = AuthMethod.QUERY_PARAM, key = "key", value = "")
+    ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES, ProviderType.ANTHROPIC, ProviderType.GOOGLE ->
+        Authorization(method = AuthMethod.PLATFORM_DEFAULT, value = "")
 
     ProviderType.OPENAI_CODEX, ProviderType.CLAUDE_CODE, ProviderType.ANTIGRAVITY, ProviderType.GITHUB_COPILOT ->
         Authorization(method = AuthMethod.OAUTH, value = "")
 
     ProviderType.OLLAMA ->
-        Authorization(method = AuthMethod.OTHER, value = "")
+        Authorization(method = AuthMethod.NONE, value = "")
+}
+
+/** Preserve serialized legacy methods while presenting the unified choices. */
+fun Authorization.editMethod(): AuthMethod = when (method) {
+    AuthMethod.CUSTOM_HEADER -> AuthMethod.BEARER_TOKEN
+    AuthMethod.OTHER -> if (token.isBlank()) AuthMethod.NONE else AuthMethod.BEARER_TOKEN
+    else -> method
+}
+
+fun bearerHeaderValue(headerName: String, value: String): String {
+    val trimmed = value.trim()
+    return if (headerName.equals("Authorization", ignoreCase = true) &&
+        trimmed.isNotEmpty() && !Regex("^Bearer(?:\\s|$)", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+    ) "Bearer $trimmed" else trimmed
+}
+
+/** Empty credentials omit authentication; the remote endpoint decides whether it is required. */
+fun Authorization.requestHeaders(type: ProviderType): Map<String, String> = when (method) {
+    AuthMethod.BEARER_TOKEN, AuthMethod.CUSTOM_HEADER -> {
+        val name = key?.trim()?.takeIf { it.isNotBlank() } ?: "Authorization"
+        token.takeIf { it.isNotBlank() }?.let { mapOf(name to bearerHeaderValue(name, it)) } ?: emptyMap()
+    }
+    AuthMethod.PLATFORM_DEFAULT, AuthMethod.OTHER -> token.takeIf { it.isNotBlank() }?.let {
+        when (type) {
+            ProviderType.GOOGLE -> mapOf("x-goog-api-key" to it)
+            ProviderType.ANTHROPIC -> mapOf("x-api-key" to it)
+            else -> mapOf("Authorization" to bearerHeaderValue("Authorization", it))
+        }
+    } ?: emptyMap()
+    AuthMethod.QUERY_PARAM, AuthMethod.OAUTH, AuthMethod.NONE -> emptyMap()
 }
 
 @Serializable

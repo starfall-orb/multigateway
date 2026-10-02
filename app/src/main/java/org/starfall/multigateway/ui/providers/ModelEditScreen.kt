@@ -47,18 +47,23 @@ fun ModelEditScreen(
                     reasoningEffort = config.reasoningEffort?.trim()?.ifEmpty { null }
                 )
             )
+            onBack()
         }
-        onBack()
     }
-    BackHandler(enabled = LocalScreenTransitionActive.current, onBack = ::saveAndBack)
+    BackHandler(enabled = LocalScreenTransitionActive.current, onBack = onBack)
     Scaffold(
         modifier = Modifier.fillMaxSize().imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text(if (initialModelId.isBlank()) "Add Model Manually" else "Edit Model") },
+                title = { Text(if (initialModelId.isBlank()) "Add Model" else "Edit Model") },
                 navigationIcon = {
-                    IconButton(onClick = ::saveAndBack) {
+                    IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = ::saveAndBack, enabled = idError == null) {
+                        Text("Save")
                     }
                 }
             )

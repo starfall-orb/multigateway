@@ -1,13 +1,35 @@
 package org.starfall.multigateway.ui.mcp
 
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import java.util.UUID
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 object OAuthReceiver {
-    private val _tokenFlow = MutableSharedFlow<String>(extraBufferCapacity = 1)
-    val tokenFlow = _tokenFlow.asSharedFlow()
+    private val pending = MutableStateFlow<String?>(null)
+    private var expectedState: String? = null
+    val tokenFlow = pending.asStateFlow()
 
-    fun postToken(token: String) {
-        _tokenFlow.tryEmit(token)
+    @Synchronized
+    fun begin(): String {
+        pending.value = null
+        return UUID.randomUUID().toString().also { expectedState = it }
     }
+
+    @Synchronized
+    fun postToken(token: String, state: String?): Boolean {
+        if (expectedState == null || state != expectedState || token.isBlank()) return false
+        expectedState = null
+        pending.value = token
+        return true
+    }
+
+    @Synchronized
+    fun cancel(state: String?): Boolean {
+        if (expectedState == null || state != expectedState) return false
+        expectedState = null
+        pending.value = null
+        return true
+    }
+
+    fun consume(token: String) { pending.compareAndSet(token, null) }
 }

@@ -52,16 +52,9 @@ class ToolHttp(val files: ToolFiles? = null) {
         val builder = Request.Builder().url(url).header("Accept", "application/json")
         provider?.let { p ->
             val auth = p.auth
-            val token = auth.token
-            when (auth.method) {
-                AuthMethod.CUSTOM_HEADER -> auth.key?.takeIf { it.isNotBlank() }?.let { builder.header(it, auth.value.orEmpty()) }
-                AuthMethod.QUERY_PARAM -> builder.url(builder.build().url.newBuilder().setQueryParameter(auth.key ?: "key", auth.value.orEmpty()).build())
-                AuthMethod.OAUTH -> Unit
-                else -> if (token.isNotBlank()) when (p.type) {
-                    ProviderType.GOOGLE -> builder.header("x-goog-api-key", token)
-                    ProviderType.ANTHROPIC -> builder.header("x-api-key", token)
-                    else -> builder.header("Authorization", "Bearer $token")
-                }
+            auth.requestHeaders(p.type).forEach { (key, value) -> builder.header(key, value) }
+            if (auth.method == AuthMethod.QUERY_PARAM && auth.token.isNotBlank()) {
+                builder.url(builder.build().url.newBuilder().setQueryParameter(auth.key?.takeIf { it.isNotBlank() } ?: "key", auth.token).build())
             }
             if (p.type == ProviderType.ANTHROPIC) builder.header("anthropic-version", "2023-06-01")
             p.config.headers.forEach { (k,v) -> builder.header(k,v) }

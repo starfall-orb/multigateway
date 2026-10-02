@@ -40,9 +40,9 @@ internal class AccountTokenStore(context: Context, namespace: String) {
     }
 
     fun save(providerId: String, token: AccountTokenState) {
-        preferences.edit()
+        check(preferences.edit()
             .putString(providerId, encrypt(json.encodeToString(token)))
-            .apply()
+            .commit()) { "Could not save OAuth credentials." }
     }
 
     fun delete(providerId: String) {

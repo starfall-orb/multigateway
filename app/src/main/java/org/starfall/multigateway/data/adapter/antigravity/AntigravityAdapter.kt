@@ -28,7 +28,11 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
             "X-Goog-Api-Client" to "google-cloud-sdk vscode_cloudshelleditor/0.1", "Client-Metadata" to metadata.toString())))
 
     private val projectLock = Mutex()
-    override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo = projectLock.withLock {
+    override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo =
+        wire(provider, ensureToken(provider))
+
+    // Project routing is resolved only for generation, never as a sign-in/connection prerequisite.
+    override suspend fun prepareModelProvider(provider: LlmProviderInfo, modelName: String): LlmProviderInfo = projectLock.withLock {
         var token = ensureToken(provider)
         if (token.projectId.isNullOrBlank()) {
             val authenticated = wire(provider, token)
@@ -68,7 +72,7 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
                 catch (e: Exception) { lastFailure = e }
             }
             check(!projectId.isNullOrBlank()) {
-                "Antigravity account has no Code Assist project: ${lastFailure?.message.orEmpty()}"
+                "Could not resolve the Antigravity project for this generation request: ${lastFailure?.message.orEmpty()}"
             }
             token = token.copy(projectId = projectId)
             store.save(provider.id, token)
@@ -76,8 +80,12 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
         wire(provider, token)
     }
     override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
-        prepareAuthenticatedProvider(provider)
+        ensureToken(provider)
         return AntigravityModels.available
+    }
+    override suspend fun testConnection(provider: LlmProviderInfo): Result<String> = result {
+        ensureToken(provider)
+        "Antigravity authorization is ready."
     }
     override fun normalizeToolRequest(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo,
         body: JsonObject, systemPrompt: String): JsonObject {

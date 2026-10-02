@@ -39,35 +39,31 @@ internal class CodexTokenStore(context: Context) {
     }
 
     fun save(providerId: String, token: CodexTokenState) {
-        preferences.edit()
+        check(preferences.edit()
             .putString(providerId, encrypt(json.encodeToString(token)))
-            .apply()
+            .commit()) { "Could not save OAuth credentials." }
     }
 
     fun delete(providerId: String) {
         preferences.edit().remove(providerId).apply()
     }
 
-    private fun key(create: Boolean): SecretKey {
-        return runCatching {
-            val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-            check(create) { "Codex credential key is unavailable." }
+    private fun key(create: Boolean): SecretKey = synchronized(KEY_LOCK) {
+        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return@synchronized it }
+        check(create) { "Account credential key is unavailable." }
 
-            KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
-                init(
-                    KeyGenParameterSpec.Builder(
-                        KEY_ALIAS,
-                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-                    )
-                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                        .build()
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(
+                KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
                 )
-            }.generateKey()
-        }.getOrElse {
-            fallbackKey ?: KeyGenerator.getInstance("AES").apply { init(256) }.generateKey().also { fallbackKey = it }
-        }
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .build()
+            )
+        }.generateKey()
     }
 
     private fun encrypt(value: String): String {
@@ -93,6 +89,6 @@ internal class CodexTokenStore(context: Context) {
     private companion object {
         const val KEY_ALIAS = "multigateway.codex.oauth.v1"
         const val PREFIX = "keystore:v1:"
-        var fallbackKey: SecretKey? = null
+        val KEY_LOCK = Any()
     }
 }

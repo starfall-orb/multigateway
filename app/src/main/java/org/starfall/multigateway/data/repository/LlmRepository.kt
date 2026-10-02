@@ -29,19 +29,15 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     }
 
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
-        val authorized = service.authorizeProvider(provider).getOrThrow()
-        providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)?.let { persisted ->
-            providerDao.insertOrUpdate(
-                providerModelToEntity(
-                    persisted.copy(
-                        type = authorized.type,
-                        baseUrl = authorized.baseUrl,
-                        auth = authorized.auth
-                    )
-                )
-            )
+        service.withOAuthSession {
+            val authorized = service.authorizeProvider(provider).getOrThrow()
+            val persisted = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
+            providerDao.insertOrUpdate(providerModelToEntity(
+                persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
+                    ?: authorized
+            ))
+            authorized
         }
-        authorized
     }
 
     suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {

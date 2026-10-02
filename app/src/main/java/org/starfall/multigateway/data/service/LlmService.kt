@@ -16,6 +16,10 @@ import org.starfall.multigateway.data.model.*
 import java.util.Base64
 
 class LlmService(context: Context) {
+    private val appContext = context.applicationContext
+
+    internal suspend fun <T> withOAuthSession(block: suspend () -> T): T =
+        org.starfall.multigateway.data.adapter.common.OAuthCallbackService.keepAlive(appContext, block)
 
     private val attachments = AttachmentResolver(context)
     private val sdk = OfficialLlmSdk(attachments)
@@ -192,17 +196,9 @@ class LlmService(context: Context) {
         do {
             val response = httpClient.get(endpoint) {
                 val auth = provider.auth
-                when (auth.method) {
-                    AuthMethod.CUSTOM_HEADER -> auth.key?.takeIf { it.isNotBlank() }?.let { header(it, auth.value.orEmpty()) }
-                    AuthMethod.QUERY_PARAM -> parameter(auth.key ?: "key", auth.value.orEmpty())
-                    AuthMethod.OAUTH -> Unit
-                    else -> auth.token.takeIf { it.isNotBlank() }?.let { token ->
-                        when (provider.type) {
-                            ProviderType.ANTHROPIC -> header("x-api-key", token)
-                            ProviderType.GOOGLE -> header("x-goog-api-key", token)
-                            else -> bearerAuth(token)
-                        }
-                    }
+                auth.requestHeaders(provider.type).forEach { (key, value) -> header(key, value) }
+                if (auth.method == AuthMethod.QUERY_PARAM && auth.token.isNotBlank()) {
+                    parameter(auth.key?.takeIf { it.isNotBlank() } ?: "key", auth.token)
                 }
                 if (provider.type == ProviderType.ANTHROPIC) header("anthropic-version", "2023-06-01")
                 provider.config.headers.forEach { (name, value) -> headers.remove(name); header(name, value) }
@@ -426,23 +422,9 @@ class LlmService(context: Context) {
     }
 
     private fun HttpRequestBuilder.applyAuth(provider: LlmProviderInfo) {
-        val key = provider.auth.token
-        if (!key.isNullOrEmpty()) {
-            when (provider.auth.method) {
-                AuthMethod.BEARER_TOKEN -> bearerAuth(key)
-                AuthMethod.CUSTOM_HEADER -> {
-                    val headerName = provider.auth.key ?: "Authorization"
-                    val headerVal = provider.auth.value ?: key
-                    header(headerName, headerVal)
-                }
-                AuthMethod.QUERY_PARAM -> {
-                    parameter(provider.auth.key ?: "key", provider.auth.value ?: key)
-                }
-                AuthMethod.OTHER -> {
-                    bearerAuth(key)
-                }
-                AuthMethod.OAUTH -> Unit
-            }
+        provider.auth.requestHeaders(provider.type).forEach { (key, value) -> header(key, value) }
+        if (provider.auth.method == AuthMethod.QUERY_PARAM && provider.auth.token.isNotBlank()) {
+            parameter(provider.auth.key?.takeIf { it.isNotBlank() } ?: "key", provider.auth.token)
         }
         provider.config.headers.forEach { (k, v) ->
             header(k, v)

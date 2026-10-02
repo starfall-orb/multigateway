@@ -35,7 +35,7 @@ class McpSession(private val info: McpInfo, private val http: ToolHttp) {
     private val messages = Channel<JsonObject>(32)
     private fun request(url: String): Request.Builder {
         val auth = info.auth
-        val requestUrl = if (auth.method == McpAuthMethod.QUERY_PARAM) {
+        val requestUrl = if (auth.method == McpAuthMethod.QUERY_PARAM && auth.token.isNotBlank()) {
             url.toHttpUrl().newBuilder()
                 .addQueryParameter(auth.key?.takeIf { it.isNotBlank() } ?: "key", auth.value.orEmpty())
                 .build()
@@ -45,10 +45,12 @@ class McpSession(private val info: McpInfo, private val http: ToolHttp) {
         return Request.Builder().url(requestUrl).apply {
             info.headers?.forEach { (k, v) -> header(k, v) }
             when (auth.method) {
-                McpAuthMethod.BEARER_TOKEN, McpAuthMethod.OAUTH2 ->
-                    auth.token.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
-                McpAuthMethod.CUSTOM_HEADER ->
-                    auth.key?.takeIf { it.isNotBlank() }?.let { header(it, auth.value.orEmpty()) }
+                McpAuthMethod.BEARER_TOKEN, McpAuthMethod.CUSTOM_HEADER -> {
+                    val name = auth.key?.takeIf { it.isNotBlank() } ?: "Authorization"
+                    auth.token.takeIf { it.isNotBlank() }?.let { header(name, bearerHeaderValue(name, it)) }
+                }
+                McpAuthMethod.OAUTH2 ->
+                    auth.token.takeIf { it.isNotBlank() }?.let { header("Authorization", bearerHeaderValue("Authorization", it)) }
                 McpAuthMethod.NONE, McpAuthMethod.QUERY_PARAM -> Unit
             }
             header("Accept", "application/json, text/event-stream")

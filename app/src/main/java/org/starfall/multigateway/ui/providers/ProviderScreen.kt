@@ -42,6 +42,9 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.focus.onFocusChanged
+import org.starfall.multigateway.data.model.editMethod
+import org.starfall.multigateway.data.model.bearerHeaderValue
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.Authorization
 import org.starfall.multigateway.data.model.LlmProviderInfo
@@ -353,11 +356,13 @@ fun ProviderUnifiedCard(
 }
 
 fun AuthMethod.displayName(): String = when (this) {
+    AuthMethod.PLATFORM_DEFAULT -> "Platform Default"
+    AuthMethod.NONE -> "None"
     AuthMethod.BEARER_TOKEN -> "Bearer Token"
-    AuthMethod.QUERY_PARAM -> "Query Parameter"
-    AuthMethod.CUSTOM_HEADER -> "Custom Header"
-    AuthMethod.OAUTH -> "OAuth"
-    AuthMethod.OTHER -> "Other"
+    AuthMethod.QUERY_PARAM -> "URL Query"
+    AuthMethod.CUSTOM_HEADER -> "Bearer Token"
+    AuthMethod.OAUTH -> "OAuth Flow"
+    AuthMethod.OTHER -> "None"
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -379,13 +384,15 @@ fun ProviderEditScreen(
     var name by remember { mutableStateOf(initialProvider.name) }
     var type by remember { mutableStateOf(initialProvider.type) }
     var baseUrl by remember { mutableStateOf(initialProvider.baseUrl) }
-    var authMethod by remember { mutableStateOf(initialProvider.auth.method) }
+    var authMethod by remember { mutableStateOf(initialProvider.auth.editMethod()) }
     var authName by remember { mutableStateOf(
-        if (initialProvider.auth.method in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) {
-            initialProvider.auth.key.orEmpty().ifBlank { if (initialProvider.type == ProviderType.GOOGLE) "key" else "" }
-        } else ""
+        initialProvider.auth.key.orEmpty().takeIf {
+            initialProvider.auth.method in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)
+        }.orEmpty().ifBlank {
+            if (initialProvider.auth.method == AuthMethod.QUERY_PARAM) "key" else "Authorization"
+        }
     ) }
-    var apiKey by remember { mutableStateOf(if (initialProvider.auth.method in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) initialProvider.auth.value.orEmpty() else initialProvider.auth.token) }
+    var apiKey by remember { mutableStateOf(initialProvider.auth.token) }
     var oauthAuthorized by remember(initialProvider.id) {
         mutableStateOf(
             initialProvider.auth.method == AuthMethod.OAUTH &&
@@ -398,6 +405,7 @@ fun ProviderEditScreen(
     var oauthMarker by remember(initialProvider.id) {
         mutableStateOf(initialProvider.auth.value.orEmpty().takeIf { oauthAuthorized }.orEmpty())
     }
+    var providerPersisted by remember(initialProvider.id) { mutableStateOf(!isNew) }
     var oauthAuthorizing by remember { mutableStateOf(false) }
     var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
@@ -410,8 +418,8 @@ fun ProviderEditScreen(
     } else {
         Authorization(
             authMethod,
-            if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) authName.trim() else null,
-            apiKey.trim()
+            if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) authName.trim() else null,
+            if (authMethod == AuthMethod.BEARER_TOKEN) bearerHeaderValue(authName.ifBlank { "Authorization" }, apiKey) else apiKey.trim()
         )
     }
     var showTestDialog by remember { mutableStateOf(false) }
@@ -442,34 +450,21 @@ fun ProviderEditScreen(
     } && activeHeaders.map { it.first.lowercase() }.distinct().size == activeHeaders.size
     val parsedHeaders = if (headersValid) activeHeaders.associate { it.first.trim() to it.second } else null
     val urlValid = runCatching { org.starfall.multigateway.data.tools.providerBase(initialProvider.copy(baseUrl = baseUrl)) }.isSuccess
-    val authValid = authMethod !in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM) ||
-        (authName.isNotBlank() && authName.none { it <= ' ' || it == ':' || it.code >= 127 })
+    val authValid = apiKey.isBlank() || authMethod !in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM) ||
+        authName.isBlank() || authName.none { it <= ' ' || it == ':' || it.code >= 127 }
     val requestValid = urlValid && authValid && headersValid
     fun requestConfig() = initialProvider.config.copy(
         supportStream = supportStream, headers = parsedHeaders ?: initialProvider.config.headers,
         modelConfigs = modelOrder.associateWith { modelConfigs.getValue(it) }, modelIds = modelOrder
     )
-    fun dismissEditor() {
-        if (isNew && oauthAuthorized && onClearOAuthCredentials != null) {
-            val oauthProvider = initialProvider.copy(type = type, auth = authorization())
-            coroutineScope.launch {
-                try {
-                    onClearOAuthCredentials.invoke(oauthProvider)
-                } finally {
-                    onDismiss()
-                }
-            }
-        } else {
-            onDismiss()
-        }
-    }
+    fun dismissEditor() { onDismiss() }
     BackHandler(enabled = LocalScreenTransitionActive.current && configuringModel == null, onBack = ::dismissEditor)
     fun updateModels(updated: Map<String, ModelConfiguration>) {
         val existingIds = modelOrder.toSet()
         val nextOrder = modelOrder.filter { it in updated } + updated.keys.filterNot { it in existingIds }
         modelOrder = nextOrder
         modelConfigs = updated
-        if (!isNew) onSaveModels(initialProvider.id, nextOrder.associateWith { updated.getValue(it) })
+        if (providerPersisted) onSaveModels(initialProvider.id, nextOrder.associateWith { updated.getValue(it) })
     }
 
     SlideScreenContent(editor = configuringModel, label = "Model editor") { editingModelId ->
@@ -480,9 +475,7 @@ fun ProviderEditScreen(
                 initialModelId = editingModelId,
                 existingModelIds = modelConfigs.keys,
                 onSave = { newId, config ->
-                    updateModels(modelConfigs.entries.associate { (id, value) ->
-                        if (id == editingModelId) newId to config else id to value
-                    })
+                    updateModels((modelConfigs - editingModelId) + (newId to config))
                     configuringModel = null
                 },
                 onBack = { configuringModel = null }
@@ -503,7 +496,7 @@ fun ProviderEditScreen(
                     if (selectedTab == 0) {
                         Button(
                             enabled = requestValid && baseUrl.isNotBlank() &&
-                                (authMethod != AuthMethod.OAUTH || (oauthAuthorized && !oauthAuthorizing)),
+                                !oauthAuthorizing,
                             onClick = {
                                 onSave(initialProvider.copy(
                                     name = name.trim().ifEmpty { type.defaultName },
@@ -672,13 +665,13 @@ fun ProviderEditScreen(
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
                         DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
-                            AuthMethod.entries
-                                .filter { !type.isAccountProvider || it == AuthMethod.OAUTH }
+                            listOf(AuthMethod.PLATFORM_DEFAULT, AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM, AuthMethod.OAUTH, AuthMethod.NONE)
                                 .forEach { method ->
                                     DropdownMenuItem(
                                         text = { Text(method.displayName()) },
                                         onClick = {
                                             authMethod = method
+                                            authName = if (method == AuthMethod.QUERY_PARAM) "key" else "Authorization"
                                             oauthAuthError = null
                                             authExpanded = false
                                         }
@@ -696,7 +689,7 @@ fun ProviderEditScreen(
                             canSignIn = onAuthorizeProvider != null,
                             canSignOut = onClearOAuthCredentials != null,
                             error = oauthAuthError,
-                            onSignIn = {
+                            onSignIn = org.starfall.multigateway.ui.components.rememberOAuthStart {
                                 coroutineScope.launch {
                                     oauthAuthorizing = true
                                     oauthAuthError = null
@@ -714,6 +707,7 @@ fun ProviderEditScreen(
                                     val result = onAuthorizeProvider?.invoke(draft)
                                         ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
                                     result.onSuccess { authorized ->
+                                        providerPersisted = true
                                         oauthAuthorized = true
                                         oauthIdentity = authorized.auth.key
                                         oauthMarker = authorized.auth.value.orEmpty()
@@ -750,18 +744,22 @@ fun ProviderEditScreen(
                                 }
                             }
                         )
-                    } else {
-                        if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) {
-                            OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.CUSTOM_HEADER) "Header name" else "Query parameter name") },
+                    } else if (authMethod != AuthMethod.NONE) {
+                        if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) {
+                            OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
                                 isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
                         }
                         OutlinedTextField(
                             value = apiKey,
                             onValueChange = { apiKey = it },
-                            label = { Text(if (type == ProviderType.OLLAMA) "API Key / Token (Optional)" else "API Key") },
+                            label = { Text(if (authMethod == AuthMethod.PLATFORM_DEFAULT) "API Key (Optional)" else "Value (Optional)") },
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().onFocusChanged {
+                                if (!it.isFocused && authMethod == AuthMethod.BEARER_TOKEN) {
+                                    apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey)
+                                }
+                            }
                         )
                     }
 
@@ -839,7 +837,7 @@ fun ProviderEditScreen(
                     modelOrder = modelOrder.moved(from, to)
                 }
                 fun persistModelOrder() {
-                    if (!isNew) onReorderModels(initialProvider.id, modelOrder)
+                    if (providerPersisted) onReorderModels(initialProvider.id, modelOrder)
                 }
                 val modelListState = rememberLazyListState()
                 val reorderState = rememberLazyListReorderState(

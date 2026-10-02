@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.starfall.multigateway.data.model.requestHeaders
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.SpeechService
@@ -38,19 +39,7 @@ class SpeechSynthesisService {
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "audio/mpeg")
-            when (auth.method) {
-                AuthMethod.BEARER_TOKEN, AuthMethod.OTHER -> {
-                    auth.token.takeIf { it.isNotBlank() }?.let {
-                        setRequestProperty("Authorization", "Bearer $it")
-                    }
-                }
-                AuthMethod.CUSTOM_HEADER -> {
-                    auth.key?.takeIf { it.isNotBlank() }?.let {
-                        setRequestProperty(it, auth.value ?: auth.token)
-                    }
-                }
-                AuthMethod.QUERY_PARAM, AuthMethod.OAUTH -> Unit
-            }
+            auth.requestHeaders(provider.type).forEach { (key, value) -> setRequestProperty(key, value) }
             provider.config.headers.forEach { (name, value) ->
                 setRequestProperty(name, value)
             }

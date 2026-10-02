@@ -23,9 +23,16 @@ class DefaultDataInitializer(
                 val legacyAnthropic = currentProviders.find { it.id == "anthropic" }
                 if (legacyAnthropic?.auth?.method == AuthMethod.CUSTOM_HEADER && legacyAnthropic.auth.key.isNullOrBlank()) {
                     llmRepo.saveProvider(legacyAnthropic.copy(auth = Authorization(
-                        method = AuthMethod.BEARER_TOKEN,
+                        method = AuthMethod.PLATFORM_DEFAULT,
                         value = legacyAnthropic.auth.value.orEmpty()
                     )))
+                }
+
+                currentProviders.filter {
+                    it.type in listOf(ProviderType.GOOGLE, ProviderType.ANTHROPIC) &&
+                        it.auth.method == AuthMethod.BEARER_TOKEN && it.auth.key == null
+                }.forEach {
+                    llmRepo.saveProvider(it.copy(auth = it.auth.copy(method = AuthMethod.PLATFORM_DEFAULT)))
                 }
 
                 val existingOllama = currentProviders.find { it.type == ProviderType.OLLAMA }

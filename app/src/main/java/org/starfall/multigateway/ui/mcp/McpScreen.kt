@@ -58,6 +58,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import androidx.compose.ui.focus.onFocusChanged
+import org.starfall.multigateway.data.model.bearerHeaderValue
 import org.starfall.multigateway.data.model.McpAuthMethod
 import org.starfall.multigateway.data.model.McpAuthorization
 import org.starfall.multigateway.data.model.McpInfo
@@ -416,8 +418,8 @@ fun AddOrEditMcpScreenContent(
     var protocol by remember(initialServer.id) { mutableStateOf(initialServer.protocol) }
     var url by remember(initialServer.id) { mutableStateOf(initialServer.url.orEmpty()) }
     var headers by remember(initialServer.id) { mutableStateOf(initialServer.headers.orEmpty().toList()) }
-    var authMethod by remember(initialServer.id) { mutableStateOf(initialServer.auth.method) }
-    var authKey by remember(initialServer.id) { mutableStateOf(initialServer.auth.key.orEmpty()) }
+    var authMethod by remember(initialServer.id) { mutableStateOf(if (initialServer.auth.method == McpAuthMethod.CUSTOM_HEADER) McpAuthMethod.BEARER_TOKEN else initialServer.auth.method) }
+    var authKey by remember(initialServer.id) { mutableStateOf(initialServer.auth.key.orEmpty().ifBlank { if (initialServer.auth.method == McpAuthMethod.QUERY_PARAM) "key" else "Authorization" }) }
     var authValue by remember(initialServer.id) { mutableStateOf(initialServer.auth.value.orEmpty()) }
     var selectedTab by remember(initialServer.id) { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
@@ -432,14 +434,17 @@ fun AddOrEditMcpScreenContent(
 
     LaunchedEffect(initialServer.id) {
         OAuthReceiver.tokenFlow.collect { receivedToken ->
-            authValue = receivedToken
+            if (receivedToken != null) {
+                authValue = receivedToken
+                OAuthReceiver.consume(receivedToken)
+            }
         }
     }
 
     fun currentAuth() = McpAuthorization(
         method = authMethod,
-        key = if (authMethod in listOf(McpAuthMethod.CUSTOM_HEADER, McpAuthMethod.QUERY_PARAM)) authKey.trim() else null,
-        value = if (authMethod == McpAuthMethod.NONE) null else authValue.trim()
+        key = if (authMethod in listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM)) authKey.trim() else null,
+        value = if (authMethod == McpAuthMethod.NONE) null else if (authMethod == McpAuthMethod.BEARER_TOKEN) bearerHeaderValue(authKey.ifBlank { "Authorization" }, authValue) else authValue.trim()
     )
 
     fun currentServer(): McpInfo = initialServer.copy(
@@ -453,7 +458,7 @@ fun AddOrEditMcpScreenContent(
         auth = currentAuth()
     )
 
-    val authValid = authMethod !in listOf(McpAuthMethod.CUSTOM_HEADER, McpAuthMethod.QUERY_PARAM) ||
+    val authValid = authValue.isBlank() || authKey.isBlank() || authMethod !in listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM) ||
         (authKey.isNotBlank() && !authKey.contains(':') && authKey.none { it <= ' ' || it.code >= 127 })
     val canSave = name.isNotBlank() && url.isNotBlank() && authValid && headers.all {
         it.first.isNotBlank() && !it.first.contains(':') &&
@@ -530,7 +535,7 @@ fun AddOrEditMcpScreenContent(
                         authMethod = authMethod,
                         onAuthMethodChange = { method ->
                             authMethod = method
-                            if (method == McpAuthMethod.QUERY_PARAM && authKey.isBlank()) authKey = "key"
+                            authKey = if (method == McpAuthMethod.QUERY_PARAM) "key" else "Authorization"
                         },
                         authKey = authKey,
                         onAuthKeyChange = { authKey = it },
@@ -647,7 +652,7 @@ private fun McpBasicSettings(
                 Text("Type: ${mcpAuthLabel(authMethod)}")
             }
             DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
-                McpAuthMethod.entries.forEach { method ->
+                listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM, McpAuthMethod.OAUTH2, McpAuthMethod.NONE).forEach { method ->
                     DropdownMenuItem(
                         text = { Text(mcpAuthLabel(method)) },
                         onClick = {
@@ -658,11 +663,11 @@ private fun McpBasicSettings(
                 }
             }
         }
-        if (authMethod in listOf(McpAuthMethod.CUSTOM_HEADER, McpAuthMethod.QUERY_PARAM)) {
+        if (authMethod in listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM)) {
             OutlinedTextField(
                 value = authKey,
                 onValueChange = onAuthKeyChange,
-                label = { Text(if (authMethod == McpAuthMethod.CUSTOM_HEADER) "Header name" else "Query parameter name") },
+                label = { Text(if (authMethod == McpAuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
                 isError = !authValid,
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -727,7 +732,7 @@ private fun McpBasicSettings(
             var isDiscovering by remember { mutableStateOf(false) }
 
             Button(
-                onClick = {
+                onClick = org.starfall.multigateway.ui.components.rememberOAuthStart {
                     scope.launch {
                         isDiscovering = true
                         var finalAuthUrl = oauthAuthUrl.trim()
@@ -774,14 +779,17 @@ private fun McpBasicSettings(
                         if (finalAuthUrl.isNotBlank()) {
                             val computedUrl = android.net.Uri.parse(finalAuthUrl).buildUpon()
                                 .appendQueryParameter("response_type", "token")
+                                .appendQueryParameter("state", OAuthReceiver.begin())
                                 .appendQueryParameter("client_id", oauthClientId.trim())
                                 .appendQueryParameter("redirect_uri", "multigateway://oauth")
                                 .build().toString()
                                 
                             try {
                                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(computedUrl))
+                                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.start(browserContext)
                                 browserContext.startActivity(intent)
                             } catch (e: Exception) {
+                                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(browserContext)
                                 android.widget.Toast.makeText(browserContext, "Cannot open browser: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         } else {
@@ -810,14 +818,18 @@ private fun McpBasicSettings(
                     Text(
                         when (authMethod) {
                             McpAuthMethod.OAUTH2 -> "OAuth2 access token"
-                            McpAuthMethod.BEARER_TOKEN -> "Bearer token"
+                            McpAuthMethod.BEARER_TOKEN -> "Bearer Token"
                             else -> "Value"
                         }
                     )
                 },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().onFocusChanged {
+                    if (!it.isFocused && authMethod == McpAuthMethod.BEARER_TOKEN) {
+                        onAuthValueChange(bearerHeaderValue(authKey.trim().ifBlank { "Authorization" }, authValue))
+                    }
+                }
             )
         }
 
@@ -1138,8 +1150,8 @@ private fun McpTransportOption(
 
 private fun mcpAuthLabel(method: McpAuthMethod): String = when (method) {
     McpAuthMethod.NONE -> "None"
-    McpAuthMethod.BEARER_TOKEN -> "Bearer token"
-    McpAuthMethod.QUERY_PARAM -> "Query parameter"
-    McpAuthMethod.CUSTOM_HEADER -> "Custom header"
-    McpAuthMethod.OAUTH2 -> "OAuth2"
+    McpAuthMethod.BEARER_TOKEN -> "Bearer Token"
+    McpAuthMethod.QUERY_PARAM -> "URL Query"
+    McpAuthMethod.CUSTOM_HEADER -> "Bearer Token"
+    McpAuthMethod.OAUTH2 -> "OAuth Flow"
 }

@@ -257,16 +257,10 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         return base
     }
 
-    private fun headers(provider: LlmProviderInfo, nativeHeader: String): Map<String, String> {
+    private fun headers(provider: LlmProviderInfo): Map<String, String> {
         val result = linkedMapOf<String, String>()
         val auth = provider.auth
-        when (auth.method) {
-            AuthMethod.CUSTOM_HEADER -> if (!auth.key.isNullOrBlank()) result[auth.key] = auth.value.orEmpty()
-            AuthMethod.QUERY_PARAM, AuthMethod.OAUTH -> Unit
-            else -> auth.token.takeIf { it.isNotBlank() }?.let {
-                result[nativeHeader] = if (nativeHeader == "Authorization") "Bearer $it" else it
-            }
-        }
+        result.putAll(auth.requestHeaders(provider.type))
         result.putAll(provider.config.headers)
         return result
     }
@@ -294,11 +288,14 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         maxRetries(0)
         // The SDK requires an explicit authentication strategy. Gateways can use
         // headers or query parameters rather than its built-in bearer credential.
-        httpRequestAuthenticator(object : com.openai.core.http.HttpRequestAuthenticator {
+        if (provider.auth.method == AuthMethod.PLATFORM_DEFAULT && provider.auth.token.isNotBlank()) {
+            apiKey(provider.auth.token)
+            provider.config.headers.forEach { (key, value) -> putHeader(key, value) }
+        } else httpRequestAuthenticator(object : com.openai.core.http.HttpRequestAuthenticator {
             override fun authenticate(request: com.openai.core.http.HttpRequest) = request.toBuilder().apply {
-                headers(provider, "Authorization").forEach { (key, value) -> putHeader(key, value) }
-                if (provider.auth.method == AuthMethod.QUERY_PARAM) {
-                    putQueryParam(provider.auth.key ?: "key", provider.auth.value.orEmpty())
+                headers(provider).forEach { (key, value) -> putHeader(key, value) }
+                if (provider.auth.method == AuthMethod.QUERY_PARAM && provider.auth.token.isNotBlank()) {
+                    putQueryParam(provider.auth.key?.takeIf { it.isNotBlank() } ?: "key", provider.auth.token)
                 }
             }.build()
         })
@@ -308,9 +305,11 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         baseUrl(baseUrl(provider))
         timeout(Duration.ofMinutes(2))
         maxRetries(0)
-        headers(provider, "x-api-key").forEach { (key, value) -> putHeader(key, value) }
-        if (provider.auth.method == AuthMethod.QUERY_PARAM) {
-            putQueryParam(provider.auth.key ?: "key", provider.auth.value.orEmpty())
+        if (provider.auth.method == AuthMethod.PLATFORM_DEFAULT && provider.auth.token.isNotBlank()) apiKey(provider.auth.token)
+        (if (provider.auth.method == AuthMethod.PLATFORM_DEFAULT) provider.config.headers else headers(provider))
+            .forEach { (key, value) -> putHeader(key, value) }
+        if (provider.auth.method == AuthMethod.QUERY_PARAM && provider.auth.token.isNotBlank()) {
+            putQueryParam(provider.auth.key?.takeIf { it.isNotBlank() } ?: "key", provider.auth.token)
         }
     }.build()
 
@@ -319,16 +318,21 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         val version = Regex("/(v1(?:beta|alpha)?)$").find(base)?.groupValues?.get(1)
         // Supply auth in the transport so custom headers/query auth work with gateways too.
         val transport = OkHttpClient.Builder().addInterceptor { chain ->
-            val request = chain.request().newBuilder().removeHeader("x-goog-api-key")
-            headers(provider, "x-goog-api-key").forEach { (key, value) -> request.header(key, value) }
-            if (provider.auth.method == AuthMethod.QUERY_PARAM) {
+            val request = chain.request().newBuilder()
+            if (provider.auth.method == AuthMethod.PLATFORM_DEFAULT && provider.auth.token.isNotBlank()) {
+                provider.config.headers.forEach { (key, value) -> request.header(key, value) }
+            } else {
+                request.removeHeader("x-goog-api-key")
+                headers(provider).forEach { (key, value) -> request.header(key, value) }
+            }
+            if (provider.auth.method == AuthMethod.QUERY_PARAM && provider.auth.token.isNotBlank()) {
                 request.url(chain.request().url.newBuilder()
-                    .setQueryParameter(provider.auth.key ?: "key", provider.auth.value.orEmpty()).build())
+                    .setQueryParameter(provider.auth.key?.takeIf { it.isNotBlank() } ?: "key", provider.auth.token).build())
             }
             chain.proceed(request.build())
         }.build()
         return Client.builder()
-            .apiKey("gateway-auth-configured-in-transport")
+            .apiKey(if (provider.auth.method == AuthMethod.PLATFORM_DEFAULT && provider.auth.token.isNotBlank()) provider.auth.token else "gateway-auth-configured-in-transport")
             .httpOptions(HttpOptions.builder()
                 .baseUrl(if (version == null) base else base.removeSuffix("/$version"))
                 .apiVersion(version ?: "v1beta").timeout(120_000).build())

@@ -16,41 +16,43 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
 ) {
     override suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo> = result {
         require(provider.type == providerType)
-        val device = http.post("https://github.com/login/device/code", buildJsonObject {
-            put("client_id", CLIENT_ID); put("scope", "read:user")
-        })
-        val code = device.text("user_code")
-        val deviceCode = device.text("device_code")
-        require(code.isNotBlank() && deviceCode.isNotBlank()) { "Invalid GitHub device response" }
-        withContext(Dispatchers.Main) {
-            (appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText("GitHub authorization code", code))
-            Toast.makeText(appContext, "Enter $code in GitHub (copied to clipboard)", Toast.LENGTH_LONG).show()
-        }
-        openBrowser(device.text("verification_uri_complete").ifBlank { device.text("verification_uri") })
-        var interval = ((device["interval"] as? JsonPrimitive)?.longOrNull ?: 5).coerceAtLeast(1)
-        val deadline = System.currentTimeMillis() +
-            ((device["expires_in"] as? JsonPrimitive)?.longOrNull ?: 900).coerceIn(1, 900) * 1000
-        var token: AccountTokenState? = null
-        while (System.currentTimeMillis() < deadline) {
-            delay(minOf(interval * 1000 + 1000, (deadline - System.currentTimeMillis()).coerceAtLeast(0)))
-            if (System.currentTimeMillis() >= deadline) break
-            // GitHub reports pending/slow_down in JSON with HTTP 200.
-            val response = http.json(http.request("https://github.com/login/oauth/access_token")
-                .header("Accept", "application/json").post(okhttp3.FormBody.Builder()
-                    .add("client_id", CLIENT_ID).add("device_code", deviceCode)
-                    .add("grant_type", "urn:ietf:params:oauth:grant-type:device_code").build()).build(), allowOAuthError = true)
-            val access = response.text("access_token")
-            if (access.isNotBlank()) { token = AccountTokenState(access, ""); break }
-            when (response.text("error")) {
-                "authorization_pending" -> Unit
-                "slow_down" -> interval = maxOf(interval + 5, (response["interval"] as? JsonPrimitive)?.longOrNull ?: 0)
-                else -> error("GitHub authorization failed: ${response.text("error")}")
+        OAuthCallbackService.keepAlive(appContext) {
+            val device = http.post("https://github.com/login/device/code", buildJsonObject {
+                put("client_id", CLIENT_ID); put("scope", "read:user")
+            })
+            val code = device.text("user_code")
+            val deviceCode = device.text("device_code")
+            require(code.isNotBlank() && deviceCode.isNotBlank()) { "Invalid GitHub device response" }
+            withContext(Dispatchers.Main) {
+                (appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                    .setPrimaryClip(ClipData.newPlainText("GitHub authorization code", code))
+                Toast.makeText(appContext, "Enter $code in GitHub (copied to clipboard)", Toast.LENGTH_LONG).show()
             }
+            openBrowser(device.text("verification_uri_complete").ifBlank { device.text("verification_uri") })
+            var interval = ((device["interval"] as? JsonPrimitive)?.longOrNull ?: 5).coerceAtLeast(1)
+            val deadline = System.currentTimeMillis() +
+                ((device["expires_in"] as? JsonPrimitive)?.longOrNull ?: 900).coerceIn(1, 900) * 1000
+            var token: AccountTokenState? = null
+            while (System.currentTimeMillis() < deadline) {
+                delay(minOf(interval * 1000 + 1000, (deadline - System.currentTimeMillis()).coerceAtLeast(0)))
+                if (System.currentTimeMillis() >= deadline) break
+                // GitHub reports pending/slow_down in JSON with HTTP 200.
+                val response = http.json(http.request("https://github.com/login/oauth/access_token")
+                    .header("Accept", "application/json").post(okhttp3.FormBody.Builder()
+                        .add("client_id", CLIENT_ID).add("device_code", deviceCode)
+                        .add("grant_type", "urn:ietf:params:oauth:grant-type:device_code").build()).build(), allowOAuthError = true)
+                val access = response.text("access_token")
+                if (access.isNotBlank()) { token = AccountTokenState(access, ""); break }
+                when (response.text("error")) {
+                    "authorization_pending" -> Unit
+                    "slow_down" -> interval = maxOf(interval + 5, (response["interval"] as? JsonPrimitive)?.longOrNull ?: 0)
+                    else -> error("GitHub authorization failed: ${response.text("error")}")
+                }
+            }
+            val authorizedToken = token ?: error("GitHub authorization timed out")
+            withContext(Dispatchers.IO) { store.save(provider.id, authorizedToken) }
+            authorized(provider, authorizedToken)
         }
-        val authorizedToken = token ?: error("GitHub authorization timed out")
-        store.save(provider.id, authorizedToken)
-        authorized(provider, authorizedToken)
     }
     override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo {
         val token = ensureToken(provider)

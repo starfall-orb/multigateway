@@ -29,10 +29,12 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
         }
         openBrowser(device.text("verification_uri_complete").ifBlank { device.text("verification_uri") })
         var interval = ((device["interval"] as? JsonPrimitive)?.longOrNull ?: 5).coerceAtLeast(1)
-        val deadline = System.currentTimeMillis() + ((device["expires_in"] as? JsonPrimitive)?.longOrNull ?: 900) * 1000
+        val deadline = System.currentTimeMillis() +
+            ((device["expires_in"] as? JsonPrimitive)?.longOrNull ?: 900).coerceIn(1, 900) * 1000
         var token: AccountTokenState? = null
         while (System.currentTimeMillis() < deadline) {
-            delay(interval * 1000 + 1000)
+            delay(minOf(interval * 1000 + 1000, (deadline - System.currentTimeMillis()).coerceAtLeast(0)))
+            if (System.currentTimeMillis() >= deadline) break
             // GitHub reports pending/slow_down in JSON with HTTP 200.
             val response = http.json(http.request("https://github.com/login/oauth/access_token")
                 .header("Accept", "application/json").post(okhttp3.FormBody.Builder()
@@ -76,12 +78,7 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
             val item = it.jsonObject
             val id = item.text("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
             val supported = (item["supported_endpoints"] as? JsonArray).orEmpty().map { endpoint -> endpoint.jsonPrimitive.content }
-            endpoints[provider.id + ":" + id] = when {
-                "/v1/messages" in supported -> ProviderType.ANTHROPIC
-                ("/responses" in supported && "/chat/completions" !in supported) ||
-                    (Regex("^gpt-[5-9](?:[.-]|$)").containsMatchIn(id) && !id.startsWith("gpt-5-mini")) -> ProviderType.OPENAI_RESPONSES
-                else -> ProviderType.OPENAI
-            }
+            endpoints[provider.id + ":" + id] = copilotProtocol(id, supported)
             id
         }
     }
@@ -93,7 +90,9 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
         val messages = (body["messages"] ?: body["input"]) as? JsonArray
         val last = messages?.lastOrNull() as? JsonObject
         val role = last?.text("role")
-        val initiator = if (role == "user" || role == "system") "user" else "agent"
+        val toolResult = (last?.get("content") as? JsonArray).orEmpty()
+            .any { (it as? JsonObject)?.text("type") == "tool_result" }
+        val initiator = if (last == null || ((role == "user" || role == "system") && !toolResult)) "user" else "agent"
         fun hasImage(value: JsonElement): Boolean = when (value) {
             is JsonObject -> value.text("type") in listOf("image", "image_url", "input_image") || value.values.any(::hasImage)
             is JsonArray -> value.any(::hasImage)
@@ -110,4 +109,13 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
     }
 
     private companion object { const val CLIENT_ID = "Ov23li8tweQw6odWQebz" }
+}
+
+
+internal fun copilotProtocol(id: String, supported: List<String>): ProviderType = when {
+    "/v1/messages" in supported || (supported.isEmpty() && id.contains("claude")) -> ProviderType.ANTHROPIC
+    ("/responses" in supported && "/chat/completions" !in supported) ||
+        (Regex("^gpt-(\\d+)(?:[.-]|$)").find(id)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 5 } == true &&
+            !id.startsWith("gpt-5-mini")) -> ProviderType.OPENAI_RESPONSES
+    else -> ProviderType.OPENAI
 }

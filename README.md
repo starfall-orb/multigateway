@@ -41,7 +41,7 @@ Select Codex, Claude Code, Antigravity, or GitHub Copilot in Provider settings a
 
 Antigravity provisions the account's Code Assist project and maps canonical model names to backend routes. Copilot discovers available models and selects the appropriate Chat Completions, Responses, or Anthropic protocol. All account providers share the chat/tool dispatch used by Codex, including streaming overrides.
 
-For Antigravity, supply the OAuth application's client ID and client secret when building: set `ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` in your local environment or CI secrets, or use the `antigravityOAuthClientId` and `antigravityOAuthClientSecret` properties in your user-level Gradle configuration. Use the OAuth client expected by the Antigravity service; arbitrary Google OAuth clients may not have Code Assist access. Builds without these values show a configuration error when authorizing Antigravity. Do not commit these values to the repository.
+Antigravity uses the native-app OAuth client defaults from the protocol reference; no additional build secrets or separate OAuth application are required.
 
 Protocol reference: [smallmain/vscode-unify-chat-provider](https://github.com/smallmain/vscode-unify-chat-provider), especially its auth providers and Claude Code, Code Assist, and Copilot clients.
 

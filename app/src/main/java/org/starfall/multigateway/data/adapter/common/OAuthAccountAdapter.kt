@@ -56,7 +56,7 @@ internal abstract class OAuthAccountAdapter(
         require(clientId.isNotBlank() && (clientSecret == null || clientSecret.isNotBlank())) {
             "${providerType.displayName} OAuth client configuration is missing from this build."
         }
-        val verifier = randomValue(96)
+        val verifier = randomValue(32)
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
             MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8)))
         val state = randomValue(32)
@@ -96,12 +96,7 @@ internal abstract class OAuthAccountAdapter(
         val values = fields + mapOf("client_id" to clientId) + (clientSecret?.let { mapOf("client_secret" to it) } ?: emptyMap())
         val payload = if (jsonTokens) http.post(tokenUrl, JsonObject(values.mapValues { JsonPrimitive(it.value) }))
         else http.json(http.request(tokenUrl).post(FormBody.Builder().apply { values.forEach { (k,v) -> add(k,v) } }.build()).build())
-        val access = payload.text("access_token").also { require(it.isNotBlank()) { "OAuth response has no access token" } }
-        return AccountTokenState(accessToken = access,
-            refreshToken = payload.text("refresh_token").ifBlank { previous?.refreshToken.orEmpty() },
-            expiresAt = (payload["expires_in"] as? JsonPrimitive)?.longOrNull?.let { System.currentTimeMillis() + it * 1000 },
-            email = (payload["account"] as? JsonObject)?.text("email_address")?.takeIf { it.isNotBlank() } ?: previous?.email,
-            projectId = previous?.projectId)
+        return accountTokenFromResponse(payload, previous)
     }
 
     private suspend fun awaitCode(url: String, state: String): String = withContext(Dispatchers.IO) {
@@ -116,7 +111,21 @@ internal abstract class OAuthAccountAdapter(
                 val socket = try { server.accept() } catch (_: SocketTimeoutException) { continue }
                 socket.use {
                     it.soTimeout = 2000
-                    val line = it.getInputStream().bufferedReader().readLine().orEmpty()
+                    val line = try {
+                        val reader = it.getInputStream().bufferedReader()
+                        val readDeadline = minOf(deadline, System.currentTimeMillis() + 2000)
+                        buildString {
+                            while (true) {
+                                currentCoroutineContext().ensureActive()
+                                require(System.currentTimeMillis() < readDeadline) { "OAuth callback read timed out" }
+                                val c = reader.read()
+                                if (c < 0 || c == 10) break
+                                if (c != 13) append(c.toChar())
+                                require(length <= 8192) { "OAuth callback is too large" }
+                            }
+                        }
+                    } catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { null } ?: return@use
                     val uri = Uri.parse("http://localhost" + line.split(' ').getOrNull(1).orEmpty())
                     val valid = line.startsWith("GET ") && uri.path == callbackPath && uri.getQueryParameter("state") == state
                     val code = uri.getQueryParameter("code")
@@ -151,11 +160,19 @@ internal abstract class OAuthAccountAdapter(
         val response = http.modelResponse(requestUrl(provider, wire, url),
             normalizeToolRequest(provider, wire, body, systemPrompt), prepareRequestProvider(provider, wire, body), provider.streamEnabledFor(modelName),
             { emit(GenerationEvent.Text(it)) }, { emit(GenerationEvent.Reasoning(it)) }, ::unwrapResponse)
+        if (provider.streamEnabledFor(modelName) && wire.type == ProviderType.ANTHROPIC) {
+            (response["content"] as? JsonArray).orEmpty().forEach {
+                val part = it.jsonObject
+                part.text("signature").takeIf(String::isNotBlank)?.let { signature ->
+                    emit(GenerationEvent.Reasoning("", signature))
+                }
+            }
+        }
         if (!provider.streamEnabledFor(modelName)) {
             when (wire.type) {
                 ProviderType.ANTHROPIC -> (response["content"] as? JsonArray).orEmpty().forEach {
                     val part = it.jsonObject
-                    if (part.text("type") == "thinking") emit(GenerationEvent.Reasoning(part.text("thinking")))
+                    if (part.text("type") == "thinking") emit(GenerationEvent.Reasoning(part.text("thinking"), part.text("signature").takeIf(String::isNotBlank)))
                     else if (part.text("type") == "text") emit(GenerationEvent.Text(part.text("text")))
                 }
                 ProviderType.GOOGLE -> (response["candidates"] as? JsonArray)?.firstOrNull()?.jsonObject
@@ -165,6 +182,10 @@ internal abstract class OAuthAccountAdapter(
                         else emit(GenerationEvent.Text(part.text("text")))
                     }
                 ProviderType.OPENAI_RESPONSES -> (response["output"] as? JsonArray).orEmpty().forEach { item ->
+                    if (item.jsonObject.text("type") == "reasoning")
+                        (item.jsonObject["summary"] as? JsonArray).orEmpty().forEach {
+                            emit(GenerationEvent.Reasoning(it.jsonObject.text("text")))
+                        }
                     (item.jsonObject["content"] as? JsonArray).orEmpty().forEach { part ->
                         if (part.jsonObject.text("type") == "output_text") emit(GenerationEvent.Text(part.jsonObject.text("text")))
                     }
@@ -208,11 +229,25 @@ internal abstract class OAuthAccountAdapter(
                 })
             } else {
                 put("model", model); put("max_tokens", maxTokens)
-                config.temperature?.let { put("temperature", it) }; config.topP?.let { put("top_p", it) }
+                if (type != ProviderType.ANTHROPIC || !config.supportsThinking || maxTokens <= 1024) {
+                    config.temperature?.let { put("temperature", it) }; config.topP?.let { put("top_p", it) }
+                }
                 if (type == ProviderType.ANTHROPIC) config.topK?.let { put("top_k", it) }
-                if (type == ProviderType.ANTHROPIC) put("system", prompt)
+                if (type == ProviderType.ANTHROPIC) {
+                    put("system", prompt)
+                    if (config.supportsThinking && maxTokens > 1024) {
+                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(1024)))
+                    }
+                }
+                if (type == ProviderType.OPENAI && config.supportsThinking)
+                    config.reasoningEffort?.let { put("reasoning_effort", it) }
                 val native = messages.filter { it.role != ChatRole.SYSTEM }.map {
-                    val content = if (type == ProviderType.ANTHROPIC) parts(it) else buildJsonArray {
+                    val content = if (type == ProviderType.ANTHROPIC) JsonArray(
+                        (if (it.role == ChatRole.MODEL && config.sendThinkingContent &&
+                            !it.reasoningContent.isNullOrBlank() && !it.reasoningSignature.isNullOrBlank())
+                            listOf(obj("type" to str("thinking"), "thinking" to str(it.reasoningContent!!),
+                                "signature" to str(it.reasoningSignature!!))) else emptyList()) + parts(it)
+                    ) else buildJsonArray {
                         add(obj("type" to str("text"), "text" to str(it.content))); parts(it).filter { p -> p.jsonObject["type"] != null }.forEach { add(it) }
                     }
                     obj("role" to str(if (it.role == ChatRole.MODEL) "assistant" else "user"), "content" to content)
@@ -229,7 +264,9 @@ internal abstract class OAuthAccountAdapter(
                     if (value.text("type") == "image_url") obj("type" to str("input_image"), "image_url" to value.getValue("image_url").jsonObject.getValue("url"))
                     else obj("type" to str(if (item.text("role") == "assistant") "output_text" else "input_text"), "text" to value.getValue("text"))
                 }) else content!!))
-            }), "max_output_tokens" to JsonPrimitive(maxTokens))) else body
+            }), "max_output_tokens" to JsonPrimitive(maxTokens)) +
+            (if (config.supportsThinking && config.reasoningEffort != null)
+                mapOf("reasoning" to obj("effort" to str(config.reasoningEffort))) else emptyMap())) else body
     }
 
     private fun randomValue(size: Int) = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(size).also(SecureRandom()::nextBytes))

@@ -49,12 +49,12 @@ internal class AccountTokenStore(context: Context, namespace: String) {
         preferences.edit().remove(providerId).apply()
     }
 
-    private fun key(create: Boolean): SecretKey {
+    private fun key(create: Boolean): SecretKey = synchronized(KEY_LOCK) {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(keyAlias, null) as? SecretKey)?.let { return it }
+        (store.getKey(keyAlias, null) as? SecretKey)?.let { return@synchronized it }
         check(create) { "Account credential key is unavailable." }
 
-        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
             init(
                 KeyGenParameterSpec.Builder(
                     keyAlias,
@@ -91,5 +91,6 @@ internal class AccountTokenStore(context: Context, namespace: String) {
 
     private companion object {
         const val PREFIX = "keystore:v1:"
+        val KEY_LOCK = Any()
     }
 }

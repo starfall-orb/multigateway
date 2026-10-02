@@ -10,12 +10,14 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
+import org.robolectric.annotation.Config
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.LlmService
 import java.util.concurrent.TimeUnit
 
+@Config(sdk = [28])
 @RunWith(RobolectricTestRunner::class)
 class ConfigurationTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()

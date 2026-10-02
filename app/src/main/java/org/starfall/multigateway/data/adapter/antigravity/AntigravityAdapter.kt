@@ -1,8 +1,10 @@
 package org.starfall.multigateway.data.adapter.antigravity
 
 import android.content.Context
-import org.starfall.multigateway.BuildConfig
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.adapter.common.*
 import org.starfall.multigateway.data.model.*
@@ -12,10 +14,10 @@ import java.util.UUID
 
 internal class AntigravityAdapter(context: Context, attachments: AttachmentResolver) : OAuthAccountAdapter(
     context, attachments, ProviderType.ANTIGRAVITY,
-    BuildConfig.ANTIGRAVITY_OAUTH_CLIENT_ID,
+    "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
     "https://accounts.google.com/o/oauth2/v2/auth", "https://oauth2.googleapis.com/token",
     "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs",
-    51121, "/oauth-callback", BuildConfig.ANTIGRAVITY_OAUTH_CLIENT_SECRET
+    51121, "/oauth-callback", "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"
 ) {
     private val metadata = obj("ideType" to str("ANTIGRAVITY"), "platform" to str("MACOS"), "pluginType" to str("GEMINI"))
     private fun wire(provider: LlmProviderInfo, token: AccountTokenState) = provider.copy(type = ProviderType.GOOGLE,
@@ -24,35 +26,53 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
             "User-Agent" to "antigravity/1.23.2 windows/amd64",
             "X-Goog-Api-Client" to "google-cloud-sdk vscode_cloudshelleditor/0.1", "Client-Metadata" to metadata.toString())))
 
-    override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo {
+    private val projectLock = Mutex()
+    override suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo = projectLock.withLock {
         var token = ensureToken(provider)
         if (token.projectId.isNullOrBlank()) {
             val authenticated = wire(provider, token)
-            val base = if (provider.baseUrl.trimEnd('/') == ProviderType.ANTIGRAVITY.defaultBaseUrl)
-                "https://cloudcode-pa.googleapis.com" else provider.baseUrl.trimEnd('/')
-            val loaded = http.post("$base/v1internal:loadCodeAssist", obj("metadata" to metadata), authenticated)
+            val bases = if (provider.baseUrl.trimEnd('/') == ProviderType.ANTIGRAVITY.defaultBaseUrl)
+                listOf("https://cloudcode-pa.googleapis.com",
+                    "https://daily-cloudcode-pa.sandbox.googleapis.com",
+                    "https://autopush-cloudcode-pa.sandbox.googleapis.com",
+                    "https://daily-cloudcode-pa.googleapis.com")
+                else listOf(provider.baseUrl.trimEnd('/'))
             fun project(value: JsonElement?): String? = when (value) {
                 is JsonPrimitive -> value.contentOrNull?.takeIf(String::isNotBlank)
                 is JsonObject -> value.text("id").takeIf(String::isNotBlank)
                 else -> null
             }
-            var projectId = project(loaded["cloudaicompanionProject"])
-            if (projectId == null) {
-                val tier = (loaded["allowedTiers"] as? JsonArray).orEmpty().map { it.jsonObject }
-                    .firstOrNull { (it["isDefault"] as? JsonPrimitive)?.booleanOrNull == true }?.text("id") ?: "legacy-tier"
-                for (attempt in 0 until 10) {
-                    val onboard = http.post("$base/v1internal:onboardUser", obj("tierId" to str(tier), "metadata" to metadata), authenticated)
-                    if ((onboard["done"] as? JsonPrimitive)?.booleanOrNull == true) {
-                        projectId = project((onboard["response"] as? JsonObject)?.get("cloudaicompanionProject")); break
+            var projectId: String? = null
+            var lastFailure: Exception? = null
+            for (base in bases) {
+                try {
+                    val loaded = http.post("$base/v1internal:loadCodeAssist", obj("metadata" to metadata), authenticated)
+                    projectId = project(loaded["cloudaicompanionProject"])
+                    if (projectId == null) {
+                        val tier = (loaded["allowedTiers"] as? JsonArray).orEmpty().map { it.jsonObject }
+                            .firstOrNull { (it["isDefault"] as? JsonPrimitive)?.booleanOrNull == true }
+                            ?.text("id")?.takeIf(String::isNotBlank) ?: "legacy-tier"
+                        for (attempt in 0 until 10) {
+                            val onboard = http.post("$base/v1internal:onboardUser",
+                                obj("tierId" to str(tier), "metadata" to metadata), authenticated)
+                            if ((onboard["done"] as? JsonPrimitive)?.booleanOrNull == true) {
+                                projectId = project((onboard["response"] as? JsonObject)?.get("cloudaicompanionProject"))
+                                break
+                            }
+                            delay(2000)
+                        }
                     }
-                    delay(2000)
-                }
+                    if (!projectId.isNullOrBlank()) break
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { lastFailure = e }
             }
-            require(!projectId.isNullOrBlank()) { "Antigravity account has no Code Assist project" }
+            check(!projectId.isNullOrBlank()) {
+                "Antigravity account has no Code Assist project: ${lastFailure?.message.orEmpty()}"
+            }
             token = token.copy(projectId = projectId)
             store.save(provider.id, token)
         }
-        return wire(provider, token)
+        wire(provider, token)
     }
     override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
         prepareAuthenticatedProvider(provider)

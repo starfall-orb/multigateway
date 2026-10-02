@@ -33,6 +33,15 @@ class LlmService(context: Context) {
         }
     }
 
+    internal fun toolAttachments(message: StoredMessage): JsonArray = JsonArray(message.files.map { reference ->
+        val meta = attachments.metadata(reference) ?: error("Attachment metadata is missing")
+        val bytes = attachments.readBytes(reference) ?: error("Attachment data is missing")
+        buildJsonObject {
+            put("mimeType", meta.mimeType)
+            put("data", Base64.getEncoder().encodeToString(bytes))
+        }
+    })
+
     fun resolveOllamaChatUrl(baseUrl: String): String {
         var clean = baseUrl.trim().trimEnd('/')
         if (clean.endsWith("/tags")) {

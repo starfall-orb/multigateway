@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.toList
 import okhttp3.mockwebserver.*
 import org.junit.Assert.*
 import org.junit.Test
+import org.robolectric.annotation.Config
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.starfall.multigateway.data.model.*
@@ -15,6 +16,7 @@ import org.starfall.multigateway.data.tools.*
 import org.starfall.multigateway.data.service.*
 import java.nio.file.Files
 
+@Config(sdk = [28])
 @RunWith(RobolectricTestRunner::class)
 class ToolChatIntegrationTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()

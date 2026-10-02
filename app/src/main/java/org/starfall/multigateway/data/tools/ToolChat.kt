@@ -99,7 +99,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     "role" to str(if (message.role == ChatRole.MODEL) "assistant" else "user"),
                     "content" to str(message.content + toolSummary)
                 )
-                var wireMessage = baseMessage
+                var wireMessage = if (message.files.isEmpty()) baseMessage else
+                    JsonObject(baseMessage + ("_attachments" to llm.toolAttachments(message)))
                 val reasoning = message.reasoningContent?.takeIf {
                     sendThinkingContent && message.role == ChatRole.MODEL && it.isNotBlank()
                 }
@@ -303,7 +304,9 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                             }
                             add(obj("role" to str("assistant"), "content" to str(message.text("content"))))
                         }
-                        else -> listOf(JsonObject(message.filterKeys { it != "reasoning_content" && it != "reasoning_signature" }))
+                        else -> listOf(JsonObject(message.filterKeys {
+                            it != "reasoning_content" && it != "reasoning_signature" && it != "_attachments"
+                        } + ("content" to toolMessageContent(message, ProviderType.OPENAI_RESPONSES))))
                     }
                 }
                 val requestBody = buildJsonObject {
@@ -334,9 +337,17 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 val ollama = wireProvider.type == ProviderType.OLLAMA
                 val sendReasoning = config.sendThinkingContent && !ollama
                 val wireHistory = history.map { message ->
-                    val clean = JsonObject(message.filterKeys { key ->
-                        key != "responsesOutput" && key != "reasoning_signature" && (sendReasoning || key != "reasoning_content")
-                    })
+                    var clean = JsonObject(message.filterKeys { key ->
+                        key != "_attachments" && key != "responsesOutput" && key != "reasoning_signature" && (sendReasoning || key != "reasoning_content")
+                    } + ("content" to toolMessageContent(message, wireProvider.type)))
+                    if (ollama && message["_attachments"] is JsonArray) {
+                        val images = message.getValue("_attachments").jsonArray.map {
+                            val file = it.jsonObject
+                            require(file.text("mimeType").startsWith("image/")) { "Unsupported Ollama attachment" }
+                            file.getValue("data")
+                        }
+                        clean = JsonObject(clean + ("images" to JsonArray(images)))
+                    }
                     when (message.text("role")) {
                         "tool" -> if (ollama) JsonObject(clean + ("tool_name" to str(message.text("name")))) else clean
                         "assistant" -> {
@@ -406,6 +417,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                                 }
                             }
                         }
+                        blocks += toolAttachmentParts(message, ProviderType.ANTHROPIC)
                         if (message.text("content").isNotEmpty()) {
                             blocks += obj("type" to str("text"), "text" to str(message.text("content")))
                         }
@@ -430,11 +442,15 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 }
                 val response = modelResponse(base.removeSuffix("/v1") + "/v1/messages", buildJsonObject {
                     put("model", model); put("max_tokens", p.config.maxTokens); put("system", prompt); put("messages", JsonArray(native))
+                    if (config.supportsThinking && p.config.maxTokens > 1024)
+                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(1024)))
                     if (tools.isNotEmpty()) put("tools", JsonArray(tools.map {
                         obj("name" to str(it.name), "description" to str(it.description), "input_schema" to it.schema)
                     }))
-                    config.temperature?.let { put("temperature", it) }
-                    config.topP?.let { put("top_p", it) }
+                    if (!config.supportsThinking || p.config.maxTokens <= 1024) {
+                        config.temperature?.let { put("temperature", it) }
+                        config.topP?.let { put("top_p", it) }
+                    }
                     config.topK?.let { put("top_k", it) }
                 }, wireProvider, p.streamEnabledFor(model), onText, onReasoning)
                 providerTurn(wireProvider.type, response)
@@ -444,6 +460,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     val role=message.text("role"); val parts=mutableListOf<JsonElement>()
                     if(role=="tool") parts += obj("functionResponse" to obj("name" to str(message.text("name")),"response" to obj("result" to str(message.text("content")))))
                     else {
+                        parts += toolAttachmentParts(message, ProviderType.GOOGLE)
                         if(message.text("content").isNotBlank()) parts += obj("text" to str(message.text("content")))
                         (message["tool_calls"] as? JsonArray).orEmpty().forEach { c -> val f=c.requireObject().requireObject("function")
                             parts += (c.jsonObject["googlePart"] ?: obj("functionCall" to obj("name" to str(f.text("name")),"args" to (f["arguments"] as? JsonObject ?: Json.parseToJsonElement(f.text("arguments")))))) }

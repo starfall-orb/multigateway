@@ -19,9 +19,10 @@ internal class ClaudeCodeAdapter(context: Context, attachments: AttachmentResolv
         return provider.copy(type = ProviderType.ANTHROPIC,
             auth = Authorization(AuthMethod.CUSTOM_HEADER, "Authorization", "Bearer ${token.accessToken}"),
             config = provider.config.copy(headers = provider.config.headers + mapOf(
-                "User-Agent" to "claude-cli/2.1.39 (external, cli)", "x-app" to "cli",
+                "User-Agent" to "claude-cli/2.1.161 (external, cli)", "x-app" to "cli",
                 "anthropic-version" to "2023-06-01",
-                "anthropic-beta" to "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14")))
+                "anthropic-dangerous-direct-browser-access" to "true",
+                "anthropic-beta" to "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05,effort-2025-11-24,context-management-2025-06-27,extended-cache-ttl-2025-04-11")))
     }
     override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
         val wire = prepareAuthenticatedProvider(provider)

@@ -15,4 +15,16 @@
     <string name="tool_executed">Đã thực thi công cụ</string>
     <string name="tool_executed_in">Đã thực thi công cụ trong %1$s</string>
     <string name="provider_saved">Đã lưu cấu hình</string>
+    <string name="oauth_signed_in">Đã đăng nhập</string>
+    <string name="oauth_signed_out">Chưa đăng nhập</string>
+    <string name="oauth_signing_in">Đang đăng nhập…</string>
+    <string name="oauth_signing_out">Đang đăng xuất…</string>
+    <string name="oauth_sign_in">Đăng nhập</string>
+    <string name="oauth_sign_in_again">Đăng nhập lại</string>
+    <string name="oauth_sign_out">Đăng xuất</string>
+    <string name="oauth_account_actions">Thao tác tài khoản</string>
+    <string name="oauth_browser_pending">Hoàn tất đăng nhập trong trình duyệt.</string>
+    <string name="oauth_browser_hint">Đăng nhập tài khoản qua trình duyệt.</string>
+    <string name="oauth_account_connected">Đã kết nối tài khoản</string>
+    <string name="oauth_removing_account">Đang xóa thông tin đăng nhập…</string>
 </resources>

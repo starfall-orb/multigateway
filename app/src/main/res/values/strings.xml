@@ -15,4 +15,16 @@
     <string name="tool_executed">Tool executed</string>
     <string name="tool_executed_in">Tool executed in %1$s</string>
     <string name="provider_saved">Provider saved</string>
+    <string name="oauth_signed_in">Signed in</string>
+    <string name="oauth_signed_out">Not signed in</string>
+    <string name="oauth_signing_in">Signing in…</string>
+    <string name="oauth_signing_out">Signing out…</string>
+    <string name="oauth_sign_in">Sign in</string>
+    <string name="oauth_sign_in_again">Sign in again</string>
+    <string name="oauth_sign_out">Sign out</string>
+    <string name="oauth_account_actions">Account actions</string>
+    <string name="oauth_browser_pending">Complete sign-in in your browser.</string>
+    <string name="oauth_browser_hint">Sign in with your account in the browser.</string>
+    <string name="oauth_account_connected">Account connected</string>
+    <string name="oauth_removing_account">Removing saved credentials…</string>
 </resources>

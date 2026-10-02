@@ -29,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import org.starfall.multigateway.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -318,6 +320,25 @@ fun ProviderUnifiedCard(
                             )
                         }
                     }
+                    if (provider.auth.method == AuthMethod.OAUTH) {
+                        val signedIn = !provider.auth.value.isNullOrBlank()
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(
+                                if (signedIn) Icons.Outlined.CheckCircle else Icons.Outlined.AccountCircle,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = if (signedIn) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                stringResource(if (signedIn) R.string.oauth_signed_in else R.string.oauth_signed_out),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (signedIn) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Text(
                         text = provider.baseUrl,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -378,6 +399,7 @@ fun ProviderEditScreen(
         mutableStateOf(initialProvider.auth.value.orEmpty().takeIf { oauthAuthorized }.orEmpty())
     }
     var oauthAuthorizing by remember { mutableStateOf(false) }
+    var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
     fun authorization() = if (authMethod == AuthMethod.OAUTH) {
         Authorization(
@@ -643,7 +665,7 @@ fun ProviderEditScreen(
                     }
 
                     Text("Authorization", style = MaterialTheme.typography.titleMedium)
-                    Box {
+                    if (!type.isAccountProvider) Box {
                         OutlinedButton(onClick = { authExpanded = true }) {
                             Text(authMethod.displayName())
                             Spacer(Modifier.width(4.dp))
@@ -666,100 +688,68 @@ fun ProviderEditScreen(
                     }
 
                     if (authMethod == AuthMethod.OAUTH) {
-                        Text(
-                            text = when {
-                                oauthAuthorizing -> "Waiting for OAuth authorization in your browser…"
-                                oauthAuthorized && !oauthIdentity.isNullOrBlank() -> "OAuth authorized as $oauthIdentity"
-                                oauthAuthorized -> "OAuth credentials are saved"
-                                type == ProviderType.OPENAI_CODEX -> "Sign in with the ChatGPT account that has Codex access."
-                                else -> "Authorize this provider in your device browser."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (oauthAuthorized) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                enabled = !oauthAuthorizing && onAuthorizeProvider != null,
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = {
-                                    coroutineScope.launch {
-                                        oauthAuthorizing = true
-                                        oauthAuthError = null
-                                        val draft = initialProvider.copy(
-                                            name = name.trim().ifEmpty { type.defaultName },
-                                            type = type,
-                                            baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
-                                            auth = Authorization(
-                                                AuthMethod.OAUTH,
-                                                key = oauthIdentity,
-                                                value = oauthMarker
-                                            ),
-                                            config = requestConfig()
-                                        )
-                                        val result = onAuthorizeProvider?.invoke(draft)
-                                            ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
-                                        result.onSuccess { authorized ->
-                                            oauthAuthorized = true
-                                            oauthIdentity = authorized.auth.key
-                                            oauthMarker = authorized.auth.value.orEmpty()
-                                            baseUrl = authorized.baseUrl
-                                        }.onFailure { error ->
-                                            oauthAuthError = error.message ?: "OAuth authorization failed."
-                                        }
-                                        oauthAuthorizing = false
-                                    }
-                                }
-                            ) {
-                                if (oauthAuthorizing) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(18.dp),
-                                        strokeWidth = 2.dp
+                        OAuthAccountCard(
+                            signedIn = oauthAuthorized,
+                            identity = oauthIdentity,
+                            signingIn = oauthAuthorizing && !oauthClearing,
+                            signingOut = oauthClearing,
+                            canSignIn = onAuthorizeProvider != null,
+                            canSignOut = onClearOAuthCredentials != null,
+                            error = oauthAuthError,
+                            onSignIn = {
+                                coroutineScope.launch {
+                                    oauthAuthorizing = true
+                                    oauthAuthError = null
+                                    val draft = initialProvider.copy(
+                                        name = name.trim().ifEmpty { type.defaultName },
+                                        type = type,
+                                        baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
+                                        auth = Authorization(
+                                            AuthMethod.OAUTH,
+                                            key = oauthIdentity,
+                                            value = oauthMarker
+                                        ),
+                                        config = requestConfig()
                                     )
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                Icon(Icons.Outlined.OpenInBrowser, contentDescription = null)
-                                Spacer(Modifier.width(6.dp))
-                                Text(if (oauthAuthorized) "OAuth again" else "Open OAuth in browser")
-                            }
-
-                            if (oauthAuthorized) {
-                                OutlinedButton(
-                                    enabled = !oauthAuthorizing && onClearOAuthCredentials != null,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            oauthAuthorizing = true
-                                            oauthAuthError = null
-                                            val current = initialProvider.copy(
-                                                name = name.trim().ifEmpty { type.defaultName },
-                                                type = type,
-                                                baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
-                                                auth = authorization(),
-                                                config = requestConfig()
-                                            )
-                                            val result = onClearOAuthCredentials?.invoke(current)
-                                                ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
-                                            result.onSuccess {
-                                                oauthAuthorized = false
-                                                oauthIdentity = null
-                                                oauthMarker = ""
-                                            }.onFailure { error ->
-                                                oauthAuthError = error.message ?: "Could not remove OAuth credentials."
-                                            }
-                                            oauthAuthorizing = false
-                                        }
+                                    val result = onAuthorizeProvider?.invoke(draft)
+                                        ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
+                                    result.onSuccess { authorized ->
+                                        oauthAuthorized = true
+                                        oauthIdentity = authorized.auth.key
+                                        oauthMarker = authorized.auth.value.orEmpty()
+                                        baseUrl = authorized.baseUrl
+                                    }.onFailure { error ->
+                                        oauthAuthError = error.message ?: "OAuth authorization failed."
                                     }
-                                ) {
-                                    Icon(Icons.Outlined.Delete, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Delete OAuth credentials")
+                                    oauthAuthorizing = false
+                                }
+                            },
+                            onSignOut = {
+                                coroutineScope.launch {
+                                    oauthAuthorizing = true
+                                    oauthClearing = true
+                                    oauthAuthError = null
+                                    val current = initialProvider.copy(
+                                        name = name.trim().ifEmpty { type.defaultName },
+                                        type = type,
+                                        baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl },
+                                        auth = authorization(),
+                                        config = requestConfig()
+                                    )
+                                    val result = onClearOAuthCredentials?.invoke(current)
+                                        ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
+                                    result.onSuccess {
+                                        oauthAuthorized = false
+                                        oauthIdentity = null
+                                        oauthMarker = ""
+                                    }.onFailure { error ->
+                                        oauthAuthError = error.message ?: "Could not remove OAuth credentials."
+                                    }
+                                    oauthClearing = false
+                                    oauthAuthorizing = false
                                 }
                             }
-                        }
-                        oauthAuthError?.let {
-                            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        }
+                        )
                     } else {
                         if (authMethod in listOf(AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)) {
                             OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.CUSTOM_HEADER) "Header name" else "Query parameter name") },

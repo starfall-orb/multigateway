@@ -145,6 +145,10 @@ fun MainScreen(
                                 chatError = chatError,
                                 providers = providers,
                                 providerGroups = providerGroups,
+                                modelPickerCollapsedGroups = appPrefs.modelPickerCollapsedGroups,
+                                modelPickerCollapsedProviders = appPrefs.modelPickerCollapsedProviders,
+                                onModelPickerCollapsedGroupsChange = settingsViewModel::setModelPickerCollapsedGroups,
+                                onModelPickerCollapsedProvidersChange = settingsViewModel::setModelPickerCollapsedProviders,
                                 selectedProviderId = appPrefs.selectedProviderId,
                                 selectedModelName = appPrefs.selectedModelId,
                                 autoScroll = appPrefs.autoScroll,
@@ -204,16 +208,26 @@ fun MainScreen(
                         ProviderScreen(
                             providers = providers,
                             providerGroups = providerGroups,
+                            collapsedSectionsState = appPrefs.providersCollapsedSections,
+                            onCollapsedSectionsChange = settingsViewModel::setProvidersCollapsedSections,
                             isGridView = appPrefs.showProvidersAsGrid,
                             onToggleGridView = { configurationViewModel.setShowProvidersAsGrid(it) },
                             onSaveProvider = { configurationViewModel.saveProvider(it) },
                             onSaveGroup = configurationViewModel::saveProviderGroup,
-                            onDeleteGroup = configurationViewModel::deleteProviderGroup,
+                            onDeleteGroup = { groupId ->
+                                configurationViewModel.deleteProviderGroup(groupId)
+                                settingsViewModel.setProvidersCollapsedSections(appPrefs.providersCollapsedSections - groupId)
+                                settingsViewModel.setModelPickerCollapsedGroups(appPrefs.modelPickerCollapsedGroups - groupId)
+                            },
                             onMoveProviderToGroup = configurationViewModel::moveProviderToGroup,
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
                             onReorderModels = configurationViewModel::reorderProviderModels,
-                            onDeleteProvider = { configurationViewModel.deleteProvider(it) },
+                            onDeleteProvider = { providerId ->
+                                configurationViewModel.deleteProvider(providerId)
+                                settingsViewModel.setModelPickerCollapsedProviders(appPrefs.modelPickerCollapsedProviders - providerId)
+                            },
                             onReorderProviders = configurationViewModel::reorderProviders,
+                            onReorderRootItems = configurationViewModel::reorderProviderRootItems,
                             onAuthorizeProvider = { provider -> configurationViewModel.authorizeProvider(provider) },
                             onClearOAuthCredentials = { provider -> configurationViewModel.clearOAuthCredentials(provider) },
                             onTestConnection = { prov, modelId -> configurationViewModel.testConnection(prov, modelId) },

@@ -69,3 +69,61 @@ Track and complete the unfinished work currently present in the local working tr
 ### Change log
 
 - 2026-10-03: Started Provider Groups / model-picker tree work.
+- 2026-10-03: Added Room v6 Provider Group persistence, migration, repository and ViewModel operations.
+- 2026-10-03: Added collapsible Provider groups, rename/delete/move-to-group UI, and per-section Provider reordering.
+- 2026-10-03: Reworked chat model picker into a collapsible group → provider → model tree; search/filter forces matching branches open.
+- 2026-10-03: Added ProviderGroupTest covering persistence, delete→ungroup behavior, group/provider collapse, and search-driven expansion.
+- 2026-10-03: Provider Groups validation passed: unit tests, Android test compilation, lint, debug build and diff check.
+### Collapse state persistence follow-up
+
+- [x] Persist Providers page collapsed sections
+- [x] Persist model picker collapsed provider groups
+- [x] Persist model picker collapsed providers
+- [x] Wire persisted state through MainScreen → ProviderScreen / Chat model picker
+- [x] Add tests and rerun validation
+
+- 2026-10-03: Started persistence follow-up so collapse/expand state survives navigation and app restarts.
+- 2026-10-03: Added DataStore-backed collapse state for Providers sections and model-picker group/provider nodes.
+- 2026-10-03: Added repository-instance persistence coverage and cleanup of stale collapsed IDs when groups/providers are deleted.
+- 2026-10-03: Persistence validation passed: full unit tests, Android test compilation, lint, debug build and diff check.
+
+### Bottom sheet system-bar inset fix
+
+- [x] Fix shared AppBottomSheet so the sheet surface only avoids the status bar at the top
+- [x] Remove navigation-bar bottom inset that lifts all sheets above the navbar
+- [x] Verify every bottom sheet still uses AppBottomSheet
+- [x] Run compile/tests/lint/build
+
+- 2026-10-03: Started correcting the shared bottom-sheet inset behavior.
+- 2026-10-03: AppBottomSheet now caps only against the status bar/display cutout and overrides Material3's default safeDrawing.bottom inset so the surface can extend through the navigation-bar area.
+- 2026-10-03: Removed per-sheet navigationBarsPadding from chat/tool bottom sheets; all modal sheets still route through AppBottomSheet.
+- 2026-10-03: Validation passed: compileDebugKotlin, testDebugUnitTest, assembleDebugAndroidTest, lintDebug, assembleDebug and git diff --check.
+
+### Release 1.0.4
+
+- [x] Bump version to `1.0.4` / versionCode `14`
+- [x] Final build validation
+- [x] Commit completed work
+- [x] Push `main` to `origin`
+
+- 2026-10-03: Started release pass for 1.0.4.
+- 2026-10-03: Release validation passed: testDebugUnitTest, assembleDebug and git diff --check.
+
+### Provider root drag/drop refinement
+
+- [x] Remove the rendered Ungrouped pseudo-section from Providers
+- [x] Make Provider Group a root item at the same hierarchy level as ungrouped Providers
+- [x] Persist one shared root order across groups and ungrouped Providers
+- [x] Expand a group by inserting its Providers immediately after the group item
+- [x] Render expanded group contents inside a distinct bordered/background container
+- [x] Drag root Provider onto a group to move it into that group
+- [x] Drag grouped Provider onto another group to move between groups
+- [x] Keep drag reorder for Providers inside an expanded group
+- [x] Add persistence tests for mixed root order and group membership moves
+- [x] Final release validation, commit and push 1.0.4
+
+- 2026-10-03: Reworked Providers root into mixed group/provider items; expanded group children are inserted directly after their group inside a distinct container.
+- 2026-10-03: Added drop-target handling so Provider cards can be long-pressed and dropped onto group cards/expanded group regions.
+- 2026-10-03: Added repository persistence for shared root ordering and tested group membership moves.
+
+- 2026-10-03: Final 1.0.4 validation passed: testDebugUnitTest, assembleDebugAndroidTest, lintDebug, assembleDebug and git diff --check.

@@ -34,7 +34,6 @@ fun ReasoningEffortSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -97,7 +96,6 @@ fun ConversationSummarySheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 28.dp),

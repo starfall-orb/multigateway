@@ -35,6 +35,9 @@ data class AppPreferences(
     val showProvidersAsGrid: Boolean = false,
     val showMcpAsGrid: Boolean = false,
     val showSpeechAsGrid: Boolean = false,
+    val providersCollapsedSections: Set<String> = emptySet(),
+    val modelPickerCollapsedGroups: Set<String> = emptySet(),
+    val modelPickerCollapsedProviders: Set<String> = emptySet(),
     val mcpPresetsInitialized: Boolean = false,
     val latexMode: String = "AUTO" // ON, OFF, AUTO
 )
@@ -64,6 +67,9 @@ class AppPreferencesRepository(private val context: Context) {
         val SHOW_PROVIDERS_AS_GRID = booleanPreferencesKey("show_providers_as_grid")
         val SHOW_MCP_AS_GRID = booleanPreferencesKey("show_mcp_as_grid")
         val SHOW_SPEECH_AS_GRID = booleanPreferencesKey("show_speech_as_grid")
+        val PROVIDERS_COLLAPSED_SECTIONS = stringSetPreferencesKey("providers_collapsed_sections")
+        val MODEL_PICKER_COLLAPSED_GROUPS = stringSetPreferencesKey("model_picker_collapsed_groups")
+        val MODEL_PICKER_COLLAPSED_PROVIDERS = stringSetPreferencesKey("model_picker_collapsed_providers")
         val MCP_PRESETS_INITIALIZED = booleanPreferencesKey("mcp_presets_initialized")
         val LATEX_MODE = stringPreferencesKey("latex_mode")
     }
@@ -96,6 +102,9 @@ class AppPreferencesRepository(private val context: Context) {
                 showProvidersAsGrid = preferences[PreferenceKeys.SHOW_PROVIDERS_AS_GRID] ?: false,
                 showMcpAsGrid = preferences[PreferenceKeys.SHOW_MCP_AS_GRID] ?: false,
                 showSpeechAsGrid = preferences[PreferenceKeys.SHOW_SPEECH_AS_GRID] ?: false,
+                providersCollapsedSections = preferences[PreferenceKeys.PROVIDERS_COLLAPSED_SECTIONS].orEmpty(),
+                modelPickerCollapsedGroups = preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_GROUPS].orEmpty(),
+                modelPickerCollapsedProviders = preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS].orEmpty(),
                 mcpPresetsInitialized = preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] ?: false,
                 latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO"
             )
@@ -239,6 +248,24 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setShowSpeechAsGrid(isGrid: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.SHOW_SPEECH_AS_GRID] = isGrid
+        }
+    }
+
+    suspend fun setProvidersCollapsedSections(ids: Set<String>) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.PROVIDERS_COLLAPSED_SECTIONS] = ids
+        }
+    }
+
+    suspend fun setModelPickerCollapsedGroups(ids: Set<String>) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_GROUPS] = ids
+        }
+    }
+
+    suspend fun setModelPickerCollapsedProviders(ids: Set<String>) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS] = ids
         }
     }
 

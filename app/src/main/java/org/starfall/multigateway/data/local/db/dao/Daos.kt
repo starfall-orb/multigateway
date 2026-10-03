@@ -51,6 +51,9 @@ interface ProviderGroupDao {
     @Query("SELECT * FROM provider_groups WHERE id = :id")
     suspend fun getGroupById(id: String): ProviderGroupEntity?
 
+    @Query("SELECT * FROM provider_groups ORDER BY sortOrder ASC, id ASC")
+    suspend fun getAllGroupsOnce(): List<ProviderGroupEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertOrUpdate(group: ProviderGroupEntity)
 
@@ -77,6 +80,15 @@ interface LlmProviderDao {
 
     @Query("UPDATE llm_providers SET groupId = :groupId WHERE id = :id")
     suspend fun updateGroup(id: String, groupId: String?)
+
+    @Query("UPDATE llm_providers SET groupId = :groupId, sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateGroupAndSortOrder(id: String, groupId: String?, sortOrder: Int)
+
+    @Query("SELECT * FROM llm_providers WHERE groupId = :groupId ORDER BY sortOrder ASC, id ASC")
+    suspend fun getProvidersByGroup(groupId: String): List<LlmProviderEntity>
+
+    @Query("SELECT * FROM llm_providers WHERE groupId IS NULL ORDER BY sortOrder ASC, id ASC")
+    suspend fun getUngroupedProviders(): List<LlmProviderEntity>
 
     @Query("UPDATE llm_providers SET groupId = NULL WHERE groupId = :groupId")
     suspend fun clearGroup(groupId: String)

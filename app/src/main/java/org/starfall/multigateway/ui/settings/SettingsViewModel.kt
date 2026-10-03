@@ -38,6 +38,15 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     fun setAutoScroll(value: Boolean) {
         viewModelScope.launch { repository.setAutoScroll(value) }
     }
+    fun setProvidersCollapsedSections(value: Set<String>) {
+        viewModelScope.launch { repository.setProvidersCollapsedSections(value) }
+    }
+    fun setModelPickerCollapsedGroups(value: Set<String>) {
+        viewModelScope.launch { repository.setModelPickerCollapsedGroups(value) }
+    }
+    fun setModelPickerCollapsedProviders(value: Set<String>) {
+        viewModelScope.launch { repository.setModelPickerCollapsedProviders(value) }
+    }
     fun setEnableVibration(value: Boolean) {
         viewModelScope.launch { repository.setEnableVibration(value) }
     }

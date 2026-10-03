@@ -46,4 +46,24 @@ class SidebarStorageTest {
             assertEquals(setOf("chat"), updated.pinnedChatIds)
         } finally { repository.updateSidebar { SidebarOrganization() } }
     }
+
+    @Test fun providerCollapseStatePersistsAcrossRepositoryInstances() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repository = AppPreferencesRepository(context)
+        try {
+            repository.setProvidersCollapsedSections(setOf("group-a", "__ungrouped__"))
+            repository.setModelPickerCollapsedGroups(setOf("group-b"))
+            repository.setModelPickerCollapsedProviders(setOf("provider-a", "provider-b"))
+
+            val restored = AppPreferencesRepository(context).appPreferencesFlow.first()
+            assertEquals(setOf("group-a", "__ungrouped__"), restored.providersCollapsedSections)
+            assertEquals(setOf("group-b"), restored.modelPickerCollapsedGroups)
+            assertEquals(setOf("provider-a", "provider-b"), restored.modelPickerCollapsedProviders)
+        } finally {
+            repository.setProvidersCollapsedSections(emptySet())
+            repository.setModelPickerCollapsedGroups(emptySet())
+            repository.setModelPickerCollapsedProviders(emptySet())
+        }
+    }
+
 }

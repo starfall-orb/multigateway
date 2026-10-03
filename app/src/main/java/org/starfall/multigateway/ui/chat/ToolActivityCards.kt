@@ -121,7 +121,6 @@ private fun ToolDetailsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight()
-                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp)
         ) {

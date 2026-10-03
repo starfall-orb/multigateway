@@ -12,6 +12,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlin.math.abs
@@ -22,11 +23,13 @@ fun Modifier.longPressReorder(
     itemCount: Int,
     columns: Int = 1,
     onMove: (from: Int, to: Int) -> Unit,
-    onDrop: () -> Unit
+    onDrop: () -> Unit,
+    onDropAt: ((Offset) -> Unit)? = null
 ): Modifier = composed {
     var isDragging by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var currentItemPosition by remember { mutableStateOf(Offset.Zero) }
+    var currentItemSize by remember { mutableStateOf(IntSize.Zero) }
     var startDragRootPosition by remember { mutableStateOf(Offset.Zero) }
 
     // Use rememberUpdatedState so changes in index, count or callbacks don't restart pointerInput
@@ -35,6 +38,7 @@ fun Modifier.longPressReorder(
     val columnsState = rememberUpdatedState(columns)
     val onMoveState = rememberUpdatedState(onMove)
     val onDropState = rememberUpdatedState(onDrop)
+    val onDropAtState = rememberUpdatedState(onDropAt)
 
     val animatedScale by animateFloatAsState(
         targetValue = if (isDragging) 1.04f else 1f,
@@ -45,6 +49,7 @@ fun Modifier.longPressReorder(
     this
         .onGloballyPositioned { coordinates ->
             currentItemPosition = coordinates.positionInRoot()
+            currentItemSize = coordinates.size
         }
         .zIndex(if (isDragging) 99f else 1f)
         .graphicsLayer {
@@ -84,8 +89,13 @@ fun Modifier.longPressReorder(
                     onDropState.value()
                 },
                 onDragEnd = {
+                    val dropCenter = startDragRootPosition + dragOffset + Offset(
+                        currentItemSize.width / 2f,
+                        currentItemSize.height / 2f
+                    )
                     isDragging = false
                     dragOffset = Offset.Zero
+                    onDropAtState.value?.invoke(dropCenter)
                     onDropState.value()
                 },
                 onDrag = { change, dragAmount ->
@@ -130,4 +140,3 @@ fun <T> List<T>.moved(from: Int, to: Int): List<T> {
     mutable.add(to, item)
     return mutable
 }
-

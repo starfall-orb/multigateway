@@ -114,4 +114,62 @@ class ProviderGroupTest {
         assertTrue(searched.any { it is ModelPickerItem.Provider && it.provider.id == grouped.id })
         assertEquals(listOf("beta"), searched.filterIsInstance<ModelPickerItem.Model>().map { it.modelId })
     }
+
+    @Test
+    fun rootOrderInterleavesGroupsAndUngroupedProvidersAndMovePersistsMembership() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            val g1 = ProviderGroup("g1", "One", 0)
+            val g2 = ProviderGroup("g2", "Two", 1)
+            repo.saveGroup(g1)
+            repo.saveGroup(g2)
+            repo.saveProvider(
+                LlmProviderInfo(
+                    id = "root",
+                    name = "Root",
+                    type = ProviderType.OPENAI,
+                    baseUrl = "https://example.test/v1",
+                    sortOrder = 2
+                )
+            )
+            repo.saveProvider(
+                LlmProviderInfo(
+                    id = "child",
+                    name = "Child",
+                    type = ProviderType.OPENAI,
+                    baseUrl = "https://example.test/v1",
+                    sortOrder = 0,
+                    groupId = g1.id
+                )
+            )
+
+            repo.reorderRootItems(
+                listOf(
+                    ProviderRootOrderItem("root", isGroup = false),
+                    ProviderRootOrderItem("g2", isGroup = true),
+                    ProviderRootOrderItem("g1", isGroup = true)
+                )
+            )
+
+            assertEquals(0, repo.getProviderById("root")?.sortOrder)
+            assertEquals(
+                mapOf("g1" to 2, "g2" to 1),
+                repo.allGroups.first().associate { it.id to it.sortOrder }
+            )
+
+            repo.moveProviderToGroup("root", "g1")
+            val moved = repo.getProviderById("root")
+            assertEquals("g1", moved?.groupId)
+            assertTrue((moved?.sortOrder ?: -1) > (repo.getProviderById("child")?.sortOrder ?: Int.MAX_VALUE))
+
+            repo.moveProviderToGroup("root", null)
+            assertNull(repo.getProviderById("root")?.groupId)
+            assertTrue((repo.getProviderById("root")?.sortOrder ?: -1) > repo.allGroups.first().maxOf { it.sortOrder })
+        } finally {
+            db.close()
+        }
+    }
+
 }

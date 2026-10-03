@@ -201,9 +201,9 @@
     <string name="provider_group_name">Tên nhóm</string>
     <string name="provider_group_name_required">Tên nhóm là bắt buộc.</string>
     <string name="delete_provider_group">Xóa nhóm Provider</string>
-    <string name="delete_provider_group_message">Các Provider trong nhóm này sẽ được chuyển về Chưa phân nhóm. Bản thân Provider sẽ không bị xóa.</string>
+    <string name="delete_provider_group_message">Các Provider trong nhóm này sẽ được đưa trở lại danh sách Providers gốc. Bản thân Provider sẽ không bị xóa.</string>
     <string name="move_to_group">Chuyển vào nhóm</string>
-    <string name="ungrouped">Chưa phân nhóm</string>
+    <string name="ungrouped">Không thuộc nhóm</string>
     <string name="provider_count">%1$d Provider</string>
     <string name="expand_group">Mở rộng %1$s</string>
     <string name="collapse_group">Thu gọn %1$s</string>
@@ -212,4 +212,5 @@
     <string name="more_options">Tùy chọn khác</string>
     <string name="search_models_placeholder">Tìm model</string>
     <string name="common_all">Tất cả</string>
+    <string name="empty_provider_group">Nhóm này chưa có Provider</string>
 </resources>

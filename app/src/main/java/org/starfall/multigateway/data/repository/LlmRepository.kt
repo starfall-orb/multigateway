@@ -40,13 +40,39 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
 
     suspend fun deleteGroup(id: String) {
         db.withTransaction {
-            providerDao.clearGroup(id)
+            val children = providerDao.getProvidersByGroup(id)
+            val rootMax = maxOf(
+                groupDao.getAllGroupsOnce().filterNot { it.id == id }.maxOfOrNull { it.sortOrder } ?: -1,
+                providerDao.getUngroupedProviders().maxOfOrNull { it.sortOrder } ?: -1
+            )
+            children.forEachIndexed { index, provider ->
+                providerDao.updateGroupAndSortOrder(provider.id, null, rootMax + index + 1)
+            }
             groupDao.deleteById(id)
         }
     }
 
     suspend fun moveProviderToGroup(providerId: String, groupId: String?) {
-        providerDao.updateGroup(providerId, groupId)
+        db.withTransaction {
+            val sortOrder = if (groupId == null) {
+                maxOf(
+                    groupDao.getAllGroupsOnce().maxOfOrNull { it.sortOrder } ?: -1,
+                    providerDao.getUngroupedProviders().filterNot { it.id == providerId }.maxOfOrNull { it.sortOrder } ?: -1
+                ) + 1
+            } else {
+                (providerDao.getProvidersByGroup(groupId).filterNot { it.id == providerId }.maxOfOrNull { it.sortOrder } ?: -1) + 1
+            }
+            providerDao.updateGroupAndSortOrder(providerId, groupId, sortOrder)
+        }
+    }
+
+    suspend fun reorderRootItems(items: List<ProviderRootOrderItem>) {
+        db.withTransaction {
+            items.forEachIndexed { index, item ->
+                if (item.isGroup) groupDao.updateSortOrder(item.id, index)
+                else providerDao.updateSortOrder(item.id, index)
+            }
+        }
     }
 
     suspend fun reorderGroups(ids: List<String>) {

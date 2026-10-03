@@ -201,9 +201,9 @@
     <string name="provider_group_name">Group name</string>
     <string name="provider_group_name_required">Group name is required.</string>
     <string name="delete_provider_group">Delete provider group</string>
-    <string name="delete_provider_group_message">Providers in this group will be moved to Ungrouped. The providers themselves will not be deleted.</string>
+    <string name="delete_provider_group_message">Providers in this group will be moved back to the Providers root. The providers themselves will not be deleted.</string>
     <string name="move_to_group">Move to group</string>
-    <string name="ungrouped">Ungrouped</string>
+    <string name="ungrouped">No group</string>
     <string name="provider_count">%1$d providers</string>
     <string name="expand_group">Expand %1$s</string>
     <string name="collapse_group">Collapse %1$s</string>
@@ -212,4 +212,5 @@
     <string name="more_options">More options</string>
     <string name="search_models_placeholder">Search models</string>
     <string name="common_all">All</string>
+    <string name="empty_provider_group">No providers in this group</string>
 </resources>

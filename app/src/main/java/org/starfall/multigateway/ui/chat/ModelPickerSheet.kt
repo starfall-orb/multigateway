@@ -25,7 +25,6 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -164,6 +163,10 @@ fun computeModelPickerItems(
 fun ModelPickerSheet(
     providers: List<LlmProviderInfo>,
     providerGroups: List<ProviderGroup> = emptyList(),
+    collapsedGroupIdsState: Set<String> = emptySet(),
+    collapsedProviderIdsState: Set<String> = emptySet(),
+    onCollapsedGroupIdsChange: (Set<String>) -> Unit = {},
+    onCollapsedProviderIdsChange: (Set<String>) -> Unit = {},
     selectedProviderId: String,
     selectedModelId: String,
     conversationReasoningEffort: String?,
@@ -174,8 +177,22 @@ fun ModelPickerSheet(
 ) {
     var query by remember { mutableStateOf("") }
     var providerFilterId by remember { mutableStateOf<String?>(null) }
-    var collapsedGroupIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var collapsedProviderIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
+    var collapsedProviderIds by remember { mutableStateOf(collapsedProviderIdsState) }
+    LaunchedEffect(collapsedGroupIdsState) {
+        collapsedGroupIds = collapsedGroupIdsState
+    }
+    LaunchedEffect(collapsedProviderIdsState) {
+        collapsedProviderIds = collapsedProviderIdsState
+    }
+    fun setCollapsedGroups(value: Set<String>) {
+        collapsedGroupIds = value
+        onCollapsedGroupIdsChange(value)
+    }
+    fun setCollapsedProviders(value: Set<String>) {
+        collapsedProviderIds = value
+        onCollapsedProviderIdsChange(value)
+    }
 
     val flatItems = remember(
         providers,
@@ -196,8 +213,8 @@ fun ModelPickerSheet(
             selectedModelId = selectedModelId,
             query = query,
             providerFilterId = providerFilterId,
-            collapsedGroupIds = collapsedGroupIds.toSet(),
-            collapsedProviderIds = collapsedProviderIds.toSet()
+            collapsedGroupIds = collapsedGroupIds,
+            collapsedProviderIds = collapsedProviderIds
         )
     }
 
@@ -278,9 +295,10 @@ fun ModelPickerSheet(
                                     providerCount = item.providerCount,
                                     collapsed = collapsed,
                                     onToggle = {
-                                        collapsedGroupIds =
+                                        setCollapsedGroups(
                                             if (item.group.id in collapsedGroupIds) collapsedGroupIds - item.group.id
                                             else collapsedGroupIds + item.group.id
+                                        )
                                     }
                                 )
                             }
@@ -295,9 +313,10 @@ fun ModelPickerSheet(
                                     collapsed = collapsed,
                                     selected = item.provider.id == selectedProviderId,
                                     onToggle = {
-                                        collapsedProviderIds =
+                                        setCollapsedProviders(
                                             if (item.provider.id in collapsedProviderIds) collapsedProviderIds - item.provider.id
                                             else collapsedProviderIds + item.provider.id
+                                        )
                                     }
                                 )
                             }

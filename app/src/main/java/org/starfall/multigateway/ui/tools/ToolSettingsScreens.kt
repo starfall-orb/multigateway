@@ -199,8 +199,7 @@ fun SystemToolsScreen(
             LazyColumn(
                 Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight()
-                    .navigationBarsPadding(),
+                    .fillMaxHeight(),
                 contentPadding = PaddingValues(16.dp)
             ) {
                 item {

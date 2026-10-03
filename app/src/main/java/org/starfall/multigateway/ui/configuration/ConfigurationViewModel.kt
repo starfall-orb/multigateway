@@ -140,6 +140,10 @@ class ConfigurationViewModel(
         viewModelScope.launch { llmRepo.reorderGroups(ids) }
     }
 
+    fun reorderProviderRootItems(items: List<ProviderRootOrderItem>) {
+        viewModelScope.launch { llmRepo.reorderRootItems(items) }
+    }
+
     private val oauthAuthorizations = OAuthAuthorizations(viewModelScope, llmRepo::authorizeProvider)
 
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =

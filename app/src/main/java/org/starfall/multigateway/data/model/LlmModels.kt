@@ -155,6 +155,12 @@ data class ProviderGroup(
     val sortOrder: Int = Int.MAX_VALUE
 )
 
+
+data class ProviderRootOrderItem(
+    val id: String,
+    val isGroup: Boolean
+)
+
 @Serializable
 data class Capabilities(
     val text: Boolean = true,

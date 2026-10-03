@@ -38,7 +38,6 @@ fun FilesActionSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 28.dp)
         ) {

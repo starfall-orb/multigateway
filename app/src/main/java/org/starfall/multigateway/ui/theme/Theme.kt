@@ -41,21 +41,6 @@ private val DefaultDark = darkColorScheme(
     onBackground = Color(0xFFE6E0E9)
 )
 
-private val AmoledDark = darkColorScheme(
-    primary = Color(0xFFA8C7FA),
-    onPrimary = Color(0xFF002F6C),
-    primaryContainer = Color(0xFF1A1A1A),
-    onPrimaryContainer = Color(0xFFD3E3FD),
-    secondary = Color(0xFF7FCFFF),
-    onSecondary = Color(0xFF003355),
-    surface = Color(0xFF000000),
-    onSurface = Color(0xFFFFFFFF),
-    surfaceVariant = Color(0xFF1E1E1E),
-    onSurfaceVariant = Color(0xFFCCCCCC),
-    background = Color(0xFF000000),
-    onBackground = Color(0xFFFFFFFF)
-)
-
 // Emerald palette
 private val EmeraldLight = lightColorScheme(
     primary = Color(0xFF006C4C),
@@ -164,6 +149,66 @@ private val VioletDark = darkColorScheme(
     onBackground = Color(0xFFE7E0E8)
 )
 
+private val MonochromeLight = lightColorScheme(
+    primary = Color(0xFF202124), onPrimary = Color.White,
+    primaryContainer = Color(0xFFE3E3E3), onPrimaryContainer = Color(0xFF171717),
+    secondary = Color(0xFF5F6368), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE8EAED), onSecondaryContainer = Color(0xFF202124),
+    surface = Color(0xFFFAFAFA), onSurface = Color(0xFF1F1F1F),
+    surfaceVariant = Color(0xFFE5E5E5), onSurfaceVariant = Color(0xFF464646),
+    background = Color(0xFFFAFAFA), onBackground = Color(0xFF1F1F1F)
+)
+
+private val MonochromeDark = darkColorScheme(
+    primary = Color(0xFFE8EAED), onPrimary = Color(0xFF202124),
+    primaryContainer = Color(0xFF3C4043), onPrimaryContainer = Color(0xFFF1F3F4),
+    secondary = Color(0xFFBDC1C6), onSecondary = Color(0xFF292A2D),
+    secondaryContainer = Color(0xFF444746), onSecondaryContainer = Color(0xFFE8EAED),
+    surface = Color(0xFF121212), onSurface = Color(0xFFE8EAED),
+    surfaceVariant = Color(0xFF353535), onSurfaceVariant = Color(0xFFC7C7C7),
+    background = Color(0xFF121212), onBackground = Color(0xFFE8EAED)
+)
+
+data class ThemePreset(val name: String, val preview: Color)
+
+val ThemePresets = listOf(
+    ThemePreset("DEFAULT", Color(0xFF0B57D0)), ThemePreset("EMERALD", Color(0xFF006C4C)),
+    ThemePreset("SUNSET", Color(0xFFA04000)), ThemePreset("CRIMSON", Color(0xFFB3261E)),
+    ThemePreset("VIOLET", Color(0xFF6B4FA0)), ThemePreset("MONOCHROME", Color(0xFF444746))
+)
+
+private fun completeScheme(source: ColorScheme, dark: Boolean): ColorScheme = source.copy(
+    tertiary = source.secondary,
+    onTertiary = source.onSecondary,
+    tertiaryContainer = source.secondaryContainer,
+    onTertiaryContainer = source.onSecondaryContainer,
+    error = if (dark) Color(0xFFFFB4AB) else Color(0xFFBA1A1A),
+    onError = if (dark) Color(0xFF690005) else Color.White,
+    errorContainer = if (dark) Color(0xFF93000A) else Color(0xFFFFDAD6),
+    onErrorContainer = if (dark) Color(0xFFFFDAD6) else Color(0xFF410002),
+    outline = if (dark) Color(0xFF8E918F) else Color(0xFF747775),
+    outlineVariant = if (dark) Color(0xFF444746) else Color(0xFFC4C7C5),
+    scrim = Color.Black,
+    inverseSurface = source.onSurface,
+    inverseOnSurface = source.surface,
+    inversePrimary = source.primaryContainer,
+    surfaceDim = if (dark) source.surface else source.surfaceVariant,
+    surfaceBright = if (dark) source.surfaceVariant else source.surface,
+    surfaceContainerLowest = if (dark) Color(0xFF090909) else Color.White,
+    surfaceContainerLow = if (dark) source.surface.copy(alpha = 1f) else source.surface,
+    surfaceContainer = source.surfaceVariant.copy(alpha = if (dark) 0.45f else 0.55f),
+    surfaceContainerHigh = source.surfaceVariant.copy(alpha = if (dark) 0.7f else 0.8f),
+    surfaceContainerHighest = source.surfaceVariant
+)
+
+private fun ColorScheme.withAmoledSurfaces(): ColorScheme = copy(
+    background = Color.Black, surface = Color.Black,
+    surfaceDim = Color.Black, surfaceContainerLowest = Color.Black,
+    surfaceContainerLow = Color(0xFF080808), surfaceContainer = Color(0xFF101010),
+    surfaceContainerHigh = Color(0xFF181818), surfaceContainerHighest = Color(0xFF202020),
+    surfaceBright = Color(0xFF242424), surfaceVariant = Color(0xFF202020)
+)
+
 @Composable
 fun MultiGatewayTheme(
     themeMode: String = "SYSTEM",
@@ -180,8 +225,7 @@ fun MultiGatewayTheme(
     }
     val isAmoled = amoledMode && isDark
 
-    val colorScheme = when {
-        isAmoled -> AmoledDark
+    val selectedScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
             val context = LocalContext.current
             if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
@@ -190,7 +234,11 @@ fun MultiGatewayTheme(
         colorSchemeName == "SUNSET" -> if (isDark) SunsetDark else SunsetLight
         colorSchemeName == "CRIMSON" -> if (isDark) CrimsonDark else CrimsonLight
         colorSchemeName == "VIOLET" -> if (isDark) VioletDark else VioletLight
+        colorSchemeName == "MONOCHROME" -> if (isDark) MonochromeDark else MonochromeLight
         else -> if (isDark) DefaultDark else DefaultLight
+    }
+    val colorScheme = completeScheme(selectedScheme, isDark).let {
+        if (isAmoled) it.withAmoledSurfaces() else it
     }
 
     MaterialTheme(

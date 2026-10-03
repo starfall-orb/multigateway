@@ -239,3 +239,34 @@ Track and complete the unfinished work currently present in the local working tr
 - 2026-10-03: The global button collapses all sections when any section is open, then expands all on the next tap. Search still opens matching sections automatically when its query changes, while the global and individual toggles remain effective during search.
 
 - 2026-10-03: Renamed the System Settings entry Data & Storage to App Data, with a description of conversation history/application reset. Configuration retains the single Storage entry for generated tool files. Removed the unsupported backup claim from the description.
+
+### Theme consistency, monochrome preset, Content API MCP, and final audit
+
+- [x] Replace remaining fixed UI/media colors with Material color roles
+- [x] Complete preset color roles used by dialogs, sheets, containers, outlines, inverse content and errors
+- [x] Add a shared monochrome preset and responsive, accessible palette selector
+- [x] Preserve the selected/dynamic accent palette when AMOLED replaces dark surfaces with black
+- [x] Add the removable Content API MCP preset with a hidden default endpoint
+- [x] Resolve Content API names (`Content API`, `contentapi`, `content-api`) case-insensitively while preserving explicit URLs
+- [x] Add a separate one-time migration marker so both new and existing installations receive the preset without recreating it after deletion
+- [x] Add endpoint/name/explicit-URL regression coverage
+- [x] Audit production sources for test credentials and remove the temporary unfinished-task tracker
+- [x] Document token counting as an estimate rather than a provider-specific tokenizer
+- [ ] Device-only Helix provider instrumentation rerun (environment unavailable: Android SDK and ADB are not installed)
+- [ ] Install the final APK on a device (environment unavailable: Android SDK and ADB are not installed)
+
+- 2026-10-03: Centralized palette previews in `Theme.kt`, added monochrome light/dark schemes, filled Material color roles, and changed AMOLED into a surface-only transformation that retains the active palette.
+- 2026-10-03: Media preview backgrounds, playback/error content, and selection marks now use theme roles instead of fixed black/white values.
+- 2026-10-03: Added Content API endpoint resolution and a dedicated one-time initializer marker. The stored preset URL remains empty, user-entered URLs take priority, and deletion is permanent.
+- 2026-10-03: Added unit coverage for all supported Content API spellings, hidden default resolution, unrelated names, and explicit URL priority.
+- 2026-10-03: Production credential scan found no test API key or test provider credential. The only new endpoint is the requested Content API preset constant.
+- 2026-10-03: Build/test/lint and device validation could not run in this container because no Android SDK or ADB executable is installed. `git diff --check` passed.
+- 2026-10-03: Token/context figures remain deliberately documented in the UI and implementation as estimates based on character heuristics; exact counts vary by provider tokenizer. Existing context-window unit coverage remains in the tree.
+
+### Version 1.0.6
+
+- [x] Bump app version to `1.0.6` / versionCode `16`
+- [x] Commit the release metadata update
+- [ ] Push the completed changes to GitHub (blocked in this container: the HTTPS CONNECT tunnel returns 403)
+
+- 2026-10-03: Increased the application version for the theme and Content API MCP release. The local `work` branch is ready, but the GitHub push is blocked by this container's HTTPS CONNECT tunnel (HTTP 403).

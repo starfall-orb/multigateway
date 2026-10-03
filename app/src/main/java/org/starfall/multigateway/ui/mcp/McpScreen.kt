@@ -68,6 +68,7 @@ import org.starfall.multigateway.data.model.McpAuthMethod
 import org.starfall.multigateway.data.model.McpAuthorization
 import org.starfall.multigateway.data.model.McpInfo
 import org.starfall.multigateway.data.model.McpProtocol
+import org.starfall.multigateway.data.model.isContentApiName
 import org.starfall.multigateway.data.model.ToolDefinition
 import org.starfall.multigateway.data.model.ToolSettings
 import java.util.UUID
@@ -454,7 +455,8 @@ fun AddOrEditMcpScreenContent(
 
     val authValid = authValue.isBlank() || authKey.isBlank() || authMethod !in listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM) ||
         (authKey.isNotBlank() && !authKey.contains(':') && authKey.none { it <= ' ' || it.code >= 127 })
-    val canSave = name.isNotBlank() && url.isNotBlank() && authValid && headers.all {
+    val hasEndpoint = url.isNotBlank() || name.isContentApiName()
+    val canSave = name.isNotBlank() && hasEndpoint && authValid && headers.all {
         it.first.isNotBlank() && !it.first.contains(':') &&
             !it.first.any { ch -> ch == '\r' || ch == '\n' } &&
             !it.second.any { ch -> ch == '\r' || ch == '\n' }

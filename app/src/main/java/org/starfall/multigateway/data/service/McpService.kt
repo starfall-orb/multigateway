@@ -24,7 +24,7 @@ class McpService(private val http: ToolHttp = ToolHttp()) {
 suspend fun <T> McpSession.useSession(block: suspend (McpSession) -> T): T = try { block(this) } finally { close() }
 
 class McpSession(private val info: McpInfo, private val http: ToolHttp) {
-    private val endpoint = info.url?.takeIf { it.isNotBlank() } ?: error("MCP URL is missing")
+    private val endpoint = info.resolvedUrl() ?: error("MCP URL is missing")
     private var postEndpoint = endpoint
     private var sessionId: String? = null
     private var version: String? = null

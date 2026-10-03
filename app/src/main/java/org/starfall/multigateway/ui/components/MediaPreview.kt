@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -152,7 +151,7 @@ private fun VideoPlayback(reference: String) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); view?.stopPlayback() }
     }
-    Box(Modifier.fillMaxWidth().height(280.dp).background(Color.Black), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().height(280.dp).background(MaterialTheme.colorScheme.scrim), contentAlignment = Alignment.Center) {
         if (!error) {
             AndroidView(
                 factory = { context ->
@@ -176,7 +175,7 @@ private fun VideoPlayback(reference: String) {
             )
             if (!ready) CircularProgressIndicator()
         } else Text("Unable to play this video. The file may be unavailable or unsupported.",
-            color = Color.White, modifier = Modifier.padding(16.dp))
+            color = MaterialTheme.colorScheme.inverseOnSurface, modifier = Modifier.padding(16.dp))
     }
 }
 

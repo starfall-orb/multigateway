@@ -425,7 +425,7 @@ internal class OpenAICodexAdapter(
         put(
             "reasoning",
             buildJsonObject {
-                put("effort", reasoningEffort?.takeIf { it.isNotBlank() } ?: "high")
+                reasoningEffort?.takeIf { it.isNotBlank() }?.let { put("effort", it) }
                 put("summary", "auto")
             }
         )

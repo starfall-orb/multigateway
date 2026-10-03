@@ -22,12 +22,13 @@ class AppContainer(context: Context) {
     private val mcpService = McpService(toolHttp)
     private val conversations = ConversationRepository(database)
     private val profiles = ProfileRepository(database)
-    private val providers = LlmRepository(database, llmService)
-    private val mcp = McpRepository(database, mcpService)
+    private val icons = IconStore(appContext)
+    private val providers = LlmRepository(database, llmService, icons)
+    private val mcp = McpRepository(database, mcpService, icons)
     private val speech = SpeechRepository(database)
     private val preferences = AppPreferencesRepository(appContext)
     private val toolSettings = ToolSettingsStore(appContext)
-    val defaultDataInitializer = DefaultDataInitializer(providers, mcp, speech, preferences)
+    val defaultDataInitializer = DefaultDataInitializer(providers, mcp, speech, preferences, icons)
 
     val viewModelFactory = viewModelFactory {
         initializer {

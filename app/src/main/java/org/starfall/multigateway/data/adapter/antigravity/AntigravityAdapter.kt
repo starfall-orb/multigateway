@@ -104,12 +104,14 @@ internal class AntigravityAdapter(context: Context, attachments: AttachmentResol
             JsonObject(message + ("parts" to JsonArray(parts)))
         })
         val config = (request["generationConfig"] as? JsonObject) ?: obj()
-        if (model.contains("claude") && sourceProvider.config.modelConfigs[model]?.supportsThinking != false) {
+        val modelConfig = sourceProvider.config.modelConfigs[model]
+        if (model.contains("claude") && modelConfig?.supportsThinking != false &&
+            modelConfig?.reasoningDisabled != true && modelConfig?.reasoningEffort != null) {
             val maxTokens = (config["maxOutputTokens"] as? JsonPrimitive)?.intOrNull ?: sourceProvider.config.maxTokens
             if (maxTokens > 1024) request["generationConfig"] = JsonObject(config + ("thinkingConfig" to obj(
-                "includeThoughts" to JsonPrimitive(true), "thinkingBudget" to JsonPrimitive(minOf(1024, maxTokens - 1)))))
+                "includeThoughts" to JsonPrimitive(true), "thinkingBudget" to JsonPrimitive(modelConfig.reasoningBudget(maxTokens)))))
         }
-        return obj("project" to str(project), "model" to str(AntigravityModels.resolve(model, sourceProvider.config.modelConfigs[model]?.reasoningEffort)), "requestId" to str("agent-${UUID.randomUUID()}"),
+        return obj("project" to str(project), "model" to str(AntigravityModels.resolve(model, modelConfig?.reasoningEffort)), "requestId" to str("agent-${UUID.randomUUID()}"),
             "userAgent" to str("antigravity"), "requestType" to str("agent"),
             "request" to JsonObject(request))
     }

@@ -56,6 +56,7 @@ fun MainScreen(
     val summaryProgress by viewModel.summaryProgress.collectAsStateWithLifecycle()
     val appPrefs: AppPreferences by settingsViewModel.preferences.collectAsStateWithLifecycle()
     val providers: List<LlmProviderInfo> by viewModel.providers.collectAsStateWithLifecycle()
+    val providerGroups: List<ProviderGroup> by configurationViewModel.providerGroups.collectAsStateWithLifecycle()
     val mcpServers: List<McpInfo> by viewModel.mcpServers.collectAsStateWithLifecycle()
     val speechServices: List<SpeechService> by configurationViewModel.speechServices.collectAsStateWithLifecycle()
     val mcpToolsCache by configurationViewModel.mcpToolsCache.collectAsStateWithLifecycle()
@@ -143,6 +144,7 @@ fun MainScreen(
                                 generatingConversationId = generatingConversationId,
                                 chatError = chatError,
                                 providers = providers,
+                                providerGroups = providerGroups,
                                 selectedProviderId = appPrefs.selectedProviderId,
                                 selectedModelName = appPrefs.selectedModelId,
                                 autoScroll = appPrefs.autoScroll,
@@ -201,9 +203,13 @@ fun MainScreen(
                     composable(AppDestination.PROVIDERS.route) {
                         ProviderScreen(
                             providers = providers,
+                            providerGroups = providerGroups,
                             isGridView = appPrefs.showProvidersAsGrid,
                             onToggleGridView = { configurationViewModel.setShowProvidersAsGrid(it) },
                             onSaveProvider = { configurationViewModel.saveProvider(it) },
+                            onSaveGroup = configurationViewModel::saveProviderGroup,
+                            onDeleteGroup = configurationViewModel::deleteProviderGroup,
+                            onMoveProviderToGroup = configurationViewModel::moveProviderToGroup,
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
                             onReorderModels = configurationViewModel::reorderProviderModels,
                             onDeleteProvider = { configurationViewModel.deleteProvider(it) },

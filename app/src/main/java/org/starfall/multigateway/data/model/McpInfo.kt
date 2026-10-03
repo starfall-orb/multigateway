@@ -30,10 +30,11 @@ data class McpAuthorization(
 data class McpInfo(
     val id: String,
     val name: String,
-    val protocol: McpProtocol = McpProtocol.SSE,
+    val protocol: McpProtocol = McpProtocol.STREAMABLE_HTTP,
     val url: String? = null,
     val headers: Map<String, String>? = null,
     val auth: McpAuthorization = McpAuthorization(),
     val cachedTools: List<ToolDefinition>? = null,
-    val sortOrder: Int = Int.MAX_VALUE
+    val sortOrder: Int = Int.MAX_VALUE,
+    val icon: String? = null
 )

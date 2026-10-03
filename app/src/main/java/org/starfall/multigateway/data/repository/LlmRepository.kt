@@ -8,19 +8,25 @@ import org.starfall.multigateway.data.local.db.AppDatabase
 import org.starfall.multigateway.data.local.db.SecretCipher
 import org.starfall.multigateway.data.local.db.entities.*
 import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.data.service.IconStore
 import org.starfall.multigateway.data.service.LlmService
 
-class LlmRepository(private val db: AppDatabase, private val service: LlmService) {
+class LlmRepository(private val db: AppDatabase, private val service: LlmService, private val icons: IconStore? = null) {
     suspend fun testConnection(provider: LlmProviderInfo) = service.testConnection(provider)
     suspend fun testModel(provider: LlmProviderInfo, modelId: String) = service.testModel(provider, modelId)
     suspend fun fetchProviderModels(provider: LlmProviderInfo) = service.fetchProviderModels(provider)
     suspend fun fetchOllamaModels(baseUrl: String) = service.fetchOllamaModels(baseUrl)
 
     private val providerDao = db.llmProviderDao()
+    private val groupDao = db.providerGroupDao()
     private val modelsDao = db.llmModelsDao()
 
     val allProviders: Flow<List<LlmProviderInfo>> = providerDao.getAllProviders().map { entities ->
         entities.map { providerEntityToModel(it) }
+    }
+
+    val allGroups: Flow<List<ProviderGroup>> = groupDao.getAllGroups().map { groups ->
+        groups.map { ProviderGroup(it.id, it.name, it.sortOrder) }
     }
 
     suspend fun getProviderById(id: String): LlmProviderInfo? {
@@ -28,13 +34,32 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         return providerEntityToModel(entity)
     }
 
+    suspend fun saveGroup(group: ProviderGroup) {
+        groupDao.insertOrUpdate(ProviderGroupEntity(group.id, group.name.trim(), group.sortOrder))
+    }
+
+    suspend fun deleteGroup(id: String) {
+        db.withTransaction {
+            providerDao.clearGroup(id)
+            groupDao.deleteById(id)
+        }
+    }
+
+    suspend fun moveProviderToGroup(providerId: String, groupId: String?) {
+        providerDao.updateGroup(providerId, groupId)
+    }
+
+    suspend fun reorderGroups(ids: List<String>) {
+        ids.forEachIndexed { index, id -> groupDao.updateSortOrder(id, index) }
+    }
+
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
         service.withOAuthSession {
             val authorized = service.authorizeProvider(provider).getOrThrow()
             val persisted = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
             providerDao.insertOrUpdate(providerModelToEntity(
-                persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
-                    ?: authorized
+                withSavedIcons(persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
+                    ?: authorized, persisted)
             ))
             authorized
         }
@@ -58,7 +83,20 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         ) {
             service.clearAccountCredentials(previous.type, previous.id)
         }
-        providerDao.insertOrUpdate(providerModelToEntity(provider))
+        providerDao.insertOrUpdate(providerModelToEntity(withSavedIcons(provider, previous)))
+    }
+
+    private fun withSavedIcons(provider: LlmProviderInfo, previous: LlmProviderInfo?): LlmProviderInfo {
+        provider.icon?.takeIf { it != previous?.icon || provider.name != previous?.name }?.let {
+            icons?.cache(provider.name, it)
+        }
+        provider.config.modelConfigs.forEach { (id, config) ->
+            val old = previous?.config?.modelConfigs?.get(id)
+            config.icon?.takeIf { it != old?.icon || config.displayName != old?.displayName }?.let {
+                icons?.cache(config.displayName.ifBlank { id }, it, model = true)
+            }
+        }
+        return provider
     }
 
     suspend fun reorderProviderModels(providerId: String, modelIds: List<String>) {
@@ -127,7 +165,8 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             icon = entity.icon,
             baseUrl = SecretCipher.decrypt(entity.baseUrl),
             config = config,
-            sortOrder = entity.sortOrder
+            sortOrder = entity.sortOrder,
+            groupId = entity.groupId
         )
     }
 
@@ -140,8 +179,8 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             authJson = SecretCipher.encrypt(json.encodeToString(provider.auth)),
             configJson = SecretCipher.encrypt(json.encodeToString(provider.config)),
             icon = provider.icon,
-            sortOrder = provider.sortOrder
+            sortOrder = provider.sortOrder,
+            groupId = provider.groupId
         )
     }
 }
-

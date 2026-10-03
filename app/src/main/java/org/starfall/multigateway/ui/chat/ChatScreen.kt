@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import org.starfall.multigateway.data.model.ChatRole
 import org.starfall.multigateway.data.model.Conversation
 import org.starfall.multigateway.data.model.LlmProviderInfo
+import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.StoredMessage
 import org.starfall.multigateway.data.model.ConversationSummaryProgress
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
@@ -39,6 +40,7 @@ fun ChatScreen(
     generatingConversationId: String?,
     chatError: String?,
     providers: List<LlmProviderInfo>,
+    providerGroups: List<ProviderGroup> = emptyList(),
     selectedProviderId: String,
     selectedModelName: String,
     onSendMessage: (String, List<String>) -> Boolean,
@@ -354,6 +356,7 @@ fun ChatScreen(
                 onStopGenerating = onStopGenerating,
                 selectedModelName = selectedModelName,
                 providers = providers,
+                providerGroups = providerGroups,
                 selectedProviderId = selectedProviderId,
                 onSelectModel = onSelectModel,
                 conversationReasoningEffort = conversation?.reasoningEffort,

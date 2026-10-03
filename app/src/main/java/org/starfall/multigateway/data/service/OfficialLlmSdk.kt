@@ -518,6 +518,13 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
     ): Flow<GenerationEvent> = flow {
         anthropic(provider).useClient { client ->
             val params = MessageCreateParams.builder().model(modelName).maxTokens(maxTokens.toLong())
+            val modelConfig = provider.config.modelConfigs[modelName]
+            if (modelConfig?.reasoningDisabled == true) {
+                params.putAdditionalBodyProperty("thinking", com.anthropic.core.JsonValue.from(mapOf("type" to "disabled")))
+            } else if (modelConfig?.reasoningEffort != null && maxTokens > 1024) {
+                params.putAdditionalBodyProperty("thinking", com.anthropic.core.JsonValue.from(
+                    mapOf("type" to "enabled", "budget_tokens" to modelConfig.reasoningBudget(maxTokens))))
+            }
             if (systemPrompt.isNotBlank()) params.system(systemPrompt)
             messages.forEach { message ->
                 if (message.role == ChatRole.MODEL && sendThinkingContent && !message.reasoningContent.isNullOrBlank()) {
@@ -602,6 +609,14 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
                     .build()
             }
             val config = GenerateContentConfig.builder().maxOutputTokens(maxTokens)
+            provider.config.modelConfigs[modelName]?.let { modelConfig ->
+                if (modelConfig.reasoningDisabled) {
+                    config.thinkingConfig(com.google.genai.types.ThinkingConfig.builder().thinkingBudget(0).includeThoughts(false).build())
+                } else modelConfig.reasoningEffort?.let {
+                    config.thinkingConfig(com.google.genai.types.ThinkingConfig.builder()
+                        .thinkingLevel(if (it == "xhigh") "high" else it).includeThoughts(true).build())
+                }
+            }
             if (systemPrompt.isNotBlank()) config.systemInstruction(Content.fromParts(Part.fromText(systemPrompt)))
             temperature?.let { config.temperature(it.toFloat()) }
             topP?.let { config.topP(it.toFloat()) }

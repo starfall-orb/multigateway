@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.tools
 
+import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -191,7 +192,7 @@ fun SystemToolsScreen(
                 }
                 .map { (id, config) -> Triple(provider, id, config) }
         }
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { choosing = null },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {

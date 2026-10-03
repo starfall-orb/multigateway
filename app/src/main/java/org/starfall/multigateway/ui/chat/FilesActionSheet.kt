@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,7 +29,7 @@ fun FilesActionSheet(
     onOpenTools: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    ModalBottomSheet(
+    AppBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),

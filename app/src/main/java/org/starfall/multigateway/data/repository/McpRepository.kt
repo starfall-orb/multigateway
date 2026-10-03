@@ -9,14 +9,16 @@ import org.starfall.multigateway.data.local.db.SecretCipher
 import org.starfall.multigateway.data.local.db.entities.*
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.McpService
+import org.starfall.multigateway.data.service.IconStore
 
 @Serializable
 private data class McpPersistedHttpConfig(
     val headers: Map<String, String>? = null,
-    val auth: McpAuthorization = McpAuthorization()
+    val auth: McpAuthorization = McpAuthorization(),
+    val icon: String? = null
 )
 
-class McpRepository(private val db: AppDatabase, private val service: McpService) {
+class McpRepository(private val db: AppDatabase, private val service: McpService, private val icons: IconStore? = null) {
     suspend fun discoverTools(server: McpInfo) = service.discover(server)
 
     private val dao = db.mcpServerDao()
@@ -31,6 +33,10 @@ class McpRepository(private val db: AppDatabase, private val service: McpService
     }
 
     suspend fun saveServer(server: McpInfo) {
+        val previous = getById(server.id)
+        server.icon?.takeIf { it != previous?.icon || server.name != previous?.name }?.let {
+            icons?.cache(server.name, it)
+        }
         dao.insertOrUpdate(modelToEntity(server))
     }
 
@@ -72,7 +78,8 @@ class McpRepository(private val db: AppDatabase, private val service: McpService
             cachedTools = entity.cachedToolsJson?.let { raw ->
                 runCatching { json.decodeFromString<List<ToolDefinition>>(raw) }.getOrNull()
             },
-            sortOrder = entity.sortOrder
+            sortOrder = entity.sortOrder,
+            icon = persisted.icon
         )
     }
 
@@ -83,7 +90,7 @@ class McpRepository(private val db: AppDatabase, private val service: McpService
             protocol = server.protocol.name,
             url = server.url?.let(SecretCipher::encrypt),
             headersJson = SecretCipher.encrypt(
-                json.encodeToString(McpPersistedHttpConfig(server.headers, server.auth))
+                json.encodeToString(McpPersistedHttpConfig(server.headers, server.auth, server.icon))
             ),
             cachedToolsJson = server.cachedTools?.let { json.encodeToString(it) },
             sortOrder = server.sortOrder

@@ -3,6 +3,7 @@ package org.starfall.multigateway.data.repository
 import kotlinx.coroutines.flow.first
 import org.starfall.multigateway.data.local.preferences.AppPreferencesRepository
 import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.data.service.IconStore
 
 /** Runs once per application process; existing records retain their persisted format. */
 class DefaultDataInitializer(
@@ -10,6 +11,7 @@ class DefaultDataInitializer(
     private val mcpRepo: McpRepository,
     private val speechRepo: SpeechRepository,
     private val prefsRepo: AppPreferencesRepository,
+    private val icons: IconStore,
 ) {
     suspend fun initialize() {
         llmRepo.allProviders.first().let { currentProviders ->
@@ -62,6 +64,19 @@ class DefaultDataInitializer(
                 initDefaultSpeechServices()
             }
         }
+
+        pruneUnusedIcons()
+    }
+
+    private suspend fun pruneUnusedIcons() {
+        val entityImages = buildList {
+            llmRepo.allProviders.first().forEach { provider ->
+                add(provider.icon)
+                provider.config.modelConfigs.values.forEach { add(it.icon) }
+            }
+            mcpRepo.allServers.first().forEach { add(it.icon) }
+        }
+        icons.prune(entityImages)
     }
 
     private suspend fun initDefaultProviders() {

@@ -442,12 +442,13 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 }
                 val response = modelResponse(base.removeSuffix("/v1") + "/v1/messages", buildJsonObject {
                     put("model", model); put("max_tokens", p.config.maxTokens); put("system", prompt); put("messages", JsonArray(native))
-                    if (config.supportsThinking && p.config.maxTokens > 1024)
-                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(1024)))
+                    if (config.supportsThinking && config.reasoningEffort != null && !config.reasoningDisabled && p.config.maxTokens > 1024)
+                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(config.reasoningBudget(p.config.maxTokens))))
+                    if (config.reasoningDisabled) put("thinking", obj("type" to str("disabled")))
                     if (tools.isNotEmpty()) put("tools", JsonArray(tools.map {
                         obj("name" to str(it.name), "description" to str(it.description), "input_schema" to it.schema)
                     }))
-                    if (!config.supportsThinking || p.config.maxTokens <= 1024) {
+                    if ((!config.supportsThinking || config.reasoningEffort == null || config.reasoningDisabled) || p.config.maxTokens <= 1024) {
                         config.temperature?.let { put("temperature", it) }
                         config.topP?.let { put("top_p", it) }
                     }
@@ -471,7 +472,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 val response=modelResponse("$root/models/$model:generateContent",buildJsonObject {
                     put("contents",JsonArray(native)); put("systemInstruction",obj("parts" to JsonArray(listOf(obj("text" to str(prompt))))))
                     if(tools.isNotEmpty()) put("tools",JsonArray(listOf(obj("functionDeclarations" to JsonArray(tools.map { obj("name" to str(it.name),"description" to str(it.description),"parameters" to it.schema) })))))
-                    put("generationConfig",buildJsonObject { put("maxOutputTokens",p.config.maxTokens); config.temperature?.let { put("temperature",it) }; config.topP?.let { put("topP",it) }; config.topK?.let { put("topK",it) } })
+                    put("generationConfig",buildJsonObject { put("maxOutputTokens",p.config.maxTokens); config.temperature?.let { put("temperature",it) }; config.topP?.let { put("topP",it) }; config.topK?.let { put("topK",it) }; config.googleThinkingConfig()?.let { put("thinkingConfig", it) } })
                 },wireProvider,p.streamEnabledFor(model),onText,onReasoning)
                 providerTurn(wireProvider.type, response)
             }

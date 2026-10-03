@@ -5,23 +5,23 @@ import kotlinx.serialization.Serializable
 
 enum class ProviderType(val displayName: String, val defaultName: String, val defaultBaseUrl: String) {
     @SerialName("openai")
-    OPENAI("Chat Completions", "OpenAI", "https://api.openai.com/v1"),
+    OPENAI("OpenAI Chat Completions", "", ""),
     @SerialName("openai_responses")
-    OPENAI_RESPONSES("OpenAI Responses", "OpenAI Responses", "https://api.openai.com/v1"),
-    @SerialName("openai_codex")
-    OPENAI_CODEX("OpenAI Codex", "OpenAI Codex", "https://chatgpt.com/backend-api/codex/responses"),
-    @SerialName("claude_code")
-    CLAUDE_CODE("Claude Code", "Claude Code", "https://api.anthropic.com/v1"),
+    OPENAI_RESPONSES("OpenAI Responses API", "OpenAI Responses", "https://api.openai.com/v1"),
+    @SerialName("anthropic")
+    ANTHROPIC("Anthropic Messages API", "Anthropic", "https://api.anthropic.com/v1"),
+    @SerialName("google")
+    GOOGLE("Google Gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
+    @SerialName("ollama")
+    OLLAMA("Ollama Cloud", "Ollama Cloud", "https://ollama.com/api"),
     @SerialName("antigravity")
     ANTIGRAVITY("Antigravity", "Antigravity", "https://daily-cloudcode-pa.sandbox.googleapis.com"),
     @SerialName("github_copilot")
     GITHUB_COPILOT("GitHub Copilot", "GitHub Copilot", "https://api.githubcopilot.com"),
-    @SerialName("google")
-    GOOGLE("Google", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
-    @SerialName("anthropic")
-    ANTHROPIC("Anthropic", "Anthropic", "https://api.anthropic.com/v1"),
-    @SerialName("ollama")
-    OLLAMA("Ollama", "Ollama", "https://ollama.com/api");
+    @SerialName("openai_codex")
+    OPENAI_CODEX("OpenAI Codex", "OpenAI Codex", "https://chatgpt.com/backend-api/codex/responses"),
+    @SerialName("claude_code")
+    CLAUDE_CODE("Claude Code", "Claude Code", "https://api.anthropic.com/v1");
 
     val isAccountProvider: Boolean get() = this in setOf(OPENAI_CODEX, CLAUDE_CODE, ANTIGRAVITY, GITHUB_COPILOT)
 
@@ -76,7 +76,7 @@ fun ProviderType.defaultAuthorization(): Authorization = when (this) {
         Authorization(method = AuthMethod.OAUTH, value = "")
 
     ProviderType.OLLAMA ->
-        Authorization(method = AuthMethod.NONE, value = "")
+        Authorization(method = AuthMethod.BEARER_TOKEN, key = "Authorization", value = "")
 }
 
 /** Preserve serialized legacy methods while presenting the unified choices. */
@@ -145,6 +145,13 @@ data class LlmProviderInfo(
     val icon: String? = null,
     val baseUrl: String,
     val config: ProviderConfiguration = ProviderConfiguration(),
+    val sortOrder: Int = Int.MAX_VALUE,
+    val groupId: String? = null
+)
+
+data class ProviderGroup(
+    val id: String,
+    val name: String,
     val sortOrder: Int = Int.MAX_VALUE
 )
 
@@ -201,8 +208,34 @@ data class ModelConfiguration(
     val supportsThinking: Boolean = true,
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
     val supportsToolCalls: Boolean = true,
-    @SerialName("send_thinking_content") val sendThinkingContent: Boolean = false
+    @SerialName("send_thinking_content") val sendThinkingContent: Boolean = false,
+    val icon: String? = null
 )
 
 fun LlmProviderInfo.streamEnabledFor(modelId: String): Boolean =
     config.modelConfigs[modelId]?.supportStream ?: config.supportStream
+
+/** null lets the endpoint choose; "none" explicitly disables reasoning. */
+val ModelConfiguration.reasoningDisabled: Boolean
+    get() = reasoningEffort in listOf("none", "off")
+
+fun ModelConfiguration.withConversationReasoning(effort: String?): ModelConfiguration =
+    if (effort.isNullOrBlank()) this else copy(reasoningEffort = if (effort == "off") "none" else effort)
+
+
+// Keep Claude budgets inside its output token limit.
+fun ModelConfiguration.reasoningBudget(maxTokens: Int): Int =
+    minOf(when (reasoningEffort) { "low" -> 1024; "medium" -> 2048; "high" -> 4096; "xhigh" -> 8192; else -> 1024 }, maxTokens - 1)
+
+fun ModelConfiguration.googleThinkingConfig(): kotlinx.serialization.json.JsonObject? =
+    when {
+        reasoningDisabled -> kotlinx.serialization.json.buildJsonObject {
+            put("thinkingBudget", kotlinx.serialization.json.JsonPrimitive(0))
+            put("includeThoughts", kotlinx.serialization.json.JsonPrimitive(false))
+        }
+        reasoningEffort != null -> kotlinx.serialization.json.buildJsonObject {
+            put("thinkingLevel", kotlinx.serialization.json.JsonPrimitive(if (reasoningEffort == "xhigh") "high" else reasoningEffort))
+            put("includeThoughts", kotlinx.serialization.json.JsonPrimitive(true))
+        }
+        else -> null
+    }

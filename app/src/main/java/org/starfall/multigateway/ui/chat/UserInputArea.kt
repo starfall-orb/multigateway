@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.EntityIcon
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.LlmProviderInfo
+import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
 
 data class ChatInputEditDraft(
@@ -49,6 +51,7 @@ fun UserInputArea(
     onStopGenerating: () -> Unit,
     selectedModelName: String,
     providers: List<LlmProviderInfo>,
+    providerGroups: List<ProviderGroup> = emptyList(),
     selectedProviderId: String,
     onSelectModel: (providerId: String, modelId: String) -> Unit,
     conversationReasoningEffort: String?,
@@ -229,7 +232,14 @@ fun UserInputArea(
                             .clickable { showModelPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
-                        ModelLogo(modelName = selectedModelName)
+                        val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
+                        val selectedConfig = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
+                            ?: selectedProvider?.config?.modelConfigs?.values?.firstOrNull {
+                                it.displayName.isNotBlank() && it.displayName == selectedModelName
+                            }
+                        EntityIcon(selectedConfig?.icon, Modifier.fillMaxSize(),
+                            text = modelInitial(selectedModelName),
+                            matchName = selectedConfig?.displayName?.ifBlank { selectedModelName } ?: selectedModelName, model = true)
                     }
 
                     Box(
@@ -321,6 +331,7 @@ fun UserInputArea(
     if (showModelPicker) {
         ModelPickerSheet(
             providers = providers,
+            providerGroups = providerGroups,
             selectedProviderId = selectedProviderId,
             selectedModelId = selectedModelName,
             conversationReasoningEffort = conversationReasoningEffort,
@@ -352,17 +363,4 @@ fun UserInputArea(
             }
         )
     }
-}
-
-@Composable
-private fun ModelLogo(modelName: String) {
-    Text(
-        text = modelInitial(modelName),
-        color = MaterialTheme.colorScheme.onSurface,
-        style = MaterialTheme.typography.titleMedium.copy(
-            fontWeight = FontWeight.Bold,
-            fontSize = 20.sp
-        ),
-        maxLines = 1
-    )
 }

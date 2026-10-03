@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.mcp
+import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.IconPickerRow
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -42,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import androidx.compose.ui.focus.onFocusChanged
+import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.bearerHeaderValue
 import org.starfall.multigateway.data.model.McpAuthMethod
 import org.starfall.multigateway.data.model.McpAuthorization
@@ -99,7 +103,7 @@ fun McpScreen(
 
     SlideScreenContent(
         editor = editor,
-        label = "MCP editor"
+        label = stringResource(R.string.mcp_editor)
     ) { page ->
     if (page != null) {
         AddOrEditMcpScreenContent(
@@ -126,11 +130,11 @@ fun McpScreen(
                     title = {
                         Column {
                             Text(
-                                text = "MCP Servers",
+                                text = stringResource(R.string.mcp_servers_title),
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
                             )
                             Text(
-                                text = "Model Context Protocol tools",
+                                text = stringResource(R.string.mcp_servers_description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -138,14 +142,14 @@ fun McpScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                         }
                     },
                     actions = {
                         IconButton(onClick = { onToggleGridView?.invoke(!isGridView) }) {
                             Icon(
                                 imageVector = if (isGridView) Icons.Default.List else Icons.Default.GridView,
-                                contentDescription = "Toggle Grid/List"
+                                contentDescription = stringResource(R.string.toggle_grid_list)
                             )
                         }
                         IconButton(onClick = {
@@ -157,7 +161,7 @@ fun McpScreen(
                                 headers = emptyMap()
                             ), true)
                         }) {
-                            Icon(Icons.Default.Add, contentDescription = "Add Server")
+                            Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_server))
                         }
                     }
                 )
@@ -179,9 +183,9 @@ fun McpScreen(
                                 modifier = Modifier.size(48.dp)
                             )
                             Spacer(Modifier.height(12.dp))
-                            Text("No MCP Servers", style = MaterialTheme.typography.titleMedium)
+                            Text(stringResource(R.string.no_mcp_servers), style = MaterialTheme.typography.titleMedium)
                             Text(
-                                "Tap + to connect Model Context Protocol servers",
+                                stringResource(R.string.no_mcp_servers_hint),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.outline
                             )
@@ -231,8 +235,8 @@ fun McpScreen(
     if (deletingServerId != null) {
         AlertDialog(
             onDismissRequest = { deletingServerId = null },
-            title = { Text("Delete MCP Server") },
-            text = { Text("Are you sure you want to delete this MCP connection?") },
+            title = { Text(stringResource(R.string.delete_mcp_server_title)) },
+            text = { Text(stringResource(R.string.delete_mcp_server_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -240,10 +244,10 @@ fun McpScreen(
                         deletingServerId = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
+                ) { Text(stringResource(R.string.common_delete)) }
             },
             dismissButton = {
-                TextButton(onClick = { deletingServerId = null }) { Text("Cancel") }
+                TextButton(onClick = { deletingServerId = null }) { Text(stringResource(R.string.common_cancel)) }
             }
         )
     }
@@ -251,7 +255,7 @@ fun McpScreen(
     selectedToolError?.let { (serverName, error) ->
         AlertDialog(
             onDismissRequest = { selectedToolError = null },
-            title = { Text("Tool discovery error · $serverName") },
+            title = { Text(stringResource(R.string.mcp_tool_discovery_error_title, serverName)) },
             text = {
                 Box(
                     Modifier
@@ -268,12 +272,12 @@ fun McpScreen(
                 TextButton(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("MCP tool discovery error", error))
+                        clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.mcp_tool_discovery_error_clipboard), error))
                     }
-                ) { Text("Copy") }
+                ) { Text(stringResource(R.string.common_copy)) }
             },
             dismissButton = {
-                TextButton(onClick = { selectedToolError = null }) { Text("Close") }
+                TextButton(onClick = { selectedToolError = null }) { Text(stringResource(R.string.common_close)) }
             }
         )
     }
@@ -314,20 +318,7 @@ fun McpUnifiedCard(
                 .fillMaxWidth()
                 .padding(14.dp),
             icon = {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                EntityIcon(server.icon, Modifier.size(42.dp), fallback = Icons.Outlined.Extension, matchName = server.name)
             },
             actions = {
                 ItemOverflowMenu(
@@ -348,12 +339,12 @@ fun McpUnifiedCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Protocol: ${server.protocol}",
+                        text = stringResource(R.string.mcp_protocol, mcpProtocolLabel(server.protocol)),
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = server.url ?: "No endpoint",
+                        text = server.url ?: stringResource(R.string.mcp_no_endpoint),
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.outline,
                         maxLines = 1,
@@ -377,19 +368,19 @@ fun McpUnifiedCard(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    "Error · Tap for details",
+                                    stringResource(R.string.mcp_error_details),
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     color = MaterialTheme.colorScheme.error
                                 )
                             }
                         }
                         loading -> Text(
-                            "Loading tools…",
+                            stringResource(R.string.loading_tools),
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.primary
                         )
                         toolCount != null -> Text(
-                            "$toolCount tools cached",
+                            stringResource(R.string.cached_tools_count, toolCount),
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                             color = MaterialTheme.colorScheme.outline
                         )
@@ -414,6 +405,8 @@ fun AddOrEditMcpScreenContent(
     onDismiss: () -> Unit,
     onSave: (McpInfo) -> Unit
 ) {
+    var serverIcon by remember(initialServer.id) { mutableStateOf(initialServer.icon) }
+    var iconImporting by remember { mutableStateOf(false) }
     var name by remember(initialServer.id) { mutableStateOf(initialServer.name) }
     var protocol by remember(initialServer.id) { mutableStateOf(initialServer.protocol) }
     var url by remember(initialServer.id) { mutableStateOf(initialServer.url.orEmpty()) }
@@ -449,6 +442,7 @@ fun AddOrEditMcpScreenContent(
 
     fun currentServer(): McpInfo = initialServer.copy(
         name = name.trim(),
+        icon = serverIcon,
         protocol = protocol,
         url = url.trim().ifEmpty { null },
         headers = headers.map { it.first.trim() to it.second }
@@ -489,22 +483,22 @@ fun AddOrEditMcpScreenContent(
                             windowInsets = WindowInsets(0, 0, 0, 0),
                             title = {
                                 Text(
-                                    if (isNew) "Add MCP Server" else "Configure MCP Server",
+                                    if (isNew) stringResource(R.string.add_mcp_server_title) else stringResource(R.string.configure_mcp_server_title),
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
                                 )
                             },
                             navigationIcon = {
                                 IconButton(onClick = onDismiss) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.common_back))
                                 }
                             },
                             actions = {
                                 Button(
                                     onClick = { onSave(currentServer()) },
-                                    enabled = canSave,
+                                    enabled = canSave && !iconImporting,
                                     modifier = Modifier.padding(end = 8.dp)
                                 ) {
-                                    Text("Save")
+                                    Text(stringResource(R.string.common_save))
                                 }
                             }
                         )
@@ -520,13 +514,16 @@ fun AddOrEditMcpScreenContent(
             ) {
 
                 TabRow(selectedTabIndex = selectedTab) {
-                    Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text("Basic Settings", fontWeight = FontWeight.SemiBold) })
-                    Tab(selectedTab == 1, { selectedTab = 1 }, text = { Text("Tools", fontWeight = FontWeight.SemiBold) })
+                    Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text(stringResource(R.string.mcp_basic_settings), fontWeight = FontWeight.SemiBold) })
+                    Tab(selectedTab == 1, { selectedTab = 1 }, text = { Text(stringResource(R.string.mcp_tools), fontWeight = FontWeight.SemiBold) })
                 }
 
                 if (selectedTab == 0) {
                     McpBasicSettings(
                         name = name,
+                        icon = serverIcon,
+                        onIconChange = { serverIcon = it },
+                        onIconBusyChange = { iconImporting = it },
                         onNameChange = { name = it },
                         protocol = protocol,
                         onProtocolChange = { protocol = it },
@@ -571,6 +568,9 @@ fun AddOrEditMcpScreenContent(
 @Composable
 private fun McpBasicSettings(
     name: String,
+    icon: String?,
+    onIconChange: (String?) -> Unit,
+    onIconBusyChange: (Boolean) -> Unit,
     onNameChange: (String) -> Unit,
     protocol: McpProtocol,
     onProtocolChange: (McpProtocol) -> Unit,
@@ -599,57 +599,57 @@ private fun McpBasicSettings(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Display name", style = MaterialTheme.typography.titleSmall)
+        IconPickerRow(icon, onIconChange, fallback = Icons.Outlined.Extension, onBusyChange = onIconBusyChange, matchName = name)
+        Text(stringResource(R.string.display_name), style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(
             value = name,
             onValueChange = onNameChange,
-            placeholder = { Text("Name") },
+            placeholder = { Text(stringResource(R.string.common_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
         McpDivider()
-        Text("Transport Type", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Select the transport protocol type for the MCP server",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        McpTransportSelector(protocol, onProtocolChange)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.legacy_sse), modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            Switch(checked = protocol == McpProtocol.SSE, onCheckedChange = {
+                onProtocolChange(if (it) McpProtocol.SSE else McpProtocol.STREAMABLE_HTTP)
+            })
+        }
 
         McpDivider()
-        Text("Server URL", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.server_url), style = MaterialTheme.typography.titleMedium)
         Text(
-            "URL address for ${if (protocol == McpProtocol.STREAMABLE_HTTP) "Streamable HTTP" else "SSE"} server",
+            stringResource(R.string.server_url_help, mcpProtocolLabel(protocol)),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         OutlinedTextField(
             value = url,
             onValueChange = onUrlChange,
-            placeholder = { Text("URL") },
+            placeholder = { Text(stringResource(R.string.common_url)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         if (url.trim().startsWith("http://", true)) {
             Text(
-                "HTTP is unencrypted. Headers, credentials and tool data are visible on the network.",
+                stringResource(R.string.http_unencrypted_mcp_warning),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall
             )
         }
 
         McpDivider()
-        Text("Auth", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.mcp_auth), style = MaterialTheme.typography.titleMedium)
         Text(
-            "Authentication used for MCP requests",
+            stringResource(R.string.mcp_auth_help),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         var authExpanded by remember { mutableStateOf(false) }
         Box {
             OutlinedButton(onClick = { authExpanded = true }) {
-                Text("Type: ${mcpAuthLabel(authMethod)}")
+                Text(stringResource(R.string.mcp_auth_type, mcpAuthLabel(authMethod)))
             }
             DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
                 listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM, McpAuthMethod.OAUTH2, McpAuthMethod.NONE).forEach { method ->
@@ -675,7 +675,7 @@ private fun McpBasicSettings(
         }
 
         if (authMethod == McpAuthMethod.OAUTH2) {
-            Text("OAuth2 Authorization Endpoint", style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(R.string.oauth2_authorization_endpoint), style = MaterialTheme.typography.titleSmall)
             OutlinedTextField(
                 value = oauthAuthUrl,
                 onValueChange = onOauthAuthUrlChange,
@@ -698,14 +698,14 @@ private fun McpBasicSettings(
                     tint = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = "Advanced Client Credentials",
+                    text = stringResource(R.string.advanced_client_credentials),
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.colorScheme.primary
                 )
             }
 
             if (oauthAdvancedExpanded) {
-                Text("Client ID", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.client_id), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = oauthClientId,
                     onValueChange = onOauthClientIdChange,
@@ -713,7 +713,7 @@ private fun McpBasicSettings(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Redirect URI", style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.redirect_uri), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
                     value = "multigateway://oauth",
                     onValueChange = {},
@@ -790,10 +790,10 @@ private fun McpBasicSettings(
                                 browserContext.startActivity(intent)
                             } catch (e: Exception) {
                                 org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(browserContext)
-                                android.widget.Toast.makeText(browserContext, "Cannot open browser: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                android.widget.Toast.makeText(browserContext, browserContext.getString(R.string.cannot_open_browser, e.message.orEmpty()), android.widget.Toast.LENGTH_SHORT).show()
                             }
                         } else {
-                            android.widget.Toast.makeText(browserContext, "Please enter a Server URL first", android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(browserContext, browserContext.getString(R.string.enter_server_url_first), android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
                 },
@@ -803,9 +803,9 @@ private fun McpBasicSettings(
                 if (isDiscovering) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Discovering Endpoint...")
+                    Text(stringResource(R.string.discovering_endpoint))
                 } else {
-                    Text("Authorize in Browser")
+                    Text(stringResource(R.string.authorize_in_browser))
                 }
             }
         }
@@ -816,11 +816,13 @@ private fun McpBasicSettings(
                 onValueChange = onAuthValueChange,
                 label = {
                     Text(
-                        when (authMethod) {
-                            McpAuthMethod.OAUTH2 -> "OAuth2 access token"
-                            McpAuthMethod.BEARER_TOKEN -> "Bearer Token"
-                            else -> "Value"
-                        }
+                        stringResource(
+                            when (authMethod) {
+                                McpAuthMethod.OAUTH2 -> R.string.oauth2_access_token
+                                McpAuthMethod.BEARER_TOKEN -> R.string.bearer_token
+                                else -> R.string.common_value
+                            }
+                        )
                     )
                 },
                 singleLine = true,
@@ -834,9 +836,14 @@ private fun McpBasicSettings(
         }
 
         McpDivider()
-        Text("Custom Headers", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.custom_headers), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { onHeadersChange(headers + ("" to "")) }) {
+                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_header))
+            }
+        }
         Text(
-            "Add custom HTTP headers for MCP server requests",
+            stringResource(R.string.mcp_custom_headers_help),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -851,7 +858,7 @@ private fun McpBasicSettings(
                     onValueChange = { value ->
                         onHeadersChange(headers.toMutableList().also { it[index] = value to header.second })
                     },
-                    placeholder = { Text("Header") },
+                    label = { Text(stringResource(R.string.common_key)) },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
@@ -860,22 +867,14 @@ private fun McpBasicSettings(
                     onValueChange = { value ->
                         onHeadersChange(headers.toMutableList().also { it[index] = header.first to value })
                     },
-                    placeholder = { Text("Value") },
+                    label = { Text(stringResource(R.string.common_value)) },
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { onHeadersChange(headers.filterIndexed { i, _ -> i != index }) }) {
-                    Icon(Icons.Outlined.Delete, contentDescription = "Remove header")
+                    Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.remove_header))
                 }
             }
-        }
-        Button(
-            onClick = { onHeadersChange(headers + ("" to "")) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("Add Header")
         }
         Spacer(Modifier.height(24.dp))
         Spacer(modifier = Modifier.navigationBarsPadding())
@@ -900,15 +899,15 @@ private fun McpToolsTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Available tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.available_tools), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (tools == null) "No cached tool list" else "${tools.size} cached tools",
+                    if (tools == null) stringResource(R.string.no_cached_tool_list) else stringResource(R.string.cached_tools_count, tools.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             TextButton(onClick = onRefresh, enabled = ready && !loading) {
-                Text(if (loading) "Refreshing..." else "Refresh")
+                Text(stringResource(if (loading) R.string.refreshing else R.string.refresh))
             }
         }
 
@@ -919,7 +918,7 @@ private fun McpToolsTab(
         if (!ready) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "Enter a server name and URL in Basic Settings first.",
+                    stringResource(R.string.mcp_enter_server_first),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp)
                 )
@@ -941,14 +940,14 @@ private fun McpToolsTab(
         when {
             tools == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "No cached tools yet. Tap Refresh to request the tool list.",
+                    stringResource(R.string.no_cached_tools_yet),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(24.dp)
                 )
             }
             tools.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "This server reported no tools.",
+                    stringResource(R.string.server_reported_no_tools),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -983,7 +982,8 @@ private fun McpToolItem(
         .orEmpty()
 
     Surface(
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
@@ -991,6 +991,7 @@ private fun McpToolItem(
     ) {
         Column {
             ListItem(
+                colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
                 headlineContent = {
                     Text(tool.originalName, fontWeight = FontWeight.Medium)
                 },
@@ -1015,7 +1016,7 @@ private fun McpToolItem(
                         Spacer(Modifier.width(6.dp))
                         Icon(
                             if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
-                            contentDescription = if (expanded) "Collapse tool details" else "Expand tool details"
+                            contentDescription = stringResource(if (expanded) R.string.collapse_tool_details else R.string.expand_tool_details)
                         )
                     }
                 }
@@ -1028,7 +1029,7 @@ private fun McpToolItem(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (tool.description.isNotBlank()) {
-                        Text("Description", style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(R.string.common_description), style = MaterialTheme.typography.labelLarge)
                         Text(
                             tool.description,
                             style = MaterialTheme.typography.bodySmall,
@@ -1036,11 +1037,11 @@ private fun McpToolItem(
                         )
                     }
 
-                    Text("Parameters", style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.common_parameters), style = MaterialTheme.typography.labelLarge)
 
                     if (properties.isEmpty()) {
                         Text(
-                            "No parameters.",
+                            stringResource(R.string.no_parameters),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1148,10 +1149,16 @@ private fun McpTransportOption(
     }
 }
 
-private fun mcpAuthLabel(method: McpAuthMethod): String = when (method) {
-    McpAuthMethod.NONE -> "None"
-    McpAuthMethod.BEARER_TOKEN -> "Bearer Token"
-    McpAuthMethod.QUERY_PARAM -> "URL Query"
-    McpAuthMethod.CUSTOM_HEADER -> "Bearer Token"
-    McpAuthMethod.OAUTH2 -> "OAuth Flow"
-}
+@Composable
+private fun mcpAuthLabel(method: McpAuthMethod): String = stringResource(when (method) {
+    McpAuthMethod.NONE -> R.string.common_none
+    McpAuthMethod.BEARER_TOKEN -> R.string.bearer_token
+    McpAuthMethod.QUERY_PARAM -> R.string.url_query
+    McpAuthMethod.CUSTOM_HEADER -> R.string.bearer_token
+    McpAuthMethod.OAUTH2 -> R.string.oauth_flow
+})
+
+@Composable
+private fun mcpProtocolLabel(protocol: McpProtocol): String = stringResource(
+    if (protocol == McpProtocol.STREAMABLE_HTTP) R.string.mcp_streamable_http else R.string.mcp_sse
+)

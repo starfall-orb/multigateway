@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -14,7 +15,7 @@ import org.starfall.multigateway.ui.tools.*
 @Composable
 fun QuickActionsSheet(onDismiss: () -> Unit) {
     val controls = LocalToolControls.current
-    ModalBottomSheet(
+    AppBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {

@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppBottomSheet
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -112,7 +113,7 @@ private fun ToolDetailsSheet(
     var argsTab by remember(activity.id) { mutableStateOf(0) }
     val response = activity.response.ifBlank { activity.summary }
 
-    ModalBottomSheet(
+    AppBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {

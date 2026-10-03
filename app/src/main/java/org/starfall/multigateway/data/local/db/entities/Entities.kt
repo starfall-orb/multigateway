@@ -29,6 +29,13 @@ data class ChatProfileEntity(
     val sortOrder: Int
 )
 
+@Entity(tableName = "provider_groups")
+data class ProviderGroupEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val sortOrder: Int
+)
+
 @Entity(tableName = "llm_providers")
 data class LlmProviderEntity(
     @PrimaryKey val id: String,
@@ -38,7 +45,8 @@ data class LlmProviderEntity(
     val authJson: String,
     val configJson: String,
     val icon: String?,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val groupId: String?
 )
 
 @Entity(tableName = "llm_models")

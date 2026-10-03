@@ -187,17 +187,19 @@ internal abstract class OAuthAccountAdapter(
                 put("generationConfig", buildJsonObject {
                     put("maxOutputTokens", maxTokens); config.temperature?.let { put("temperature", it) }
                     config.topP?.let { put("topP", it) }; config.topK?.let { put("topK", it) }
+                    config.googleThinkingConfig()?.let { put("thinkingConfig", it) }
                 })
             } else {
                 put("model", model); put("max_tokens", maxTokens)
-                if (type != ProviderType.ANTHROPIC || !config.supportsThinking || maxTokens <= 1024) {
+                if (type != ProviderType.ANTHROPIC || (!config.supportsThinking || config.reasoningEffort == null || config.reasoningDisabled) || maxTokens <= 1024) {
                     config.temperature?.let { put("temperature", it) }; config.topP?.let { put("top_p", it) }
                 }
                 if (type == ProviderType.ANTHROPIC) config.topK?.let { put("top_k", it) }
                 if (type == ProviderType.ANTHROPIC) {
                     put("system", prompt)
-                    if (config.supportsThinking && maxTokens > 1024) {
-                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(1024)))
+                    if (config.reasoningDisabled) put("thinking", obj("type" to str("disabled")))
+                    if (config.supportsThinking && config.reasoningEffort != null && !config.reasoningDisabled && maxTokens > 1024) {
+                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(config.reasoningBudget(maxTokens))))
                     }
                 }
                 if (type == ProviderType.OPENAI && config.supportsThinking)

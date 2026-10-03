@@ -44,6 +44,24 @@ interface ChatProfileDao {
 }
 
 @Dao
+interface ProviderGroupDao {
+    @Query("SELECT * FROM provider_groups ORDER BY sortOrder ASC, id ASC")
+    fun getAllGroups(): Flow<List<ProviderGroupEntity>>
+
+    @Query("SELECT * FROM provider_groups WHERE id = :id")
+    suspend fun getGroupById(id: String): ProviderGroupEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrUpdate(group: ProviderGroupEntity)
+
+    @Query("UPDATE provider_groups SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: String, sortOrder: Int)
+
+    @Query("DELETE FROM provider_groups WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
 interface LlmProviderDao {
     @Query("SELECT * FROM llm_providers ORDER BY sortOrder ASC, id ASC")
     fun getAllProviders(): Flow<List<LlmProviderEntity>>
@@ -56,6 +74,12 @@ interface LlmProviderDao {
 
     @Query("UPDATE llm_providers SET sortOrder = :sortOrder WHERE id = :id")
     suspend fun updateSortOrder(id: String, sortOrder: Int)
+
+    @Query("UPDATE llm_providers SET groupId = :groupId WHERE id = :id")
+    suspend fun updateGroup(id: String, groupId: String?)
+
+    @Query("UPDATE llm_providers SET groupId = NULL WHERE groupId = :groupId")
+    suspend fun clearGroup(groupId: String)
 
     @Query("DELETE FROM llm_providers WHERE id = :id")
     suspend fun deleteById(id: String)

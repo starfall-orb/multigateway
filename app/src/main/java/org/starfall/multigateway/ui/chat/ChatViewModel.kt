@@ -82,7 +82,7 @@ class ChatViewModel(
         return provider.copy(
             config = provider.config.copy(
                 modelConfigs = provider.config.modelConfigs +
-                    (modelId to config.copy(reasoningEffort = effort))
+                    (modelId to config.withConversationReasoning(effort))
             )
         )
     }
@@ -308,7 +308,7 @@ class ChatViewModel(
         if (text.isBlank()) return
         if (service.provider.equals("system", ignoreCase = true)) {
             speechAudioPlayer.stop()
-            ttsHelper.speak(text, service.speed, service.pitch)
+            ttsHelper.speak(text, service.speed, service.pitch, service.voice)
             return
         }
 

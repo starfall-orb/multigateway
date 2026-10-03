@@ -20,6 +20,8 @@ class ConfigurationViewModel(
         .stateIn(viewModelScope, SharingStarted.Eagerly, AppPreferences())
     val speechServices = speechRepo.allServices
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val providerGroups = llmRepo.allGroups
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _mcpToolsCache = MutableStateFlow<Map<String, List<ToolDefinition>>>(emptyMap())
     val mcpToolsCache: StateFlow<Map<String, List<ToolDefinition>>> = _mcpToolsCache.asStateFlow()
@@ -120,6 +122,22 @@ class ConfigurationViewModel(
         viewModelScope.launch {
             llmRepo.deleteProvider(providerId)
         }
+    }
+
+    fun saveProviderGroup(group: ProviderGroup) {
+        viewModelScope.launch { llmRepo.saveGroup(group) }
+    }
+
+    fun deleteProviderGroup(groupId: String) {
+        viewModelScope.launch { llmRepo.deleteGroup(groupId) }
+    }
+
+    fun moveProviderToGroup(providerId: String, groupId: String?) {
+        viewModelScope.launch { llmRepo.moveProviderToGroup(providerId, groupId) }
+    }
+
+    fun reorderProviderGroups(ids: List<String>) {
+        viewModelScope.launch { llmRepo.reorderGroups(ids) }
     }
 
     private val oauthAuthorizations = OAuthAuthorizations(viewModelScope, llmRepo::authorizeProvider)

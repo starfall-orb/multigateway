@@ -42,6 +42,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     APPEARANCE("Appearance", "Theme, color palette & dynamic color", Icons.Outlined.Palette),
     PREFERENCES("Preferences", "Behavior, vibrations & display", Icons.Outlined.Tune),
+    ICONS("Icons & Cache", "Manage shared icons and matching rules", Icons.Outlined.Image),
     USER_DATA("Data & Storage", "Manage conversations, backup & wipe data", Icons.Outlined.Storage),
     UPDATE("Software Update", "Check the latest GitHub release", Icons.Outlined.SystemUpdateAlt),
     ABOUT("About MultiGateway", "Version, repository, license & app info", Icons.Outlined.Info)
@@ -81,7 +82,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = selectedCategory?.title ?: "Settings",
+                        text = if (selectedCategory == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else selectedCategory?.title ?: "Settings",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
                 },
@@ -148,12 +149,12 @@ fun SettingsScreen(
 
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = cat.title,
+                                                text = if (cat == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else cat.title,
                                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                                                 color = MaterialTheme.colorScheme.onSurface
                                             )
                                             Text(
-                                                text = cat.subtitle,
+                                                text = if (cat == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_description) else cat.subtitle,
                                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                                                 color = MaterialTheme.colorScheme.outline
                                             )
@@ -193,6 +194,8 @@ fun SettingsScreen(
                             onLatexModeChange = onLatexModeChange
                         )
                     }
+
+                    SettingsCategory.ICONS -> IconSettingsView()
 
                     SettingsCategory.USER_DATA -> {
                         UserDataSettingsView(

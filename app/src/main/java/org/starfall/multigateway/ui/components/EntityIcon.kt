@@ -1,0 +1,98 @@
+package org.starfall.multigateway.ui.components
+
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.starfall.multigateway.R
+import org.starfall.multigateway.data.service.IconStore
+
+@Composable
+fun EntityIcon(
+    image: String?,
+    modifier: Modifier = Modifier.size(42.dp),
+    text: String? = null,
+    fallback: ImageVector? = null,
+    matchName: String? = null,
+    model: Boolean = false
+) {
+    val context = LocalContext.current
+    val revision by IconStore.revision.collectAsState()
+    val bitmap by produceState<android.graphics.Bitmap?>(null, image, matchName, model, revision, context) {
+        value = null
+        value = withContext(Dispatchers.IO) { IconStore(context).let { it.load(image) ?: it.load(matchName?.let { name -> it.find(name, model) }) } }
+    }
+    Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        Box(contentAlignment = Alignment.Center) {
+            val loaded = bitmap
+            if (loaded != null) Image(loaded.asImageBitmap(), contentDescription = null,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else if (fallback != null) Icon(fallback, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize().padding(9.dp))
+            else Text(text?.takeIf { it.isNotBlank() } ?: "?",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface)
+        }
+    }
+}
+
+@Composable
+fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = null, fallback: ImageVector? = null, onBusyChange: (Boolean) -> Unit = {}, matchName: String? = null, model: Boolean = false) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentOnChange by rememberUpdatedState(onChange)
+    val currentOnBusy by rememberUpdatedState(onBusyChange)
+    var importing by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            importing = true
+            currentOnBusy(true)
+            try {
+                val id = withContext(Dispatchers.IO) { IconStore(context).importImage(uri) }
+                currentOnChange(id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(context, R.string.icon_import_failed, Toast.LENGTH_LONG).show()
+            } finally { importing = false; currentOnBusy(false) }
+        }
+    }
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        EntityIcon(image, Modifier.size(56.dp), text, fallback, matchName, model)
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.entity_icon), style = MaterialTheme.typography.titleSmall)
+            TextButton(enabled = !importing, onClick = {
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }) {
+                Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(if (importing) R.string.icon_importing else R.string.choose_icon))
+            }
+        }
+        if (image != null) IconButton(enabled = !importing, onClick = { currentOnChange(null) }) {
+            Icon(Icons.Outlined.Close, contentDescription = stringResource(R.string.remove_icon))
+        }
+    }
+}

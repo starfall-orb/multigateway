@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,14 +20,14 @@ fun ReasoningEffortSheet(
     onApply: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val efforts = listOf<String?>(null, "low", "medium", "high", "xhigh")
-    val labels = listOf("Default", "Low", "Medium", "High", "Extra high")
+    val efforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
+    val labels = listOf("Off", "Auto", "Low", "Medium", "High", "Extra high")
     var index by remember(currentEffort) {
-        mutableFloatStateOf(efforts.indexOf(currentEffort).takeIf { it >= 0 }?.toFloat() ?: 0f)
+        mutableFloatStateOf(efforts.indexOf(currentEffort).takeIf { it >= 0 }?.toFloat() ?: 1f)
     }
     val selected = index.roundToInt().coerceIn(efforts.indices)
 
-    ModalBottomSheet(
+    AppBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {
@@ -48,8 +49,8 @@ fun ReasoningEffortSheet(
             Slider(
                 value = index,
                 onValueChange = { index = it },
-                valueRange = 0f..4f,
-                steps = 3
+                valueRange = 0f..5f,
+                steps = 4
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 labels.forEach { label ->
@@ -89,7 +90,7 @@ fun ConversationSummarySheet(
     val valid = targetTokens != null && targetTokens in 1..6000 &&
         (!chunked || (chunkTokens != null && chunkTokens in 1..100_000))
 
-    ModalBottomSheet(
+    AppBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ) {

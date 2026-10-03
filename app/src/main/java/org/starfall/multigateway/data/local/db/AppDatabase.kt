@@ -13,17 +13,19 @@ import org.starfall.multigateway.data.local.db.entities.*
     entities = [
         ConversationEntity::class,
         ChatProfileEntity::class,
+        ProviderGroupEntity::class,
         LlmProviderEntity::class,
         LlmModelsEntity::class,
         McpServerEntity::class,
         SpeechServiceEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun chatProfileDao(): ChatProfileDao
+    abstract fun providerGroupDao(): ProviderGroupDao
     abstract fun llmProviderDao(): LlmProviderDao
     abstract fun llmModelsDao(): LlmModelsDao
     abstract fun mcpServerDao(): McpServerDao
@@ -59,6 +61,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS provider_groups (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, sortOrder INTEGER NOT NULL)")
+                db.execSQL("ALTER TABLE llm_providers ADD COLUMN groupId TEXT")
+            }
+        }
+
         // No schema change: upgrade existing v2 secrets atomically before any DAO reads.
         internal fun encryptLegacySecrets(db: SupportSQLiteDatabase) {
             db.query("PRAGMA secure_delete = ON").close()
@@ -88,7 +97,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "multigateway_db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).addCallback(object : Callback() {
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6).addCallback(object : Callback() {
                     override fun onOpen(db: SupportSQLiteDatabase) { encryptLegacySecrets(db) }
                 }).build()
                 INSTANCE = instance

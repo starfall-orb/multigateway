@@ -14,6 +14,7 @@ import org.starfall.multigateway.data.service.LlmService
 class LlmRepository(private val db: AppDatabase, private val service: LlmService, private val icons: IconStore? = null) {
     suspend fun testConnection(provider: LlmProviderInfo) = service.testConnection(provider)
     suspend fun testModel(provider: LlmProviderInfo, modelId: String) = service.testModel(provider, modelId)
+    suspend fun fetchProviderModelCatalog(provider: LlmProviderInfo) = service.fetchProviderModelCatalog(provider)
     suspend fun fetchProviderModels(provider: LlmProviderInfo) = service.fetchProviderModels(provider)
     suspend fun fetchOllamaModels(baseUrl: String) = service.fetchOllamaModels(baseUrl)
 

@@ -15,6 +15,30 @@ import java.io.StringReader
 import java.nio.file.Files
 
 class ToolRuntimeTest {
+    @Test fun audioResultsKeepPlayableExtensionsAndDataUrlsAreStored() = runBlocking {
+        val root = Files.createTempDirectory("audio-files-test").toFile()
+        try {
+            val store = ToolFiles(root)
+            val samples = mapOf(
+                "mp3" to "ID3", "wav" to "RIFF0000WAVE", "ogg" to "OggS",
+                "flac" to "fLaC", "m4a" to "0000ftypM4A "
+            )
+            samples.forEach { (extension, header) ->
+                val bytes = header.toByteArray() + ByteArray(100)
+                val name = store.save(bytes.inputStream())
+                assertTrue("Expected $extension, got $name", name.endsWith(".$extension"))
+                assertArrayEquals(bytes, store.resolve(name)!!.readBytes())
+            }
+            val audio = "RIFF0000WAVE".toByteArray() + ByteArray(32)
+            val encoded = java.util.Base64.getEncoder().encodeToString(audio)
+            val result = store.sanitize(StringReader("{\"url\":\"data:audio/wav;base64,$encoded\"}"))
+            val reference = Json.parseToJsonElement(result).jsonObject["url"]!!.jsonPrimitive.content
+            assertTrue(reference.startsWith("tool-file:"))
+            assertTrue(reference.endsWith(".wav"))
+            assertArrayEquals(audio, store.resolve(reference.removePrefix("tool-file:"))!!.readBytes())
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun permissionsNeverOverrideDisabledProfileOrIndividualTool() {
         assertFalse(toolAllowed(null, true, true, "write"))
         assertFalse(toolAllowed(McpAccess(false), true, true, "write"))

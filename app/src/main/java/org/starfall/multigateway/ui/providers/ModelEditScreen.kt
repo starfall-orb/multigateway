@@ -2,6 +2,8 @@ package org.starfall.multigateway.ui.providers
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,6 +35,8 @@ fun ModelEditScreen(
 ) {
     var modelId by remember { mutableStateOf(initialModelId) }
     var config by remember { mutableStateOf(provider.config.modelConfigs[initialModelId] ?: ModelConfiguration()) }
+    var contextWindowText by remember { mutableStateOf(config.contextWindowTokens.toString()) }
+    val contextWindow = contextWindowText.toIntOrNull()?.takeIf { it > 0 }
     var iconImporting by remember { mutableStateOf(false) }
     var typeExpanded by remember { mutableStateOf(false) }
     var showSampling by remember { mutableStateOf(false) }
@@ -49,10 +53,11 @@ fun ModelEditScreen(
     }
 
     fun saveAndBack() {
-        if (idError == null) {
+        if (idError == null && contextWindow != null) {
             onSave(
                 trimmedId,
                 config.copy(
+                    contextWindowTokens = contextWindow!!,
                     displayName = config.displayName.trim(),
                     reasoningEffort = config.reasoningEffort?.trim()?.ifEmpty { null }
                 )
@@ -75,7 +80,7 @@ fun ModelEditScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = ::saveAndBack, enabled = idError == null && !iconImporting) {
+                    TextButton(onClick = ::saveAndBack, enabled = idError == null && contextWindow != null && !iconImporting) {
                         Text(stringResource(R.string.common_save))
                     }
                 }
@@ -133,6 +138,15 @@ fun ModelEditScreen(
                 }
             }
             if (config.modelType == ModelType.TEXT_GENERATION) {
+                OutlinedTextField(
+                    value = contextWindowText,
+                    onValueChange = { if (it.all(Char::isDigit)) contextWindowText = it },
+                    label = { Text(stringResource(R.string.context_window)) },
+                    supportingText = { Text(stringResource(if (contextWindow == null) R.string.context_window_invalid else R.string.context_window_help)) },
+                    isError = contextWindow == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
                 HorizontalDivider()
                 Text(stringResource(R.string.capabilities), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.input_media), style = MaterialTheme.typography.bodyMedium)

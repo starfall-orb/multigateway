@@ -207,6 +207,7 @@ data class ModelConfiguration(
     // null inherits the provider setting; false is an explicit override.
     val supportStream: Boolean? = null,
     val displayName: String = "",
+    val contextWindowTokens: Int = DEFAULT_CONTEXT_WINDOW_TOKENS,
     val modelType: ModelType = ModelType.TEXT_GENERATION,
     // Image input capability. Kept as supportsVision for backward compatibility with saved configs.
     val supportsVision: Boolean = true,
@@ -246,3 +247,10 @@ fun ModelConfiguration.googleThinkingConfig(): kotlinx.serialization.json.JsonOb
         }
         else -> null
     }
+
+const val DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000
+
+data class DiscoveredModel(val id: String, val contextWindowTokens: Int? = null, val displayName: String = "") {
+    fun configuration() = ModelConfiguration(displayName = displayName,
+        contextWindowTokens = contextWindowTokens ?: DEFAULT_CONTEXT_WINDOW_TOKENS)
+}

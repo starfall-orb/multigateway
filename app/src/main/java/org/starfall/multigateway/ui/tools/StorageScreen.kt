@@ -33,18 +33,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.starfall.multigateway.data.tools.ToolFiles
+import org.starfall.multigateway.ui.components.MediaContent
+import org.starfall.multigateway.ui.components.isPreviewableMedia
+import org.starfall.multigateway.ui.components.mediaMimeType
+import org.starfall.multigateway.ui.components.mediaThumbnail
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.ui.layout.ContentScale
 import java.io.File
 
-private fun File.mime() = when(extension.lowercase()) { "png"->"image/png"; "jpg"->"image/jpeg"; "gif"->"image/gif"; "webp"->"image/webp"; "mp4"->"video/mp4"; "webm"->"video/webm"; "txt"->"text/plain"; else->"application/octet-stream" }
-private suspend fun thumbnail(file: File, size: Int) = withContext(Dispatchers.IO) {
-    runCatching {
-        val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
-        BitmapFactory.decodeFile(file.path,bounds)
-        var sample=1
-        while(bounds.outWidth/sample>size || bounds.outHeight/sample>size) sample*=2
-        BitmapFactory.decodeFile(file.path,BitmapFactory.Options().apply{inSampleSize=sample})?.asImageBitmap()
-    }.getOrNull()
-}
+private fun File.mime() = mediaMimeType(name)
 private data class ToolFilesSnapshot(val files: List<File>, val totalBytes: Long)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -177,21 +176,44 @@ fun StorageScreen(store: ToolFiles, onBack: () -> Unit) {
 
 @Composable
 fun MediaFileCard(store: ToolFiles, name: String) {
+    val context = LocalContext.current
     val revision by ToolFiles.revision.collectAsStateWithLifecycle()
     val file = remember(name, revision) { store.resolve(name) }
     var view by remember(name) { mutableStateOf(false) }
     var bitmap by remember(name) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var loaded by remember(name) { mutableStateOf(false) }
     LaunchedEffect(name, revision) {
-        bitmap = if (file?.mime()?.startsWith("image/") == true) thumbnail(file, 256) else null
+        loaded = false
+        bitmap = file?.let { mediaThumbnail(context, it.path, it.mime(), 720) }
+        loaded = true
     }
     Card(modifier = Modifier.fillMaxWidth().clickable(enabled = file != null) { view = true }) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (file == null) {
                 Text("File deleted", style = MaterialTheme.typography.bodySmall)
             } else {
-                bitmap?.let { Image(it, "Generated image", Modifier.fillMaxWidth().heightIn(max = 160.dp)) }
+                if (file.mime().startsWith("image/") || file.mime().startsWith("video/")) {
+                    Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        bitmap?.let { Image(it, if (file.mime().startsWith("image/")) "Generated image" else "Video preview",
+                            Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+                        if (!loaded) CircularProgressIndicator(Modifier.size(24.dp))
+                        else if (bitmap == null && file.mime().startsWith("image/")) {
+                            Icon(Icons.Outlined.BrokenImage, "Image preview unavailable")
+                        }
+                        if (file.mime().startsWith("video/")) {
+                            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
+                                Icon(Icons.Default.PlayArrow, "Play video", Modifier.padding(12.dp))
+                            }
+                        }
+                    }
+                }
+                if (file.mime().startsWith("audio/")) {
+                    Icon(Icons.Outlined.Audiotrack, "Audio", Modifier.size(32.dp))
+                }
                 Text(
                     if (file.mime().startsWith("video/")) "▶ View video"
+                    else if (file.mime().startsWith("audio/")) "▶ Play audio"
+                    else if (file.mime().startsWith("image/")) "View image"
                     else if (file.extension == "txt") "View tool details"
                     else "View ${file.extension.uppercase()} file",
                     style = MaterialTheme.typography.titleSmall
@@ -213,9 +235,7 @@ fun MediaFileCard(store: ToolFiles, name: String) {
 private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
-    var bitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var details by remember { mutableStateOf("") }
-    var video:VideoView? by remember { mutableStateOf(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     val save=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(file.mime())) { uri ->
         if(uri!=null) scope.launch {
@@ -224,17 +244,15 @@ private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
         }
     }
     LaunchedEffect(file.name){
-        if(file.mime().startsWith("image/")) bitmap=thumbnail(file,1024)
         if(file.extension=="txt") details=withContext(Dispatchers.IO){runCatching{file.reader().use { r -> val c=CharArray(12000);val n=r.read(c);if(n>0) String(c,0,n) else "" }}.getOrDefault("File deleted")}
     }
-    DisposableEffect(Unit){onDispose{video?.stopPlayback()}}
     Dialog(onDismissRequest=onDismiss) {
         Surface(shape=MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().heightIn(max=620.dp).padding(12.dp)) {
                 LazyColumn(Modifier.weight(1f,fill=false)) {
                     item {
-                        bitmap?.let{Image(it,"Generated image",Modifier.fillMaxWidth().heightIn(max=420.dp))}
-                        if(file.mime().startsWith("video/")) AndroidView(factory={ctx->VideoView(ctx).also{v->video=v;v.setVideoPath(file.path);v.setMediaController(MediaController(ctx));v.setOnPreparedListener{v.start()};v.setOnErrorListener{_,_,_->Toast.makeText(ctx,"Unable to play this video",Toast.LENGTH_SHORT).show();true}}},modifier=Modifier.fillMaxWidth().height(320.dp))
+                        if (isPreviewableMedia(file.mime())) MediaContent(file.path, file.mime())
+                        else if (file.extension != "txt") Text("Preview unavailable for this file type.")
                         if(details.isNotEmpty()) Text(details,style=MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -253,6 +271,6 @@ private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
         }
     }
     if(confirmDelete) AlertDialog(onDismissRequest={confirmDelete=false},title={Text("Delete file?")},text={Text("This file will no longer be available in chat.")},
-        confirmButton={TextButton(onClick={video?.stopPlayback();scope.launch{withContext(Dispatchers.IO){store.delete(listOf(file.name))};onDismiss()};confirmDelete=false}){Text("Delete")}},
+        confirmButton={TextButton(onClick={onDismiss();scope.launch{withContext(Dispatchers.IO){store.delete(listOf(file.name))}};confirmDelete=false}){Text("Delete")}},
         dismissButton={TextButton(onClick={confirmDelete=false}){Text("Cancel")}})
 }

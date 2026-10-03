@@ -38,6 +38,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.stringResource
@@ -45,8 +47,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import kotlin.math.roundToInt
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -54,6 +59,7 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.Authorization
 import org.starfall.multigateway.data.model.LlmProviderInfo
+import org.starfall.multigateway.data.model.DiscoveredModel
 import org.starfall.multigateway.data.model.ModelConfiguration
 import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ProviderRootOrderItem
@@ -78,7 +84,9 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
+private data class DraggedProvider(val provider: LlmProviderInfo, val bounds: Rect)
 private const val UNGROUPED_SECTION = "__ungrouped__"
+internal fun newProviderId(): String = "custom_${UUID.randomUUID()}"
 private val ProviderListCardHeight = 88.dp
 private val ProviderGridCardHeight = 152.dp
 
@@ -141,7 +149,7 @@ fun ProviderScreen(
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
-    onFetchModels: (suspend (LlmProviderInfo) -> List<String>)? = null,
+    onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)? = null,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -157,6 +165,10 @@ fun ProviderScreen(
     var movingProvider by remember { mutableStateOf<LlmProviderInfo?>(null) }
     var creatingGroup by remember { mutableStateOf(false) }
     val groupCardBounds = remember { mutableStateMapOf<String, Rect>() }
+    val providerCardBounds = remember { mutableStateMapOf<String, Rect>() }
+    var draggedProvider by remember { mutableStateOf<DraggedProvider?>(null) }
+    var contentPosition by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current
 
     val sortedGroups = remember(providerGroups) {
         providerGroups.sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
@@ -189,10 +201,41 @@ fun ProviderScreen(
         onReorderRootItems(rootItems.map { it.toOrderItem() })
     }
 
-    fun dropGroupAt(point: Offset, sourceGroupId: String?): String? =
-        providerGroups.firstOrNull { group ->
-            group.id != sourceGroupId && groupCardBounds[group.id]?.containsPoint(point) == true
-        }?.id
+    fun dropProvider(provider: LlmProviderInfo, point: Offset) {
+        draggedProvider = null
+        val sourceGroupId = provider.groupId?.takeIf { it in validGroupIds }
+        val targetGroupId = groupCardBounds.entries.firstOrNull { it.value.containsPoint(point) }?.key
+        // Folder membership takes priority over reordering, including leaving a folder.
+        if (targetGroupId != sourceGroupId) {
+            onMoveProviderToGroup(provider.id, targetGroupId)
+            return
+        }
+        val target = orderedProviders.firstOrNull {
+            it.id != provider.id && it.groupId?.takeIf { id -> id in validGroupIds } == sourceGroupId &&
+                providerCardBounds[it.id]?.containsPoint(point) == true
+        } ?: return
+        if (sourceGroupId != null) {
+            val members = orderedProviders.filter { it.groupId == sourceGroupId }
+            moveWithinGroup(sourceGroupId, members.indexOfFirst { it.id == provider.id }, members.indexOfFirst { it.id == target.id })
+            onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
+        } else {
+            rootItems = rootItems.moved(rootItems.indexOfFirst { it.id == provider.id }, rootItems.indexOfFirst { it.id == target.id })
+            persistRootOrder()
+        }
+    }
+
+    fun providerDragModifier(provider: LlmProviderInfo): Modifier = Modifier
+        .testTag("provider_${provider.id}")
+        .providerDrag(
+            providerId = provider.id,
+            onBoundsChanged = { bounds ->
+                if (bounds == null) providerCardBounds.remove(provider.id)
+                else providerCardBounds[provider.id] = bounds
+            },
+            onDrag = { draggedProvider = DraggedProvider(provider, it) },
+            onDrop = { dropProvider(provider, it) },
+            onCancel = { draggedProvider = null }
+        )
 
     LaunchedEffect(collapsedSectionsState) {
         collapsedSections = collapsedSectionsState
@@ -267,7 +310,7 @@ fun ProviderScreen(
                             IconButton(onClick = {
                                 editor = ProviderEditor(
                                     LlmProviderInfo(
-                                        id = "custom_\${System.currentTimeMillis()}",
+                                        id = newProviderId(),
                                         name = "",
                                         type = ProviderType.OPENAI,
                                         baseUrl = "",
@@ -287,6 +330,7 @@ fun ProviderScreen(
                         .fillMaxSize()
                         .padding(padding)
                         .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .onGloballyPositioned { contentPosition = it.positionInRoot() }
                 ) {
                     if (providers.isEmpty() && providerGroups.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -319,7 +363,7 @@ fun ProviderScreen(
                                         val groupProviders = orderedProviders.filter { it.groupId == group.id }
                                         val expanded = group.id !in collapsedSections
                                         item(
-                                            key = "group_\${group.id}",
+                                            key = "group_${group.id}",
                                             span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
                                         ) {
                                             if (expanded) {
@@ -327,7 +371,7 @@ fun ProviderScreen(
                                                     group = group,
                                                     providers = groupProviders,
                                                     isGrid = isGridView,
-                                                    modifier = Modifier.animateItem(
+                                                    modifier = Modifier.testTag("provider_group_${group.id}").animateItem(
                                                         placementSpec = spring(
                                                             dampingRatio = Spring.DampingRatioNoBouncy,
                                                             stiffness = Spring.StiffnessMediumLow
@@ -352,27 +396,14 @@ fun ProviderScreen(
                                                     onEditProvider = { provider -> editor = ProviderEditor(provider, false) },
                                                     onMoveProvider = { provider -> movingProvider = provider },
                                                     onDeleteProvider = { provider -> deletingProviderId = provider.id },
-                                                    onMoveWithinGroup = { from, to ->
-                                                        moveWithinGroup(group.id, from, to)
-                                                    },
-                                                    onPersistProviderOrder = {
-                                                        onReorderProviders(
-                                                            orderedProviders
-                                                                .filter { it.groupId == group.id }
-                                                                .map { it.id }
-                                                        )
-                                                    },
-                                                    onDropProviderAt = { provider, point ->
-                                                        dropGroupAt(point, group.id)?.let { targetGroupId ->
-                                                            onMoveProviderToGroup(provider.id, targetGroupId)
-                                                        }
-                                                    }
+                                                    providerDragModifier = ::providerDragModifier
                                                 )
                                             } else {
                                                 ProviderGroupCollapsedCard(
                                                     group = group,
                                                     isGrid = isGridView,
                                                     modifier = Modifier
+                                                        .testTag("provider_group_${group.id}")
                                                         .animateItem(
                                                             placementSpec = spring(
                                                                 dampingRatio = Spring.DampingRatioNoBouncy,
@@ -400,7 +431,7 @@ fun ProviderScreen(
 
                                     is ProviderRootItem.ProviderItem -> {
                                         val provider = rootItem.provider
-                                        item(key = "provider_\${provider.id}") {
+                                        item(key = "provider_${provider.id}") {
                                             ProviderUnifiedCard(
                                                 provider = provider,
                                                 isGrid = isGridView,
@@ -411,20 +442,7 @@ fun ProviderScreen(
                                                             stiffness = Spring.StiffnessMediumLow
                                                         )
                                                     )
-                                                    .longPressReorder(
-                                                        index = rootIndex,
-                                                        itemCount = rootItems.size,
-                                                        columns = if (isGridView) 2 else 1,
-                                                        onMove = { from, to ->
-                                                            rootItems = rootItems.moved(from, to)
-                                                        },
-                                                        onDrop = ::persistRootOrder,
-                                                        onDropAt = { point ->
-                                                            dropGroupAt(point, null)?.let { targetGroupId ->
-                                                                onMoveProviderToGroup(provider.id, targetGroupId)
-                                                            }
-                                                        }
-                                                    ),
+                                                    .then(providerDragModifier(provider)),
                                                 onEdit = { editor = ProviderEditor(provider, false) },
                                                 onMoveToGroup = { movingProvider = provider },
                                                 onDelete = { deletingProviderId = provider.id }
@@ -434,6 +452,25 @@ fun ProviderScreen(
                                 }
                             }
                         }
+                    }
+                    draggedProvider?.let { dragged ->
+                        ProviderUnifiedCard(
+                            provider = dragged.provider,
+                            isGrid = isGridView,
+                            modifier = Modifier
+                                .zIndex(100f)
+                                .offset {
+                                    IntOffset(
+                                        (dragged.bounds.left - contentPosition.x).roundToInt(),
+                                        (dragged.bounds.top - contentPosition.y).roundToInt()
+                                    )
+                                }
+                                .width(with(density) { dragged.bounds.width.toDp() })
+                                .testTag("dragged_provider"),
+                            onEdit = {},
+                            onMoveToGroup = {},
+                            onDelete = {}
+                        )
                     }
                 }
             }
@@ -628,9 +665,7 @@ private fun ProviderGroupExpandedContainer(
     onEditProvider: (LlmProviderInfo) -> Unit,
     onMoveProvider: (LlmProviderInfo) -> Unit,
     onDeleteProvider: (LlmProviderInfo) -> Unit,
-    onMoveWithinGroup: (Int, Int) -> Unit,
-    onPersistProviderOrder: () -> Unit,
-    onDropProviderAt: (LlmProviderInfo, Offset) -> Unit
+    providerDragModifier: (LlmProviderInfo) -> Modifier
 ) {
     DisposableEffect(group.id) {
         onDispose { onBoundsChanged(null) }
@@ -658,12 +693,11 @@ private fun ProviderGroupExpandedContainer(
             Row(
                 modifier = headerDragModifier
                     .fillMaxWidth()
+                    .heightIn(min = 40.dp)
                     .clickable(onClick = onCollapse)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(start = 12.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
-                Spacer(Modifier.width(2.dp))
                 Text(
                     text = group.name,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -671,6 +705,7 @@ private fun ProviderGroupExpandedContainer(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
             }
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -693,7 +728,8 @@ private fun ProviderGroupExpandedContainer(
                                     slot == 0 -> {
                                         ProviderGroupIconTile(
                                             group = group,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
+                                            onClick = onCollapse
                                         )
                                     }
 
@@ -705,19 +741,7 @@ private fun ProviderGroupExpandedContainer(
                                             isGrid = true,
                                             modifier = Modifier
                                                 .weight(1f)
-                                                .longPressReorder(
-                                                    index = childIndex + 1,
-                                                    itemCount = providers.size + 1,
-                                                    columns = 2,
-                                                    minIndex = 1,
-                                                    onMove = { from, to ->
-                                                        onMoveWithinGroup(from - 1, to - 1)
-                                                    },
-                                                    onDrop = onPersistProviderOrder,
-                                                    onDropAt = { point ->
-                                                        onDropProviderAt(provider, point)
-                                                    }
-                                                ),
+                                                .then(providerDragModifier(provider)),
                                             onEdit = { onEditProvider(provider) },
                                             onMoveToGroup = { onMoveProvider(provider) },
                                             onDelete = { onDeleteProvider(provider) }
@@ -749,7 +773,8 @@ private fun ProviderGroupExpandedContainer(
                     ProviderGroupIconTile(
                         group = group,
                         modifier = Modifier.width(ProviderListCardHeight),
-                        tileHeight = ProviderListCardHeight
+                        tileHeight = ProviderListCardHeight,
+                        onClick = onCollapse
                     )
                     Column(
                         Modifier.weight(1f),
@@ -767,14 +792,7 @@ private fun ProviderGroupExpandedContainer(
                                 ProviderUnifiedCard(
                                     provider = provider,
                                     isGrid = false,
-                                    modifier = Modifier.longPressReorder(
-                                        index = childIndex,
-                                        itemCount = providers.size,
-                                        columns = 1,
-                                        onMove = onMoveWithinGroup,
-                                        onDrop = onPersistProviderOrder,
-                                        onDropAt = { point -> onDropProviderAt(provider, point) }
-                                    ),
+                                    modifier = providerDragModifier(provider),
                                     onEdit = { onEditProvider(provider) },
                                     onMoveToGroup = { onMoveProvider(provider) },
                                     onDelete = { onDeleteProvider(provider) }
@@ -792,13 +810,16 @@ private fun ProviderGroupExpandedContainer(
 private fun ProviderGroupIconTile(
     group: ProviderGroup,
     modifier: Modifier = Modifier,
-    tileHeight: Dp = ProviderGridCardHeight
+    tileHeight: Dp = ProviderGridCardHeight,
+    onClick: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.height(tileHeight)
+        modifier = modifier
+            .height(tileHeight)
+            .clickable(onClick = onClick)
     ) {
         Box(contentAlignment = Alignment.Center) {
             EntityIcon(
@@ -815,8 +836,15 @@ private fun ProviderGroupIconTile(
 private fun ProviderGroupOverflowMenu(onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.more_options))
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.size(36.dp)
+        ) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.more_options),
+                modifier = Modifier.size(20.dp)
+            )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
@@ -1069,7 +1097,7 @@ fun ProviderEditScreen(
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
-    onFetchModels: (suspend (LlmProviderInfo) -> List<String>)? = null,
+    onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)? = null,
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
     onReorderModels: (String, List<String>) -> Unit,
     onDismiss: () -> Unit,
@@ -1103,7 +1131,7 @@ fun ProviderEditScreen(
     var oauthMarker by remember(initialProvider.id) {
         mutableStateOf(initialProvider.auth.value.orEmpty().takeIf { oauthAuthorized }.orEmpty())
     }
-    var providerPersisted by remember(initialProvider.id) { mutableStateOf(!isNew) }
+    var providerPersisted by remember(initialProvider.id, isNew) { mutableStateOf(!isNew) }
     var oauthAuthorizing by remember { mutableStateOf(false) }
     var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
@@ -1141,6 +1169,7 @@ fun ProviderEditScreen(
     var modelOrder by remember { mutableStateOf(modelConfigs.keys.toList()) }
     var configuringModel by remember { mutableStateOf<String?>(null) }
     var showModelCatalog by remember { mutableStateOf(false) }
+    var catalog by remember { mutableStateOf<Map<String, DiscoveredModel>>(emptyMap()) }
     val activeHeaders = headerRows.filterNot { (key, value) -> key.isBlank() && value.isBlank() }
     val headersValid = activeHeaders.all { (key, value) ->
         key.isNotBlank() &&
@@ -1148,7 +1177,9 @@ fun ProviderEditScreen(
             value.none { it == '\r' || it == '\n' }
     } && activeHeaders.map { it.first.lowercase() }.distinct().size == activeHeaders.size
     val parsedHeaders = if (headersValid) activeHeaders.associate { it.first.trim() to it.second } else null
-    val urlValid = runCatching { org.starfall.multigateway.data.tools.providerBase(initialProvider.copy(baseUrl = baseUrl)) }.isSuccess
+    val urlValid = baseUrl.isBlank() || runCatching {
+        org.starfall.multigateway.data.tools.providerBase(initialProvider.copy(baseUrl = baseUrl))
+    }.isSuccess
     val authValid = apiKey.isBlank() || authMethod !in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM) ||
         authName.isBlank() || authName.none { it <= ' ' || it == ':' || it.code >= 127 }
     val requestValid = urlValid && authValid && headersValid
@@ -1194,8 +1225,7 @@ fun ProviderEditScreen(
                 actions = {
                     if (selectedTab == 0) {
                         Button(
-                            enabled = requestValid && baseUrl.isNotBlank() &&
-                                !oauthAuthorizing && !iconImporting,
+                            enabled = requestValid && !oauthAuthorizing && !iconImporting,
                             onClick = {
                                 onSave(initialProvider.copy(
                                     name = name.trim().ifEmpty { type.defaultName },
@@ -1477,12 +1507,7 @@ fun ProviderEditScreen(
                             Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_header))
                         }
                     }
-                    Text(
-                        "Add custom HTTP headers for provider requests",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    headerRows.forEachIndexed { index, row ->
+                     headerRows.forEachIndexed { index, row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1723,12 +1748,20 @@ fun ProviderEditScreen(
             ),
             selectedModels = modelConfigs.keys,
             onFetchModels = onFetchModels,
+            onCatalogLoaded = { discovered ->
+                catalog = discovered.associateBy { it.id }
+                updateModels(modelConfigs.mapValues { (id, config) ->
+                    val metadata = catalog[id]
+                    config.copy(contextWindowTokens = metadata?.contextWindowTokens ?: config.contextWindowTokens,
+                        displayName = config.displayName.ifBlank { metadata?.displayName.orEmpty() })
+                })
+            },
             onToggle = { id ->
-                updateModels(if (id in modelConfigs) modelConfigs - id else modelConfigs + (id to ModelConfiguration()))
+                updateModels(if (id in modelConfigs) modelConfigs - id else modelConfigs + (id to (catalog[id]?.configuration() ?: ModelConfiguration())))
             },
             onSetSelection = { ids, selected ->
                 updateModels(if (selected) {
-                    modelConfigs + ids.associateWith { modelConfigs[it] ?: ModelConfiguration() }
+                    modelConfigs + ids.associateWith { modelConfigs[it] ?: catalog[it]?.configuration() ?: ModelConfiguration() }
                 } else {
                     modelConfigs - ids.toSet()
                 })
@@ -1746,7 +1779,8 @@ fun ProviderEditScreen(
 private fun ProviderModelCatalogSheet(
     provider: LlmProviderInfo,
     selectedModels: Set<String>,
-    onFetchModels: (suspend (LlmProviderInfo) -> List<String>)?,
+    onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)?,
+    onCatalogLoaded: (List<DiscoveredModel>) -> Unit,
     onToggle: (String) -> Unit,
     onSetSelection: (List<String>, Boolean) -> Unit,
     onDismiss: () -> Unit
@@ -1760,7 +1794,9 @@ private fun ProviderModelCatalogSheet(
         loading = true
         loadError = null
         try {
-            models = (onFetchModels ?: error("Model discovery is unavailable"))(provider).distinct()
+            val discovered = (onFetchModels ?: error("Model discovery is unavailable"))(provider).distinctBy { it.id }
+            models = discovered.map { it.id }
+            onCatalogLoaded(discovered)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

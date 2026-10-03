@@ -48,9 +48,10 @@ fun ChatScreen(
     selectedProviderId: String,
     selectedModelName: String,
     onSendMessage: (String, List<String>) -> Boolean,
+    onSendMedia: (DirectMediaRequest) -> Boolean,
     onStopGenerating: () -> Unit,
     onOpenDrawer: () -> Unit,
-    onOpenEndDrawer: () -> Unit,
+    onOpenSettings: () -> Unit,
     onRegenerate: (String) -> Unit,
     onEditMessage: (messageId: String, newContent: String, files: List<String>) -> Boolean,
     onDeleteMessage: (messageId: String) -> Unit,
@@ -68,6 +69,7 @@ fun ChatScreen(
     onEditQueuedMessage: (String, String, List<String>) -> Boolean = { _, _, _ -> true },
     onDeleteQueuedMessage: (String) -> Unit = {},
     autoScroll: Boolean = false,
+    contextWindowStatus: ContextWindowStatus? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = key(conversation?.id) { rememberLazyListState() }
@@ -88,6 +90,7 @@ fun ChatScreen(
     var deletingMessageId by remember(conversation?.id) { mutableStateOf<String?>(null) }
 
     var regeneratingMessageId by remember(conversation?.id) { mutableStateOf<String?>(null) }
+    var showContextSummarySheet by remember(conversation?.id) { mutableStateOf(false) }
     var showSummaryDialog by remember(conversation?.id) { mutableStateOf(false) }
     val streamingHere = isGenerating && generatingConversationId == conversation?.id
     val lastMessage = messages.lastOrNull()
@@ -342,8 +345,26 @@ fun ChatScreen(
                     Text("Jump to latest")
                 }
             }
+            if (contextWindowStatus?.shouldSuggestSummary == true && !streamingHere && summaryProgress == null) {
+                Surface(color = MaterialTheme.colorScheme.secondaryContainer,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.context_summary_suggestion,
+                            contextWindowStatus.percentage), style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showContextSummarySheet = true }) {
+                            Text(androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.summarize_now))
+                        }
+                    }
+                }
+            }
             UserInputArea(
                 isGenerating = isGenerating,
+                onSendMedia = { request ->
+                    onSendMedia(request).also { if (it) followBottom = true }
+                },
                 onSendMessage = { text, files ->
                     onSendMessage(text, files).also { if (it) followBottom = true }
                 },
@@ -377,9 +398,13 @@ fun ChatScreen(
         ChatAppBar(
             currentSession = conversation,
             onOpenDrawer = onOpenDrawer,
-            onOpenEndDrawer = onOpenEndDrawer,
+            onOpenSettings = onOpenSettings,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+    }
+
+    if (showContextSummarySheet) {
+        ConversationSummarySheet(onStart = onStartConversationSummary, onDismiss = { showContextSummarySheet = false })
     }
 
     if (showSummaryDialog) {

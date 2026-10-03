@@ -119,13 +119,79 @@ class EntityIconTest {
         assertEquals("icon-a.png", store.find("vendor/unknown-v2", model = true))
         assertEquals("icon-c.png", store.find("GEMINI-3-flash", model = true))
         assertEquals("icon-c.png", store.find(" Google "))
-        assertEquals(listOf("claude", "vendor"), iconMatchNames("vendor/claude-sonnet", true))
+        assertEquals(listOf("claude", "claude-sonnet", "vendor"), iconMatchNames("vendor/claude-sonnet", true))
         assertNull(store.find("somethingelse", model = true))
         assertThrows(IllegalArgumentException::class.java) { store.saveRules(listOf(IconRule(pattern = "[", image = "icon-d.png"))) }
         store.saveRules(store.rules().map { if (it.pattern == "claude") it.copy(image = "icon-d.png") else it })
         assertEquals("icon-d.png", IconStore(context).find("claude-haiku", true))
         store.saveRules(emptyList())
         assertNull(store.find("claude-haiku", true))
+    }
+
+    @Test fun modelMatchingRestoresHyphenSuffixesBeforeTryingVendor() {
+        val store = IconStore(context)
+        store.saveRules(listOf(
+            IconRule(pattern = "vendor", image = "vendor.png"),
+            IconRule(pattern = "claude-sonnet-4", image = "specific.png"),
+            IconRule(pattern = "claude-sonnet", image = "family.png")))
+        assertEquals("family.png", store.find("vendor/CLAUDE-sonnet-4", true))
+        store.saveRules(store.rules().filterNot { it.pattern == "claude-sonnet" })
+        assertEquals("specific.png", store.find("vendor/claude-sonnet-4", true))
+        assertEquals("vendor.png", store.find("vendor/unknown-v2", true))
+        assertNull(store.find("claude-sonnet", false))
+        assertEquals(listOf("vendor/claude-sonnet"), iconMatchNames("vendor/claude-sonnet", false))
+    }
+
+    @Test fun catalogMatchingUsesRealFilesAndPrefersColorWithoutPartialBrandMatches() {
+        val files = setOf("openai.png", "claude.png", "claude-color.png", "claudecode.png")
+        assertEquals("claude-color.png", LobeIconSource.match("Claude", files))
+        assertEquals("openai.png", LobeIconSource.match("Open AI", files))
+        assertEquals("openai.png", LobeIconSource.match("gpt", files))
+        assertNull(LobeIconSource.match("claud", files))
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun remoteIconsDownloadLazilyReuseFilesAndRespectCustomRules() = runBlocking {
+        listOf("named-entity-icons", "icon-assets", "automatic-entity-icons").forEach {
+            context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
+        }
+        File(context.filesDir, "entity-icons").listFiles().orEmpty().forEach { it.delete() }
+        val server = okhttp3.mockwebserver.MockWebServer()
+        server.start()
+        try {
+            val source = LobeIconSource(server.url("/index").toString(), server.url("/images/").toString())
+            val store = IconStore(context)
+            assertTrue(store.entries().isEmpty())
+            assertEquals(0, server.requestCount)
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+                """{"files":[{"name":"/light/claude-color.png"},{"name":"/light/openai.png"}]}"""))
+            val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bitmap.recycle()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(bytes)))
+            val id = store.resolve("vendor/claude-sonnet-4", true, source)!!
+            assertEquals("lobe-claude-color.png", id)
+            assertEquals(2, server.requestCount)
+            assertEquals("/index", server.takeRequest().path)
+            assertEquals("/images/claude-color.png", server.takeRequest().path)
+            assertEquals(listOf("claude-color.png"), store.entries().map { it.filename })
+            assertNotNull(store.load(id))
+            assertEquals(id, IconStore(context).resolve("claude-haiku", true, source))
+            assertEquals(2, server.requestCount)
+            store.editMatches(id, listOf("my-model", "special"))
+            assertEquals(id, store.find("my-model-v2", true))
+            assertEquals(id, store.find("SPECIAL"))
+            store.saveRules(listOf(IconRule(pattern = "claude", image = "custom.png")) + store.rules())
+            assertEquals("custom.png", store.resolve("claude-sonnet", true, source))
+            assertEquals(2, server.requestCount)
+            store.prune(emptyList())
+            assertNotNull(store.load(id))
+            store.delete(id)
+            assertNull(store.load(id))
+            assertNull(store.find("special"))
+            assertTrue(store.entries().isEmpty())
+            assertEquals("custom.png", store.find("claude"))
+        } finally { server.shutdown() }
     }
 
     @Test fun legacyRecordsWithoutIconsStillLoad() = runBlocking {

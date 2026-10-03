@@ -29,6 +29,7 @@ import org.starfall.multigateway.ui.chat.ChatViewModel
 import org.starfall.multigateway.ui.configuration.ConfigurationViewModel
 import org.starfall.multigateway.ui.settings.SettingsViewModel
 import org.starfall.multigateway.ui.mcp.OAuthReceiver
+import org.starfall.multigateway.data.model.parseProviderLink
 
 class MainActivity : ComponentActivity() {
 
@@ -83,11 +84,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data ?: return
+        if (data.scheme.equals("multigateway", true) && data.host.equals("provider", true)) {
+            // Consume the launch URI before saving; Activity recreation must not import it again.
+            intent.data = null
+            runCatching { parseProviderLink(data) }
+                .onSuccess(configurationViewModel::importProvider)
+                .onFailure {
+                    Toast.makeText(this, it.message ?: "Invalid provider link.", Toast.LENGTH_LONG).show()
+                }
+            return
+        }
         if (data.scheme == "multigateway" && data.host == "oauth") {
             val fragment = data.encodedFragment?.let { Uri.parse("https://callback.invalid/?$it") }
             fun parameter(name: String) = data.getQueryParameter(name) ?: fragment?.getQueryParameter(name)

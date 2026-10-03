@@ -13,9 +13,12 @@ import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.chat.ChatScreen
 import org.starfall.multigateway.ui.drawer.ConversationsDrawer
-import org.starfall.multigateway.ui.drawer.MenuView
 import org.starfall.multigateway.ui.mcp.McpScreen
 import org.starfall.multigateway.ui.providers.ProviderScreen
+import org.starfall.multigateway.ui.providers.ProviderEditScreen
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
+import android.widget.Toast
 import org.starfall.multigateway.ui.settings.SettingsScreen
 import org.starfall.multigateway.ui.speech.SpeechScreen
 import org.starfall.multigateway.ui.chat.ChatViewModel
@@ -48,12 +51,16 @@ fun MainScreen(
             restoreState = true
         }
     }
+    fun openConfiguration(destination: AppDestination) {
+        navController.navigate(destination.route) { launchSingleTop = true }
+    }
     val conversations: List<Conversation> by viewModel.conversations.collectAsStateWithLifecycle()
     val currentConv: Conversation? by viewModel.currentConversation.collectAsStateWithLifecycle()
     val isGenerating: Boolean by viewModel.isGenerating.collectAsStateWithLifecycle()
     val generatingConversationId by viewModel.generatingConversationId.collectAsStateWithLifecycle()
     val chatError by viewModel.chatError.collectAsStateWithLifecycle()
     val summaryProgress by viewModel.summaryProgress.collectAsStateWithLifecycle()
+    val contextWindowStatus by viewModel.contextWindowStatus.collectAsStateWithLifecycle()
     val appPrefs: AppPreferences by settingsViewModel.preferences.collectAsStateWithLifecycle()
     val providers: List<LlmProviderInfo> by viewModel.providers.collectAsStateWithLifecycle()
     val providerGroups: List<ProviderGroup> by configurationViewModel.providerGroups.collectAsStateWithLifecycle()
@@ -65,6 +72,22 @@ fun MainScreen(
 
     val toolSettings by viewModel.toolSettings.collectAsStateWithLifecycle()
     val queuedMessages by viewModel.queuedMessages.collectAsStateWithLifecycle()
+    val importedProviderId by configurationViewModel.importedProviderId.collectAsStateWithLifecycle()
+    val providerImportError by configurationViewModel.providerImportError.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(importedProviderId) {
+        importedProviderId?.let { id ->
+            drawerState.close()
+            navController.navigate("providers/edit/$id") { launchSingleTop = true }
+            configurationViewModel.providerImportOpened(id)
+        }
+    }
+    LaunchedEffect(providerImportError) {
+        providerImportError?.let {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            configurationViewModel.clearProviderImportError()
+        }
+    }
 
 
     CompositionLocalProvider(LocalToolControls provides ToolControls(
@@ -107,12 +130,6 @@ fun MainScreen(
                     onNavigateToSettings = {
                         navigate(AppDestination.SETTINGS)
                     },
-                    onOpenMenu = {
-                        coroutineScope.launch {
-                            drawerState.close()
-                            navigate(AppDestination.MENU)
-                        }
-                    },
                     onCloseDrawer = {
                         coroutineScope.launch { drawerState.close() }
                     }
@@ -152,6 +169,7 @@ fun MainScreen(
                                 selectedProviderId = appPrefs.selectedProviderId,
                                 selectedModelName = appPrefs.selectedModelId,
                                 autoScroll = appPrefs.autoScroll,
+                                onSendMedia = viewModel::sendMedia,
                                 onSendMessage = { text, files ->
                                     viewModel.sendMessage(text, files)
                                 },
@@ -161,8 +179,8 @@ fun MainScreen(
                                 onOpenDrawer = {
                                     coroutineScope.launch { drawerState.open() }
                                 },
-                                onOpenEndDrawer = {
-                                    navigate(AppDestination.MENU)
+                                onOpenSettings = {
+                                    navigate(AppDestination.SETTINGS)
                                 },
                                 onRegenerate = { id ->
                                     viewModel.regenerateMessage(id)
@@ -190,6 +208,7 @@ fun MainScreen(
                                     viewModel.selectModel(provId, modelId)
                                 },
                                 summaryProgress = summaryProgress,
+                                contextWindowStatus = contextWindowStatus,
                                 onSetReasoningEffort = viewModel::setConversationReasoningEffort,
                                 onStartConversationSummary = viewModel::startConversationSummary,
                                 onSummaryRoleChange = viewModel::setSummaryRole,
@@ -201,6 +220,31 @@ fun MainScreen(
                                     configurationViewModel.fetchOllamaModels(url)
                                 }
                             )
+                        }
+                    }
+
+                    composable("providers/edit/{providerId}") { entry ->
+                        val providerId = entry.arguments?.getString("providerId")
+                        val provider = providers.firstOrNull { it.id == providerId }
+                        if (provider == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else {
+                            key(provider.id) {
+                                ProviderEditScreen(
+                                    initialProvider = provider,
+                                    isNew = false,
+                                    onSave = configurationViewModel::saveProvider,
+                                    onDismiss = { navController.popBackStack() },
+                                    onSaveModels = configurationViewModel::saveProviderModels,
+                                    onReorderModels = configurationViewModel::reorderProviderModels,
+                                    onAuthorizeProvider = configurationViewModel::authorizeProvider,
+                                    onClearOAuthCredentials = configurationViewModel::clearOAuthCredentials,
+                                    onTestConnection = configurationViewModel::testConnection,
+                                    onFetchModels = configurationViewModel::fetchProviderModels
+                                )
+                            }
                         }
                     }
 
@@ -314,26 +358,23 @@ fun MainScreen(
                             onResetAllData = {
                                 viewModel.deleteAllUserData()
                             },
+                            onNavigateToProviders = { openConfiguration(AppDestination.PROVIDERS) },
+                            onNavigateToMcp = { openConfiguration(AppDestination.MCP) },
+                            onNavigateToSpeech = { openConfiguration(AppDestination.SPEECH) },
+                            onNavigateToSystemTools = { openConfiguration(AppDestination.SYSTEM_TOOLS) },
+                            onNavigateToStorage = { openConfiguration(AppDestination.STORAGE) },
                             onBack = { navController.popBackStack() }
                         )
                     }
 
+                    // Restore old saved menu routes into the unified settings destination.
                     composable(AppDestination.MENU.route) {
-                        fun navigateFromMenu(destination: AppDestination) {
-                            navController.navigate(destination.route) {
+                        LaunchedEffect(Unit) {
+                            navController.navigate(AppDestination.SETTINGS.route) {
+                                popUpTo(AppDestination.MENU.route) { inclusive = true }
                                 launchSingleTop = true
                             }
                         }
-                        MenuView(
-                            onNavigateToProviders = { navigateFromMenu(AppDestination.PROVIDERS) },
-                            onNavigateToMcp = { navigateFromMenu(AppDestination.MCP) },
-                            onNavigateToSpeech = { navigateFromMenu(AppDestination.SPEECH) },
-                            onNavigateToSystemTools = { navigateFromMenu(AppDestination.SYSTEM_TOOLS) },
-                            onNavigateToStorage = { navigateFromMenu(AppDestination.STORAGE) },
-                            onNavigateToSettings = { navigateFromMenu(AppDestination.SETTINGS) },
-                            onCloseMenu = { navController.popBackStack() },
-                            modifier = Modifier.fillMaxSize()
-                        )
                     }
                 }
             }

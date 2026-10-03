@@ -41,7 +41,6 @@ fun ConversationsDrawer(
     onDeleteConversation: (String) -> Unit,
     onUpdateDefaultSystemPrompt: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
-    onOpenMenu: () -> Unit,
     onCloseDrawer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -159,8 +158,7 @@ fun ConversationsDrawer(
                     Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("New Chat", maxLines = 1)
                 }
                 IconButton(onClick = { promptDialog = true }) { Icon(Icons.Outlined.EditNote, "Default system prompt") }
-                IconButton(onClick = { onNavigateToSettings(); onCloseDrawer() }) { Icon(Icons.Outlined.Settings, "Settings") }
-                IconButton(onClick = onOpenMenu) { Icon(Icons.Outlined.Menu, "Menu") }
+                IconButton(onClick = { onNavigateToSettings(); onCloseDrawer() }) { Icon(Icons.Outlined.Settings, "General Settings") }
             }
         }
     }

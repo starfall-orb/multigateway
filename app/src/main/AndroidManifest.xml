@@ -48,6 +48,12 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="multigateway" android:host="oauth" />
             </intent-filter>
+            <intent-filter android:label="Add provider">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="multigateway" android:host="provider" />
+            </intent-filter>
         </activity>
 
         <service

@@ -35,7 +35,14 @@
     <string name="icon_import_failed">Could not load this image. Choose another image.</string>
     <string name="icon_settings_title">Icons &amp; Cache</string>
     <string name="icon_settings_description">Manage shared icons and matching rules</string>
-    <string name="icon_cache_help">Shared defaults for Providers, Models and MCP Servers. Tap an image to replace it. Regex matches the full name, ignoring case. Custom icons take priority.</string>
+    <string name="icon_cache_help">Shared icons for Providers, Models and MCP Servers. Missing icons are found on LobeHub and cached only when used. Custom icons and regex rules take priority.</string>
+    <string name="icon_cache_search">Search icons or match cases</string>
+    <string name="icon_cache_no_results">No matching icons.</string>
+    <string name="icon_cache_no_matches">No custom match cases</string>
+    <string name="icon_cache_actions">Icon actions</string>
+    <string name="icon_cache_edit">Edit icon</string>
+    <string name="icon_cache_add_match">Add match case</string>
+    <string name="icon_cache_match_help">Each regex matches the full name, ignoring case. For models, try the name before the first hyphen, then restore each hyphen suffix in turn. The part after / is tried before the part before /.</string>
     <string name="icon_cache_rules">Matching rules</string>
     <string name="icon_cache_saved">Saved</string>
     <string name="icon_cache_add">Add icon</string>
@@ -214,4 +221,12 @@
     <string name="common_all">All</string>
     <string name="empty_provider_group">No providers in this group</string>
     <string name="edit_provider_group">Edit Provider Group</string>
+    <string name="expand_all_model_sections">Expand all providers and folders</string>
+    <string name="collapse_all_model_sections">Collapse all providers and folders</string>
+    <string name="context_window">Context window (tokens)</string>
+    <string name="context_window_invalid">Enter a positive token count.</string>
+    <string name="context_window_help">Uses the API limit when available; otherwise defaults to 128,000 tokens.</string>
+    <string name="context_window_badge">Context %1$s</string>
+    <string name="context_summary_suggestion">Estimated context usage: %1$d%%. Summarize to make room.</string>
+    <string name="summarize_now">Summarize</string>
 </resources>

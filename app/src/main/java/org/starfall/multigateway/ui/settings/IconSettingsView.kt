@@ -5,30 +5,31 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
-import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.starfall.multigateway.R
-import org.starfall.multigateway.data.service.IconRule
 import org.starfall.multigateway.data.service.IconStore
+import org.starfall.multigateway.data.service.StoredIcon
 import org.starfall.multigateway.ui.components.EntityIcon
 
 @Composable
@@ -36,86 +37,145 @@ fun IconSettingsView() {
     val context = LocalContext.current
     val store = remember(context) { IconStore(context) }
     val scope = rememberCoroutineScope()
-    var rules by remember { mutableStateOf(store.rules()) }
-    var importing by remember { mutableStateOf(false) }
-    var saving by remember { mutableStateOf(false) }
-    var saved by remember { mutableStateOf(false) }
-    var target by remember { mutableStateOf<String?>(null) }
-    fun update(updated: List<IconRule>) { rules = updated; saved = false }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) {
-            val editing = target
-            scope.launch {
-                importing = true
-                try {
-                    val image = withContext(Dispatchers.IO) { store.importImage(uri) }
-                    update(if (editing == null) listOf(IconRule(pattern = "", image = image)) + rules
-                        else rules.map { if (it.id == editing) it.copy(image = image) else it })
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    Toast.makeText(context, R.string.icon_import_failed, Toast.LENGTH_LONG).show()
-                } finally { importing = false }
-            }
+    val revision by IconStore.revision.collectAsState()
+    val entries by produceState(emptyList<StoredIcon>(), revision) {
+        value = withContext(Dispatchers.IO) { store.entries() }
+    }
+    var query by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<StoredIcon?>(null) }
+    var patterns by remember { mutableStateOf(emptyList<String>()) }
+    fun edit(entry: StoredIcon) {
+        editing = entry
+        patterns = entry.patterns
+    }
+    fun mutate(action: () -> Unit) {
+        scope.launch {
+            busy = true
+            try {
+                withContext(Dispatchers.IO) { action() }
+                editing = null
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(context, R.string.icon_cache_save_failed, Toast.LENGTH_LONG).show()
+            } finally { busy = false }
         }
     }
-    val busy = importing || saving
-    val valid = rules.all { it.pattern.isNotBlank() && runCatching { Regex(it.pattern) }.isSuccess }
-    val chooseDescription = stringResource(R.string.choose_icon)
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.icon_cache_help), style = MaterialTheme.typography.bodySmall)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(if (saved) stringResource(R.string.icon_cache_saved) else stringResource(R.string.icon_cache_rules),
-                modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-            IconButton(enabled = !busy, onClick = {
-                target = null
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }) { Icon(Icons.Outlined.AddPhotoAlternate, stringResource(R.string.icon_cache_add)) }
-            TextButton(enabled = valid && !busy, onClick = {
-                scope.launch {
-                    saving = true
-                    try {
-                        withContext(Dispatchers.IO) { store.saveRules(rules) }
-                        saved = true
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Exception) {
-                        Toast.makeText(context, R.string.icon_cache_save_failed, Toast.LENGTH_LONG).show()
-                    } finally { saving = false }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) scope.launch {
+            busy = true
+            try {
+                val entry = withContext(Dispatchers.IO) {
+                    val image = store.importImage(uri)
+                    store.entries().first { it.image == image }
                 }
-            }) { Text(stringResource(R.string.icon_cache_save)) }
+                edit(entry)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                Toast.makeText(context, R.string.icon_import_failed, Toast.LENGTH_LONG).show()
+            } finally { busy = false }
         }
-        if (importing) LinearProgressIndicator(Modifier.fillMaxWidth())
+    }
+    val visible = entries.filter { entry ->
+        entry.filename.contains(query.trim(), ignoreCase = true) ||
+            entry.image.contains(query.trim(), ignoreCase = true) ||
+            entry.patterns.any { it.contains(query.trim(), ignoreCase = true) }
+    }
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsCard {
+            OutlinedTextField(value = query, onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                label = { Text(stringResource(R.string.icon_cache_search)) },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) })
+            Text(stringResource(R.string.icon_cache_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.icon_settings_title), modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall)
+                IconButton(enabled = !busy, onClick = {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Icon(Icons.Outlined.AddPhotoAlternate, stringResource(R.string.icon_cache_add)) }
+            }
+            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 16.dp)) {
-            if (rules.isEmpty()) item { Text(stringResource(R.string.icon_cache_empty)) }
-            items(rules, key = { it.id }) { rule ->
-                val error = rule.pattern.isBlank() || runCatching { Regex(rule.pattern) }.isFailure
-                Surface(shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            if (visible.isEmpty()) item {
+                SettingsCard { Text(stringResource(if (query.isBlank()) R.string.icon_cache_empty else R.string.icon_cache_no_results), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            items(visible, key = { it.image }) { entry ->
+                var menu by remember { mutableStateOf(false) }
+                Surface(shape = RoundedCornerShape(24.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                     color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EntityIcon(rule.image, Modifier.size(56.dp)
-                            .semantics { contentDescription = chooseDescription }
-                            .clickable(enabled = !busy) {
-                                target = rule.id
-                                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                            })
-                        OutlinedTextField(value = rule.pattern, onValueChange = { pattern ->
-                            update(rules.map { if (it.id == rule.id) it.copy(pattern = pattern) else it })
-                        }, enabled = !busy, modifier = Modifier.weight(1f),
-                            label = { Text(stringResource(R.string.icon_cache_regex)) },
-                            isError = error,
-                            supportingText = if (error) ({ Text(stringResource(R.string.icon_cache_invalid_regex)) }) else null)
-                        IconButton(enabled = !busy, onClick = { update(rules.filterNot { it.id == rule.id }) }) {
-                            Icon(Icons.Outlined.DeleteOutline, stringResource(R.string.icon_cache_delete))
+                        EntityIcon(entry.image, Modifier.size(48.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.filename, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleSmall)
+                            Text(entry.patterns.joinToString(" · ").ifEmpty { stringResource(R.string.icon_cache_no_matches) },
+                                maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Box {
+                            IconButton(enabled = !busy, onClick = { menu = true }) {
+                                Icon(Icons.Outlined.MoreVert, stringResource(R.string.icon_cache_actions))
+                            }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.icon_cache_edit)) },
+                                    onClick = { menu = false; edit(entry) })
+                                DropdownMenuItem(text = { Text(stringResource(R.string.common_delete)) },
+                                    onClick = { menu = false; mutate { store.delete(entry.image) } })
+                            }
                         }
                     }
                 }
             }
         }
+    }
+    editing?.let { entry ->
+        val valid = patterns.all { it.isNotBlank() && runCatching { Regex(it) }.isSuccess }
+        AlertDialog(onDismissRequest = { if (!busy) editing = null },
+            title = { Text(stringResource(R.string.icon_cache_edit)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        EntityIcon(entry.image, Modifier.size(48.dp))
+                        Text(entry.filename, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(stringResource(R.string.icon_cache_match_help), style = MaterialTheme.typography.bodySmall)
+                    LazyColumn(Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(patterns.size) { index ->
+                            val pattern = patterns[index]
+                            val invalid = pattern.isBlank() || runCatching { Regex(pattern) }.isFailure
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(value = pattern, onValueChange = { value ->
+                                    patterns = patterns.toMutableList().apply { this[index] = value }
+                                }, modifier = Modifier.weight(1f), enabled = !busy,
+                                    label = { Text(stringResource(R.string.icon_cache_regex)) }, isError = invalid,
+                                    supportingText = if (invalid) ({ Text(stringResource(R.string.icon_cache_invalid_regex)) }) else null)
+                                IconButton(enabled = !busy, onClick = {
+                                    patterns = patterns.filterIndexed { i, _ -> i != index }
+                                }) { Icon(Icons.Outlined.Close, stringResource(R.string.icon_cache_delete)) }
+                            }
+                        }
+                    }
+                    TextButton(enabled = !busy, onClick = { patterns = patterns + "" }) {
+                        Icon(Icons.Outlined.Add, contentDescription = null)
+                        Text(stringResource(R.string.icon_cache_add_match))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = valid && !busy, onClick = {
+                    val updated = patterns.toList()
+                    mutate { store.editMatches(entry.image, updated) }
+                }) { Text(stringResource(R.string.common_save)) }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { editing = null }) {
+                Text(stringResource(R.string.common_cancel))
+            } })
     }
 }

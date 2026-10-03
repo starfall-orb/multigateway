@@ -31,6 +31,7 @@ class ChatInputBehaviorTest {
                 UserInputArea(
                     isGenerating = true,
                     onSendMessage = { text, _ -> sent = text; true },
+                    onSendMedia = { false },
                     onEditMessage = { _, _, _ -> false },
                     editDraft = null,
                     onCancelEdit = {},

@@ -49,6 +49,17 @@ class ToolFiles(val directory: File) {
                 header[0] == 0xff.toByte() && header[1] == 0xd8.toByte() -> "jpg"
                 String(header, 0, 3) == "GIF" -> "gif"
                 String(header, 8, 4) == "WEBP" -> "webp"
+                String(header, 0, 3) == "ID3" -> "mp3"
+                String(header, 0, 4) == "RIFF" && String(header, 8, 4) == "WAVE" -> "wav"
+                String(header, 0, 4) == "OggS" -> "ogg"
+                String(header, 0, 4) == "fLaC" -> "flac"
+                String(header, 4, 4) == "ftyp" && (String(header, 8, 4).startsWith("M4A") ||
+                    mime?.substringBefore(';') in setOf("audio/mp4", "audio/x-m4a")) -> "m4a"
+                mime?.substringBefore(';') == "audio/webm" -> "weba"
+                mime?.substringBefore(';') in setOf("audio/mpeg", "audio/mp3") -> "mp3"
+                mime?.substringBefore(';') in setOf("audio/aac", "audio/aacp") -> "aac"
+                header[0] == 0xff.toByte() && (header[1].toInt() and 0xf6) == 0xf0 -> "aac"
+                header[0] == 0xff.toByte() && (header[1].toInt() and 0xe0) == 0xe0 -> "mp3"
                 String(header, 4, 4) == "ftyp" -> "mp4"
                 header[0] == 0x1a.toByte() && header[1] == 0x45.toByte() -> "webm"
                 mime == "text/plain" -> "txt"
@@ -92,7 +103,7 @@ class ToolFiles(val directory: File) {
                         check(length <= limit * 2) { "Tool result exceeds file limit" }
                         if (raw == null && value.length >= 16384) {
                             media = lastKey in setOf("b64_json", "bytesBase64Encoded", "video_base64", "base64", "blob") ||
-                                value.startsWith("data:image/") || value.startsWith("data:video/") ||
+                                value.startsWith("data:image/") || value.startsWith("data:video/") || value.startsWith("data:audio/") ||
                                 (lastKey == "data" && value.all { it.isLetterOrDigit() || it in "+/=\\" })
                             checkSpace()
                             raw = File(directory, "${UUID.randomUUID()}.part")
@@ -142,7 +153,7 @@ class ToolFiles(val directory: File) {
                     } else {
                         // Small base64 media is also saved, including small previews.
                         val text = value.toString()
-                        if (text.startsWith("data:image/") || text.startsWith("data:video/") || lastKey in setOf("b64_json", "bytesBase64Encoded", "video_base64", "base64", "blob") ||
+                        if (text.startsWith("data:image/") || text.startsWith("data:video/") || text.startsWith("data:audio/") || lastKey in setOf("b64_json", "bytesBase64Encoded", "video_base64", "base64", "blob") ||
                             (lastKey == "data" && text.length > 100 && text.matches(Regex("[A-Za-z0-9+/=\\\\]+")))) {
                             val rawSmall = File(directory, "${UUID.randomUUID()}.part")
                             try {

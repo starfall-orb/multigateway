@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import java.io.File
 import java.util.UUID
 import kotlinx.serialization.Serializable
@@ -11,15 +12,25 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 
 @Serializable
 data class IconRule(val id: String = UUID.randomUUID().toString(), val pattern: String, val image: String)
 
-/** Model families prefer the suffix after "/" and then the prefix, trimming "-..." from each. */
+data class StoredIcon(val image: String, val filename: String, val patterns: List<String>)
+
+/** Try each model family first, then progressively restore hyphen suffixes, before the vendor. */
 internal fun iconMatchNames(name: String, model: Boolean): List<String> {
     val clean = name.trim()
     return (if (model && '/' in clean) listOf(clean.substringAfterLast('/'), clean.substringBefore('/'))
-        else listOf(clean)).map { (if (model) it.substringBefore('-') else it).trim() }
+        else listOf(clean)).flatMap { part ->
+            if (!model) listOf(part.trim()) else {
+                val segments = part.trim().split('-')
+                segments.indices.map { segments.take(it + 1).joinToString("-") }
+            }
+        }
         .filter { it.isNotEmpty() }.distinct()
 }
 
@@ -28,10 +39,18 @@ class IconStore(private val context: Context) {
     private val directory get() = File(context.filesDir, "entity-icons").apply { mkdirs() }
 
     private val preferences get() = context.getSharedPreferences("named-entity-icons", Context.MODE_PRIVATE)
+    private val assets get() = context.getSharedPreferences("icon-assets", Context.MODE_PRIVATE)
+    private val automatic get() = context.getSharedPreferences("automatic-entity-icons", Context.MODE_PRIVATE)
     companion object {
         private val changes = MutableStateFlow(0L)
         val revision = changes.asStateFlow()
-        private val storedIconName = Regex("^icon-[a-f0-9-]+\\.png$")
+        private val storedIconName = Regex("^(icon-[a-f0-9-]+|lobe-[a-z0-9-]+)\\.png$")
+        private val downloadLock = Mutex()
+        private val mutationLock = Any()
+        private val source = LobeIconSource()
+        private val remoteClient = okhttp3.OkHttpClient.Builder()
+            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+        private val failedDownloads = mutableMapOf<String, Long>()
     }
 
     fun rules(): List<IconRule> {
@@ -44,10 +63,92 @@ class IconStore(private val context: Context) {
         }.distinctBy { it.pattern }
     }
 
-    fun saveRules(rules: List<IconRule>) {
+    fun saveRules(rules: List<IconRule>) = synchronized(mutationLock) {
         require(rules.all { it.pattern.isNotBlank() && runCatching { Regex(it.pattern) }.isSuccess })
         check(preferences.edit().clear().putString("rules", Json.encodeToString(rules)).commit())
         changes.value += 1
+    }
+
+    fun entries(): List<StoredIcon> {
+        val rules = rules()
+        return directory.listFiles().orEmpty().filter { storedIconName.matches(it.name) }.map { file ->
+            StoredIcon(file.name, assets.getString(file.name, file.name) ?: file.name,
+                rules.filter { it.image == file.name }.map { it.pattern })
+        }.sortedBy { it.filename.lowercase(java.util.Locale.ROOT) }
+    }
+
+    fun editMatches(image: String, patterns: List<String>) = synchronized(mutationLock) {
+        require(storedIconName.matches(image))
+        val existing = rules()
+        val old = existing.filter { it.image == image }
+        val replacement = patterns.distinct().map { pattern ->
+            old.firstOrNull { it.pattern == pattern } ?: IconRule(pattern = pattern, image = image)
+        }
+        // Retain the relative precedence of existing rules, appending newly added cases.
+        saveRules(existing.filter { it.image != image || it.pattern in patterns } +
+            replacement.filter { rule -> old.none { it.id == rule.id } })
+        check(assets.edit().putString(image, assets.getString(image, image)).commit())
+    }
+
+    fun delete(image: String) = synchronized(mutationLock) {
+        require(storedIconName.matches(image))
+        val file = File(directory, image)
+        check(!file.exists() || file.delete())
+        saveRules(rules().filterNot { it.image == image })
+        val editor = automatic.edit()
+        automatic.all.filterValues { it == image }.keys.forEach { editor.remove(it) }
+        check(editor.commit())
+        check(assets.edit().remove(image).commit())
+        changes.value += 1
+    }
+
+    /** Called on IO only, after explicit icons and user regex rules have been considered. */
+    internal suspend fun resolve(name: String, model: Boolean = false, iconSource: LobeIconSource = source): String? {
+        find(name, model)?.let { return it }
+        return downloadLock.withLock {
+            find(name, model)?.let { return@withLock it }
+            for (candidate in iconMatchNames(name, model)) {
+                var attemptedId: String? = null
+                val key = candidate.lowercase(java.util.Locale.ROOT)
+                automatic.getString(key, null)?.let { cached ->
+                    if (File(directory, cached).isFile) return@withLock cached
+                }
+                try {
+                    val filename = iconSource.find(candidate) ?: continue
+                    val id = "lobe-$filename"
+                    attemptedId = id
+                    if ((failedDownloads[id] ?: 0L) > System.currentTimeMillis()) continue
+                    val file = File(directory, id)
+                    if (!file.exists()) {
+                        val bytes = iconSource.image(filename)
+                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                        require(bounds.outWidth in 1..2048 && bounds.outHeight in 1..2048)
+                        synchronized(mutationLock) {
+                            val staging = File.createTempFile("download-", ".tmp", directory)
+                            try {
+                                staging.writeBytes(bytes)
+                                check(staging.renameTo(file))
+                            } finally { staging.delete() }
+                        }
+                    }
+                    synchronized(mutationLock) {
+                        if (file.exists()) {
+                            check(assets.edit().putString(id, filename).commit())
+                            check(automatic.edit().putString(key, id).commit())
+                            changes.value += 1
+                        }
+                    }
+                    return@withLock find(name, model) ?: id
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // Offline/missing images leave the existing UI fallback intact; retry later.
+                    attemptedId?.let { failedDownloads[it] = System.currentTimeMillis() + 60_000 }
+                }
+            }
+            null
+        }
     }
 
     fun find(name: String, model: Boolean = false): String? {
@@ -60,7 +161,7 @@ class IconStore(private val context: Context) {
         return null
     }
 
-    fun cache(name: String, image: String, model: Boolean = false) {
+    fun cache(name: String, image: String, model: Boolean = false) = synchronized(mutationLock) {
         val candidate = iconMatchNames(name, model).firstOrNull() ?: return
         val pattern = Regex.escape(candidate)
         val existing = rules()
@@ -108,9 +209,58 @@ class IconStore(private val context: Context) {
                 if (resized !== bitmap) resized.recycle()
                 bitmap.recycle()
             }
+            val filename = runCatching {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull() ?: uri.lastPathSegment ?: id
+            check(assets.edit().putString(id, filename).commit())
+            changes.value += 1
             return id
         } finally {
             staging.delete()
+        }
+    }
+
+    /** Explicit URL icons use the same app-owned, resized cache as imported pictures. Called on IO. */
+    internal suspend fun loadIcon(image: String?): Bitmap? {
+        if (image == null) return null
+        val uri = Uri.parse(image)
+        if (uri.scheme?.lowercase() !in listOf("http", "https")) return load(image)
+        return downloadLock.withLock {
+            val cacheKey = "remote:$image"
+            automatic.getString(cacheKey, null)?.let { cached -> load(cached)?.let { return@withLock it } }
+            if ((failedDownloads[cacheKey] ?: 0L) > System.currentTimeMillis()) return@withLock null
+            val staging = File.createTempFile("remote-", ".tmp", directory)
+            try {
+                remoteClient.newCall(okhttp3.Request.Builder().url(image).build()).execute().use { response ->
+                    check(response.isSuccessful) { "Icon download failed" }
+                    val body = response.body ?: error("Empty icon response")
+                    require(body.contentLength() <= 20L * 1024 * 1024) { "Icon is too large" }
+                    body.byteStream().use { input ->
+                        staging.outputStream().use { output ->
+                            val buffer = ByteArray(8192)
+                            var total = 0L
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                require(total <= 20L * 1024 * 1024) { "Icon is too large" }
+                                output.write(buffer, 0, read)
+                            }
+                        }
+                    }
+                }
+                val id = importImage(Uri.fromFile(staging))
+                check(assets.edit().putString(id, uri.lastPathSegment ?: "Provider icon").commit())
+                check(automatic.edit().putString(cacheKey, id).commit())
+                load(id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                failedDownloads[cacheKey] = System.currentTimeMillis() + 60_000
+                null
+            } finally { staging.delete() }
         }
     }
 
@@ -124,10 +274,11 @@ class IconStore(private val context: Context) {
      * shared matching rules. This is intentionally reference-driven so deleting a cache rule
      * never removes an icon that is still explicitly assigned to a Provider, Model or MCP server.
      */
-    fun prune(entityImages: Collection<String?>) {
+    fun prune(entityImages: Collection<String?>) = synchronized(mutationLock) {
         val referenced = buildSet {
             rules().mapTo(this) { it.image }
             entityImages.filterNotNull().filterTo(this) { storedIconName.matches(it) }
+            assets.all.keys.filterTo(this) { storedIconName.matches(it) }
         }
         directory.listFiles().orEmpty().forEach { file ->
             val staleIcon = storedIconName.matches(file.name) && file.name !in referenced

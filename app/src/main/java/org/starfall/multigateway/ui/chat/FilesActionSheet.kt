@@ -2,6 +2,8 @@ package org.starfall.multigateway.ui.chat
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,6 +13,7 @@ import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Summarize
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,6 +28,8 @@ fun FilesActionSheet(
     onPickImage: () -> Unit,
     onPickDocument: () -> Unit,
     onTakePhoto: () -> Unit,
+    onCreateImage: () -> Unit,
+    onCreateVideo: () -> Unit,
     onOpenConversationSummary: () -> Unit,
     onOpenTools: () -> Unit,
     onDismiss: () -> Unit
@@ -38,6 +43,7 @@ fun FilesActionSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 28.dp)
         ) {
@@ -76,6 +82,18 @@ fun FilesActionSheet(
 
             Spacer(modifier = Modifier.height(28.dp))
 
+            AddActionRow(
+                icon = Icons.Outlined.Image,
+                title = "Image",
+                subtitle = "Send directly to an image generation model",
+                onClick = { onCreateImage(); onDismiss() }
+            )
+            AddActionRow(
+                icon = Icons.Outlined.Videocam,
+                title = "Video",
+                subtitle = "Send directly to a video generation model",
+                onClick = { onCreateVideo(); onDismiss() }
+            )
             AddActionRow(
                 icon = Icons.Outlined.Summarize,
                 title = "Conversation Summary",

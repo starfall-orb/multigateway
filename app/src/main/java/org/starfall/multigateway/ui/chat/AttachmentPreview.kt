@@ -18,12 +18,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,11 +34,15 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import org.starfall.multigateway.data.service.AttachmentResolver
+import org.starfall.multigateway.ui.components.MediaPreviewDialog
+import org.starfall.multigateway.ui.components.isPreviewableMedia
+import org.starfall.multigateway.ui.components.mediaThumbnail
 
 private data class AttachmentPreviewData(
     val name: String,
     val mimeType: String,
-    val bitmap: Bitmap? = null,
+    val bitmap: ImageBitmap? = null,
     val durationMs: Long? = null
 )
 
@@ -72,6 +79,7 @@ private fun AttachmentTile(
     compact: Boolean
 ) {
     val context = LocalContext.current
+    var showPreview by remember(reference) { mutableStateOf(false) }
     val data by produceState<AttachmentPreviewData?>(initialValue = null, reference) {
         value = withContext(Dispatchers.IO) { loadPreview(context, reference) }
     }
@@ -85,11 +93,12 @@ private fun AttachmentTile(
             .height(height)
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            .clickable(enabled = data?.mimeType?.let(::isPreviewableMedia) == true) { showPreview = true }
     ) {
         val preview = data
         if (preview?.bitmap != null) {
             Image(
-                bitmap = preview.bitmap.asImageBitmap(),
+                bitmap = preview.bitmap,
                 contentDescription = preview.name,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
@@ -100,7 +109,8 @@ private fun AttachmentTile(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    Icons.Outlined.InsertDriveFile,
+                    if (preview?.mimeType?.startsWith("audio/") == true) Icons.Outlined.Audiotrack
+                    else Icons.Outlined.InsertDriveFile,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.primary
@@ -115,6 +125,12 @@ private fun AttachmentTile(
             }
         }
 
+        if (preview?.mimeType?.startsWith("video/") == true || preview?.mimeType?.startsWith("audio/") == true) {
+            Surface(modifier = Modifier.align(Alignment.Center), shape = CircleShape,
+                color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)) {
+                Icon(Icons.Default.PlayArrow, "Play media", Modifier.padding(8.dp), tint = androidx.compose.ui.graphics.Color.White)
+            }
+        }
         preview?.durationMs?.let { duration ->
             Surface(
                 color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.56f),
@@ -147,45 +163,25 @@ private fun AttachmentTile(
             }
         }
     }
+    val preview = data
+    if (showPreview && preview != null) {
+        MediaPreviewDialog(reference, preview.name, preview.mimeType) { showPreview = false }
+    }
 }
 
-private fun loadPreview(context: Context, reference: String): AttachmentPreviewData {
+private suspend fun loadPreview(context: Context, reference: String): AttachmentPreviewData {
     val uri = Uri.parse(reference)
-    val resolver = context.contentResolver
-    val name = when {
-        uri.scheme == "content" -> runCatching {
-            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index >= 0) cursor.getString(index) else null
-                } else null
-            }
-        }.getOrNull()
-        else -> File(uri.path ?: reference).name
-    } ?: uri.lastPathSegment?.substringAfterLast('/') ?: "Attachment"
-    val mime = if (uri.scheme == "content") resolver.getType(uri).orEmpty() else ""
-    val isImage = mime.startsWith("image/")
-    val isVideo = mime.startsWith("video/")
-
-    var bitmap: Bitmap? = null
+    val metadata = runCatching { AttachmentResolver(context).metadata(reference) }.getOrNull()
+    val name = metadata?.name ?: uri.lastPathSegment ?: "Attachment"
+    val mime = metadata?.mimeType.orEmpty()
+    val bitmap = mediaThumbnail(context, reference, mime, 480)
     var duration: Long? = null
-    if (isImage) {
-        bitmap = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && uri.scheme == "content") {
-                resolver.loadThumbnail(uri, Size(480, 320), null)
-            } else {
-                val options = BitmapFactory.Options().apply { inSampleSize = 4 }
-                if (uri.scheme == "content") resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-                else BitmapFactory.decodeFile(uri.path ?: reference, options)
-            }
-        }.getOrNull()
-    } else if (isVideo) {
+    if (mime.startsWith("video/") || mime.startsWith("audio/")) {
         val retriever = MediaMetadataRetriever()
         runCatching {
             if (uri.scheme == "content") retriever.setDataSource(context, uri)
             else retriever.setDataSource(uri.path ?: reference)
             duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-            bitmap = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
         }
         runCatching { retriever.release() }
     }

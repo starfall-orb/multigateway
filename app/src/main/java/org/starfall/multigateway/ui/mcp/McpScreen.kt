@@ -842,11 +842,6 @@ private fun McpBasicSettings(
                 Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_header))
             }
         }
-        Text(
-            stringResource(R.string.mcp_custom_headers_help),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
         headers.forEachIndexed { index, header ->
             Row(
                 modifier = Modifier.fillMaxWidth(),

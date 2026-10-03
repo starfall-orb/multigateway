@@ -4,7 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -13,22 +13,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForwardIos
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -43,9 +44,8 @@ enum class SettingsCategory(val title: String, val subtitle: String, val icon: I
     APPEARANCE("Appearance", "Theme, color palette & dynamic color", Icons.Outlined.Palette),
     PREFERENCES("Preferences", "Behavior, vibrations & display", Icons.Outlined.Tune),
     ICONS("Icons & Cache", "Manage shared icons and matching rules", Icons.Outlined.Image),
-    USER_DATA("Data & Storage", "Manage conversations, backup & wipe data", Icons.Outlined.Storage),
-    UPDATE("Software Update", "Check the latest GitHub release", Icons.Outlined.SystemUpdateAlt),
-    ABOUT("About MultiGateway", "Version, repository, license & app info", Icons.Outlined.Info)
+    USER_DATA("App Data", "Conversation history & application reset", Icons.Outlined.ManageHistory),
+    ABOUT("About", "App information, software updates & license", Icons.Outlined.Info)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,12 +67,14 @@ fun SettingsScreen(
     onLatexModeChange: (String) -> Unit,
     onClearAllConversations: () -> Unit,
     onResetAllData: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToProviders: () -> Unit = {},
+    onNavigateToMcp: () -> Unit = {},
+    onNavigateToSpeech: () -> Unit = {},
+    onNavigateToSystemTools: () -> Unit = {},
+    onNavigateToStorage: () -> Unit = {}
 ) {
-    var selectedCategory by remember { mutableStateOf<SettingsCategory?>(null) }
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-
+    var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     BackHandler(enabled = selectedCategory != null) {
         selectedCategory = null
     }
@@ -82,7 +84,7 @@ fun SettingsScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (selectedCategory == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else selectedCategory?.title ?: "Settings",
+                        text = if (selectedCategory == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else selectedCategory?.title ?: "General Settings",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
                 },
@@ -111,63 +113,31 @@ fun SettingsScreen(
             SlideScreenContent(editor = selectedCategory, label = "Settings category") { category ->
                 when (category) {
                     null -> {
-                        // Main Settings Categories List
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(SettingsCategory.values().size) { idx ->
-                                val cat = SettingsCategory.values()[idx]
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                    border = androidx.compose.foundation.BorderStroke(
-                                        1.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { selectedCategory = cat }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(12.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(44.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = cat.icon,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Spacer(modifier = Modifier.width(16.dp))
-
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = if (cat == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else cat.title,
-                                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
-                                            Text(
-                                                text = if (cat == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_description) else cat.subtitle,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                                                color = MaterialTheme.colorScheme.outline
-                                            )
-                                        }
-
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.ArrowForwardIos,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                }
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                SettingsGroupHeading("Configuration")
+                            }
+                            item { SettingsNavigationItem("Default Models", "Image, video & conversation helpers", Icons.Outlined.Build, onNavigateToSystemTools) }
+                            item { SettingsNavigationItem("Providers", "AI providers, models & API connections", Icons.Outlined.CloudQueue, onNavigateToProviders) }
+                            item { SettingsNavigationItem("MCP Manage", "Tool servers & integrations", Icons.Outlined.Extension, onNavigateToMcp) }
+                            item { SettingsNavigationItem("Speech Services", "Text-to-speech providers & voices", Icons.Outlined.RecordVoiceOver, onNavigateToSpeech) }
+                            item { SettingsNavigationItem("Storage", "Files created by your tools", Icons.Outlined.FolderOpen, onNavigateToStorage) }
+                            item {
+                                Spacer(Modifier.height(8.dp))
+                                SettingsGroupHeading("System Settings")
+                            }
+                            items(SettingsCategory.entries.size) { index ->
+                                val category = SettingsCategory.entries[index]
+                                SettingsNavigationItem(
+                                    title = if (category == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_title) else category.title,
+                                    subtitle = if (category == SettingsCategory.ICONS) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.icon_settings_description) else category.subtitle,
+                                    icon = category.icon,
+                                    onClick = { selectedCategory = category }
+                                )
                             }
                         }
                     }
@@ -206,10 +176,6 @@ fun SettingsScreen(
                         )
                     }
 
-                    SettingsCategory.UPDATE -> {
-                        UpdateSettingsView()
-                    }
-
                     SettingsCategory.ABOUT -> {
                         AboutSettingsView()
                     }
@@ -220,6 +186,13 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsGroupHeading(title: String) {
+    Text(title, modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
 fun AppearanceSettingsView(
     appPreferences: AppPreferences,
     onThemeChange: (String) -> Unit,
@@ -227,128 +200,43 @@ fun AppearanceSettingsView(
     onDynamicColorChange: (Boolean) -> Unit,
     onColorSchemeChange: (String) -> Unit
 ) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Text(
-                text = "Theme Mode",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                val modes = listOf("SYSTEM", "LIGHT", "DARK")
-                modes.forEach { mode ->
-                    val isSelected = appPreferences.themeMode == mode
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onThemeChange(mode) },
-                        label = { Text(mode.lowercase().replaceFirstChar { it.uppercase() }) },
-                        modifier = Modifier.weight(1f)
-                    )
+            SettingsSection("Theme") {
+                Text("Choose how MultiGateway looks", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("SYSTEM", "LIGHT", "DARK").forEach { mode ->
+                        FilterChip(selected = appPreferences.themeMode == mode, onClick = { onThemeChange(mode) },
+                            label = { Text(mode.lowercase().replaceFirstChar { it.uppercase() }) }, modifier = Modifier.weight(1f))
+                    }
                 }
+                PreferenceToggle("AMOLED", "Use pure black surfaces in dark mode", appPreferences.useAmoled, onAmoledChange)
             }
         }
-
         item {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "AMOLED",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Use pure black surfaces when dark mode is active",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-                Switch(
-                    checked = appPreferences.useAmoled,
-                    onCheckedChange = onAmoledChange
-                )
-            }
-        }
-
-        item {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        }
-
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Dynamic Color (Material Design)",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Extract color palette from device wallpaper (Android 12+)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-                Switch(
-                    checked = appPreferences.useDynamicColor,
-                    onCheckedChange = onDynamicColorChange
-                )
-            }
-        }
-
-        if (!appPreferences.useDynamicColor) {
-            item {
-                Text(
-                    text = "Color Palette",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val palettes = listOf(
-                    "DEFAULT" to Color(0xFF0B57D0),
-                    "EMERALD" to Color(0xFF006C4C),
-                    "SUNSET" to Color(0xFFA04000),
-                    "CRIMSON" to Color(0xFFB3261E),
-                    "VIOLET" to Color(0xFF6B4FA0)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    palettes.forEach { (name, color) ->
-                        val isSelected = appPreferences.colorSchemeName == name
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = color.copy(alpha = 0.2f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) color else color.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(52.dp)
-                                .clickable { onColorSchemeChange(name) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(CircleShape)
-                                        .background(color)
-                                )
+            SettingsSection("Color") {
+                PreferenceToggle("Dynamic Color", "Use colors from your wallpaper on Android 12 and above",
+                    appPreferences.useDynamicColor, onDynamicColorChange)
+                if (!appPreferences.useDynamicColor) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    Text("Color palette", style = MaterialTheme.typography.titleMedium)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("DEFAULT" to Color(0xFF0B57D0), "EMERALD" to Color(0xFF006C4C),
+                            "SUNSET" to Color(0xFFA04000), "CRIMSON" to Color(0xFFB3261E), "VIOLET" to Color(0xFF6B4FA0)
+                        ).forEach { (name, color) ->
+                            val selected = appPreferences.colorSchemeName == name
+                            Surface(shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.15f),
+                                border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp,
+                                    if (selected) color else color.copy(alpha = 0.3f)),
+                                modifier = Modifier.weight(1f).height(56.dp)
+                                    .toggleable(selected, role = Role.RadioButton, onValueChange = { onColorSchemeChange(name) })
+                                    .then(Modifier.semantics { contentDescription = name.lowercase().replaceFirstChar { it.uppercase() } })
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(26.dp).clip(CircleShape).background(color))
+                                    if (selected) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
@@ -358,6 +246,7 @@ fun AppearanceSettingsView(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PreferencesSettingsView(
     appPreferences: AppPreferences,
@@ -369,114 +258,58 @@ fun PreferencesSettingsView(
     onDebugModeChange: (Boolean) -> Unit,
     onLatexModeChange: (String) -> Unit
 ) {
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            PreferenceToggle(
-                title = "Continue Last Chat",
-                subtitle = "Automatically open the most recent conversation on launch",
-                checked = appPreferences.continueLastConversation,
-                onCheckedChange = onContinueLastConversationChange
-            )
+            SettingsSection("Conversations") {
+                PreferenceToggle("Continue Last Chat", "Open the most recent conversation on launch",
+                    appPreferences.continueLastConversation, onContinueLastConversationChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                PreferenceToggle("Persist Selection", "Remember your selected model across sessions",
+                    appPreferences.persistChatSelection, onPersistChatSelectionChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                PreferenceToggle("Auto scroll", "Follow new responses as they generate",
+                    appPreferences.autoScroll, onAutoScrollChange)
+            }
         }
-
         item {
-            PreferenceToggle(
-                title = "Persist Selection",
-                subtitle = "Remember the last selected model across sessions",
-                checked = appPreferences.persistChatSelection,
-                onCheckedChange = onPersistChatSelectionChange
-            )
+            SettingsSection("Feedback & display") {
+                PreferenceToggle("Haptic Vibration", "Vibrate on taps and generation events",
+                    appPreferences.enableVibration, onEnableVibrationChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                PreferenceToggle("Immersive Mode", "Hide the status bar while chatting",
+                    appPreferences.hideStatusBar, onHideStatusBarChange)
+            }
         }
-
         item {
-            PreferenceToggle(
-                title = "Auto scroll",
-                subtitle = "Follow the response as it generates. When off, scroll only to the start of each new message.",
-                checked = appPreferences.autoScroll,
-                onCheckedChange = onAutoScrollChange
-            )
-        }
-
-        item {
-            PreferenceToggle(
-                title = "Haptic Vibration",
-                subtitle = "Vibrate on button taps and generation events",
-                checked = appPreferences.enableVibration,
-                onCheckedChange = onEnableVibrationChange
-            )
-        }
-
-        item {
-            PreferenceToggle(
-                title = "Immersive Mode",
-                subtitle = "Hide system status bar for distraction-free chatting",
-                checked = appPreferences.hideStatusBar,
-                onCheckedChange = onHideStatusBarChange
-            )
-        }
-
-        item {
-            PreferenceToggle(
-                title = "Developer Debug Logs",
-                subtitle = "Display token metrics, raw JSON payloads, and network logs",
-                checked = appPreferences.debugMode,
-                onCheckedChange = onDebugModeChange
-            )
-        }
-
-        item {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-        }
-
-        item {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "LaTeX Equation Rendering",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "Render formulas in LaTeX format. Auto-detect parses equations but ignores price ranges like $10 to $20.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val modes = listOf("ON" to "Always On", "OFF" to "Disabled", "AUTO" to "Auto Detect")
-                    modes.forEach { (mode, label) ->
-                        val isSelected = appPreferences.latexMode == mode
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onLatexModeChange(mode) },
-                            label = { Text(label) },
-                            modifier = Modifier.weight(1f)
-                        )
+            SettingsSection("Rendering") {
+                Text("LaTeX Equation Rendering", style = MaterialTheme.typography.titleMedium)
+                Text("Auto-detect renders formulas while leaving prices as plain text.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("ON" to "Always On", "OFF" to "Disabled", "AUTO" to "Auto Detect").forEach { (mode, label) ->
+                        FilterChip(selected = appPreferences.latexMode == mode, onClick = { onLatexModeChange(mode) }, label = { Text(label) })
                     }
                 }
+            }
+        }
+        item {
+            SettingsSection("Developer") {
+                PreferenceToggle("Developer Debug Logs", "Show token metrics, request payloads and network logs",
+                    appPreferences.debugMode, onDebugModeChange)
             }
         }
     }
 }
 
 @Composable
-fun PreferenceToggle(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+fun PreferenceToggle(title: String, subtitle: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -490,51 +323,33 @@ fun UserDataSettingsView(
     var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
 
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Data Overview",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        DataStatItem(label = "Chats", count = conversationCount.toString())
-                        DataStatItem(label = "Providers", count = providerCount.toString())
-                    }
+            SettingsSection("Data overview") {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    DataStatItem("Chats", conversationCount.toString())
+                    DataStatItem("Providers", providerCount.toString())
                 }
             }
         }
-
         item {
-            OutlinedButton(
-                onClick = { showClearConfirm = true },
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.DeleteSweep, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Clear All Chat History")
-            }
-        }
-
-        item {
-            Button(
-                onClick = { showResetConfirm = true },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.Warning, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Reset All Application Data")
+            SettingsSection("Manage data") {
+                Text("Control the conversations and configuration stored on this device.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedButton(onClick = { showClearConfirm = true }, shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.DeleteSweep, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Clear All Chat History")
+                }
+                OutlinedButton(onClick = { showResetConfirm = true }, shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Warning, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reset All Application Data")
+                }
             }
         }
     }
@@ -668,13 +483,13 @@ fun UpdateSettingsView() {
     val context = LocalContext.current
     val packageInfo = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0) }
     val currentVersion = packageInfo.versionName.orEmpty()
-    val currentBuild = PackageInfoCompat.getLongVersionCode(packageInfo)
-    var isChecking by remember { mutableStateOf(true) }
+    var isChecking by remember { mutableStateOf(false) }
     var latestRelease by remember { mutableStateOf<GitHubReleaseInfo?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(refreshKey) {
+        if (refreshKey == 0) return@LaunchedEffect
         isChecking = true
         errorMessage = null
         runCatching { fetchLatestGitHubRelease() }
@@ -687,40 +502,21 @@ fun UpdateSettingsView() {
     val updateAvailable = release?.let { compareVersions(currentVersion, it.tagName) < 0 } == true
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // Current Version Card
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Current version", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
-                Text("MultiGateway $currentVersion ($currentBuild)", style = MaterialTheme.typography.bodyLarge)
-                Text("Package: ${context.packageName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-        }
-
-        // Software Update Status Card
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SettingsCard {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Latest GitHub Release", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+                    Text("Software Update", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.primary)
                     IconButton(
                         onClick = { refreshKey++ },
                         enabled = !isChecking,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh",
+                            contentDescription = "Check for updates",
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -742,9 +538,8 @@ fun UpdateSettingsView() {
                         TextButton(onClick = { refreshKey++ }) { Text("Try again") }
                     }
                     release != null -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(release.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
                             Surface(
@@ -853,10 +648,18 @@ fun UpdateSettingsView() {
                             }
                         }
                     }
+                    else -> {
+                        Text("Find the latest MultiGateway release on GitHub.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FilledTonalButton(onClick = { refreshKey++ }, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Outlined.SystemUpdateAlt, null, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Check for updates")
+                        }
+                    }
                 }
             }
         }
-    }
 }
 
 @Composable
@@ -865,61 +668,31 @@ fun AboutSettingsView() {
     val packageInfo = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0) }
     val versionName = packageInfo.versionName.orEmpty()
     val versionCode = PackageInfoCompat.getLongVersionCode(packageInfo)
-    val targetSdk = context.applicationInfo.targetSdkVersion
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = "MultiGateway",
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text("Universal AI Gateway for Android", style = MaterialTheme.typography.bodyMedium)
-                Text("Version $versionName ($versionCode)", style = MaterialTheme.typography.bodyMedium)
-                Text("Target Android SDK $targetSdk", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Text("Package: ${context.packageName}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        SettingsCard {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(60.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Hub, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(32.dp))
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("MultiGateway", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Version $versionName ($versionCode)", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
+            Text("Universal AI Gateway for Android", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    context.startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/starfall-orb/multigateway"))
-                    )
-                }
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Project", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
-                    Icon(
-                        imageVector = Icons.Outlined.OpenInNew,
-                        contentDescription = "Open Repo",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Text(
-                    text = "Repository: starfall-orb/multigateway",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text("License: Starfall Orb Contributor Commercial Copyleft License v1.0", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Text("Tap to open repository on GitHub", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
+        UpdateSettingsView()
+        SettingsNavigationItem("Source code", "starfall-orb/multigateway", Icons.Outlined.Code) {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/starfall-orb/multigateway")))
+        }
+        SettingsSection("License") {
+            Text("Starfall Orb Contributor Commercial Copyleft License v1.0", style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
-

@@ -176,8 +176,11 @@ class LlmService(context: Context) {
         }
     }
 
-    suspend fun fetchProviderModels(provider: LlmProviderInfo): List<String> {
-        accountAdapters.get(provider.type)?.let { return it.fetchModels(provider) }
+    suspend fun fetchProviderModels(provider: LlmProviderInfo): List<String> =
+        fetchProviderModelCatalog(provider).map { it.id }
+
+    suspend fun fetchProviderModelCatalog(provider: LlmProviderInfo): List<DiscoveredModel> {
+        accountAdapters.get(provider.type)?.let { return it.fetchModels(provider).map { id -> DiscoveredModel(id) } }
 
         var base = provider.baseUrl.trim().trimEnd('/')
         for (suffix in listOf("/chat/completions", "/responses", "/messages", "/models", "/chat", "/tags", "/generate")) {
@@ -190,7 +193,7 @@ class LlmService(context: Context) {
             ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> "$base/models"
             else -> error("No model discovery endpoint is registered for ${provider.type.displayName}.")
         }
-        val models = linkedSetOf<String>()
+        val models = linkedMapOf<String, DiscoveredModel>()
         var cursor: String? = null
         val seenCursors = mutableSetOf<String>()
         do {
@@ -212,7 +215,8 @@ class LlmService(context: Context) {
                 val item = entry as? JsonObject ?: return@forEach
                 val id = (item["id"] ?: item["name"])?.jsonPrimitive?.contentOrNull
                 id?.takeIf { it.isNotBlank() }?.let {
-                    models += if (provider.type == ProviderType.GOOGLE) it.removePrefix("models/") else it
+                    val modelId = if (provider.type == ProviderType.GOOGLE) it.removePrefix("models/") else it
+                    models[modelId] = discoveredModel(modelId, item)
                 }
             }
             cursor = when {
@@ -223,7 +227,7 @@ class LlmService(context: Context) {
             }?.takeIf { it.isNotBlank() }
             check(cursor == null || seenCursors.add(cursor!!)) { "The models endpoint repeated a page." }
         } while (cursor != null)
-        return models.toList()
+        return models.values.toList()
     }
 
     suspend fun fetchOllamaModels(baseUrl: String): List<String> {

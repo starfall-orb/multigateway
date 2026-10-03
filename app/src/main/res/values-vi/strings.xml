@@ -35,7 +35,14 @@
     <string name="icon_import_failed">Không thể tải ảnh này. Hãy chọn ảnh khác.</string>
     <string name="icon_settings_title">Biểu tượng và bộ nhớ đệm</string>
     <string name="icon_settings_description">Quản lý biểu tượng chung và quy tắc khớp</string>
-    <string name="icon_cache_help">Biểu tượng mặc định dùng chung cho Provider, Model và MCP Server. Nhấn ảnh để thay đổi. Regex khớp toàn bộ tên, không phân biệt hoa thường. Biểu tượng riêng được ưu tiên.</string>
+    <string name="icon_cache_help">Biểu tượng dùng chung cho Provider, Model và MCP Server. Khi thiếu, tự tìm trên LobeHub và chỉ tải vào bộ nhớ đệm lúc sử dụng. Biểu tượng riêng và regex được ưu tiên.</string>
+    <string name="icon_cache_search">Tìm biểu tượng hoặc match case</string>
+    <string name="icon_cache_no_results">Không có biểu tượng phù hợp.</string>
+    <string name="icon_cache_no_matches">Chưa có match case tuỳ chỉnh</string>
+    <string name="icon_cache_actions">Thao tác biểu tượng</string>
+    <string name="icon_cache_edit">Sửa biểu tượng</string>
+    <string name="icon_cache_add_match">Thêm match case</string>
+    <string name="icon_cache_match_help">Mỗi regex khớp toàn bộ tên, không phân biệt hoa thường. Với model, thử tên trước dấu gạch ngang đầu tiên rồi gom dần từng hậu tố. Phần sau / được xét trước phần trước /.</string>
     <string name="icon_cache_rules">Quy tắc khớp</string>
     <string name="icon_cache_saved">Đã lưu</string>
     <string name="icon_cache_add">Thêm biểu tượng</string>
@@ -214,4 +221,12 @@
     <string name="common_all">Tất cả</string>
     <string name="empty_provider_group">Nhóm này chưa có Provider</string>
     <string name="edit_provider_group">Chỉnh sửa nhóm Provider</string>
+    <string name="expand_all_model_sections">Mở rộng tất cả provider và thư mục</string>
+    <string name="collapse_all_model_sections">Thu gọn tất cả provider và thư mục</string>
+    <string name="context_window">Context window (token)</string>
+    <string name="context_window_invalid">Nhập số token lớn hơn 0.</string>
+    <string name="context_window_help">Dùng giới hạn API cung cấp; mặc định 128.000 token nếu không có.</string>
+    <string name="context_window_badge">Context %1$s</string>
+    <string name="context_summary_suggestion">Context ước lượng đã đạt %1$d%%. Nên tóm tắt để tạo thêm chỗ.</string>
+    <string name="summarize_now">Tóm tắt</string>
 </resources>

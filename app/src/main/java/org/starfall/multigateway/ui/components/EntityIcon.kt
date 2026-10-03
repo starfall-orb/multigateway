@@ -40,7 +40,7 @@ fun EntityIcon(
     val revision by IconStore.revision.collectAsState()
     val bitmap by produceState<android.graphics.Bitmap?>(null, image, matchName, model, revision, context) {
         value = null
-        value = withContext(Dispatchers.IO) { IconStore(context).let { it.load(image) ?: it.load(matchName?.let { name -> it.find(name, model) }) } }
+        value = withContext(Dispatchers.IO) { IconStore(context).let { it.loadIcon(image) ?: it.loadIcon(matchName?.let { name -> it.resolve(name, model) }) } }
     }
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHighest) {

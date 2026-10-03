@@ -1,10 +1,14 @@
 package org.starfall.multigateway.ui.tools
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
+import org.starfall.multigateway.ui.settings.SettingsCard
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -41,6 +45,7 @@ fun SystemToolsScreen(
     onBack: () -> Unit
 ) {
     var choosing by remember { mutableStateOf<String?>(null) }
+    var editingPrompt by rememberSaveable { mutableStateOf<String?>(null) }
     var editingImage by remember { mutableStateOf(false) }
     val imageConfig = settings.system["generate_image"] ?: SystemToolConfig()
     val imageProvider = providers.find { it.id == imageConfig.providerId }
@@ -79,40 +84,36 @@ fun SystemToolsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Text("Media tools", style = MaterialTheme.typography.titleMedium)
+                Text("Media tools", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
             items(listOf("generate_image", "generate_video")) { name ->
                 val config = settings.system[name] ?: SystemToolConfig()
                 val provider = providers.find { it.id == config.providerId }
                 val model = provider?.config?.modelConfigs?.get(config.modelId)
                 val available = systemMediaToolAvailable(name, config, providers)
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        ToolSwitch(
-                            if (name == "generate_image") "Create image" else "Create video",
-                            config.enabled,
-                            enabled = true
-                        ) { onSave(name, config.copy(enabled = it)) }
-                        Text(
-                            if (model == null) "Select a model"
-                            else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        TextButton(onClick = { choosing = name }) { Text("Choose model") }
-                        if (name == "generate_image") {
-                            TextButton(
-                                enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
-                                onClick = { editingImage = true }
-                            ) { Text("Image settings") }
-                        }
+                SettingsCard {
+                    ToolSwitch(
+                        if (name == "generate_image") "Create image" else "Create video",
+                        config.enabled,
+                        enabled = true
+                    ) { onSave(name, config.copy(enabled = it)) }
+                    Text(
+                        if (model == null) "Select a model"
+                        else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    TextButton(onClick = { choosing = name }) { Text("Choose model") }
+                    if (name == "generate_image") {
+                        TextButton(
+                            enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
+                            onClick = { editingImage = true }
+                        ) { Text("Image settings") }
                     }
                 }
             }
 
             item {
-                HorizontalDivider()
-                Spacer(Modifier.height(4.dp))
-                Text("Conversation helpers", style = MaterialTheme.typography.titleMedium)
+                Text("Conversation helpers", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
             items(listOf("title_generation", "chat_summary")) { name ->
                 val config = settings.system[name] ?: SystemToolConfig()
@@ -123,57 +124,60 @@ fun SystemToolsScreen(
                     "Model used to generate conversation titles."
                 else
                     "Model used to summarize long conversations."
-                val defaultPrompt = if (name == "title_generation")
-                    DEFAULT_TITLE_GENERATION_PROMPT
-                else
-                    DEFAULT_CHAT_SUMMARY_PROMPT
 
-                Card(Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(title, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            if (model == null) "Select a text model"
-                            else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                SettingsCard {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (model == null) "Select a text model"
+                        else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = { choosing = name }) { Text("Choose model") }
-                        OutlinedTextField(
-                            value = config.prompt.ifBlank { defaultPrompt },
-                            onValueChange = { onSave(name, config.copy(prompt = it)) },
-                            label = { Text("Instruction prompt") },
-                            placeholder = { Text(defaultPrompt) },
-                            supportingText = {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("Custom prompt instructions")
-                                    Text(
-                                        text = "Reset",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold
-                                        ),
-                                        modifier = Modifier.clickable {
-                                            onSave(name, config.copy(prompt = defaultPrompt))
-                                        }
-                                    )
-                                }
-                            },
-                            minLines = 3,
-                            maxLines = 8,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        TextButton(onClick = { editingPrompt = name }) { Text("Instructions") }
                     }
+                }
+            }
+        }
+    }
+
+    editingPrompt?.let { name ->
+        val config = settings.system[name] ?: SystemToolConfig()
+        val defaultPrompt = if (name == "title_generation") DEFAULT_TITLE_GENERATION_PROMPT else DEFAULT_CHAT_SUMMARY_PROMPT
+        var prompt by rememberSaveable(name) { mutableStateOf(config.prompt.ifBlank { defaultPrompt }) }
+        AppBottomSheet(
+            onDismissRequest = { editingPrompt = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(
+                Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(if (name == "title_generation") "Title Generation" else "Chat Summary",
+                    style = MaterialTheme.typography.titleLarge)
+                Text("Customize the instructions sent to this default model.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = { prompt = it },
+                    label = { Text("Instruction prompt") },
+                    minLines = 5,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { prompt = defaultPrompt }) { Text("Reset") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { editingPrompt = null }) { Text("Cancel") }
+                    Button(onClick = {
+                        onSave(name, config.copy(prompt = prompt.ifBlank { defaultPrompt }))
+                        editingPrompt = null
+                    }) { Text("Save") }
                 }
             }
         }

@@ -35,6 +35,39 @@ MultiGateway separates settings by scope:
 
 A model-level streaming setting takes precedence over the provider default. Leaving the model setting unset makes it inherit the provider setting.
 
+### Quick-add provider links
+
+Open a link from a browser or another app to save a **new** provider and open its **Edit Provider** screen:
+
+URI format (replace placeholders with percent-encoded values):
+
+```text
+multigateway://provider?type={type}&name={name}&url={url}&auth={auth}&key={key}&icon_url={icon_url}
+```
+
+Example with all parameters:
+
+```text
+multigateway://provider?type=chat-completions&name=My%20Gateway&url=https%3A%2F%2Fapi.example.com%2Fv1&auth=platform&key=YOUR_API_KEY&icon_url=https%3A%2F%2Fexample.com%2Ficon.png
+```
+
+- `type` defaults to `chat-completions`. Other values include `responses`, `anthropic`, `gemini`, `ollama`, `antigravity`, `github-copilot`, `openai-codex`, and `claude-code`.
+- `auth` defaults to `platform` (the provider's standard API-key authentication). Other values include `none`, `bearer`, `query`, `custom-header`, and `oauth`.
+- `key` is the API credential value. `bearer`/`custom-header` use the `Authorization` header; `query` uses the `key` query parameter. These names can be changed in the editor. OAuth providers still use the editor's sign-in flow.
+- Missing or empty `name` and `url` use provider defaults where available and can be completed in the editor.
+- `icon_url` is optional: an HTTP(S) image URL. The app loads it in the background and caches a resized local copy; an unavailable icon does not prevent saving or editing the provider.
+- Percent-encode each parameter value, especially URLs or keys containing `&`, `+`, `=` or `%`.
+
+Links work whether the app is already open or starting fresh. Provider details are saved before the editor opens.
+
+Minimal example using the default `type=chat-completions` and `auth=platform`, without a custom icon:
+
+```text
+multigateway://provider?name=My%20Gateway&url=https%3A%2F%2Fapi.example.com%2Fv1&key=YOUR_API_KEY
+```
+
+Each deliberate opening creates a new provider; it does not overwrite an existing provider with the same name or URL. Recreating the current Activity does not import the same launch link again.
+
 ### Account authorization
 
 Select Codex, Claude Code, Antigravity, or GitHub Copilot in Provider settings and use the OAuth sign-in button. Codex and Claude Code return to a localhost callback; Antigravity uses an explicit 127.0.0.1 callback. The browser and app must be on the same Android device. Browser account sign-in keeps a temporary foreground notification active so the local callback stays responsive while the browser is open. Copilot copies a device code to the clipboard; paste it into the GitHub verification page. Credentials are stored with Android Keystore encryption, scoped to the provider ID; exported configuration contains only an authorization marker. Sign in again after importing configuration on another device.

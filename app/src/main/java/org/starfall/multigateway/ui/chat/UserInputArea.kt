@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -17,6 +18,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,12 +32,25 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
+import org.starfall.multigateway.data.model.ModelType
+import org.starfall.multigateway.data.model.ProviderType
+
+data class DirectMediaRequest(
+    val prompt: String,
+    val kind: ModelType,
+    val providerId: String,
+    val modelId: String
+)
 
 data class ChatInputEditDraft(
     val messageId: String,
@@ -45,6 +63,7 @@ data class ChatInputEditDraft(
 fun UserInputArea(
     isGenerating: Boolean,
     onSendMessage: (String, List<String>) -> Boolean,
+    onSendMedia: (DirectMediaRequest) -> Boolean,
     onEditMessage: (String, String, List<String>) -> Boolean,
     editDraft: ChatInputEditDraft?,
     onCancelEdit: () -> Unit,
@@ -66,11 +85,35 @@ fun UserInputArea(
 ) {
     var textState by remember { mutableStateOf("") }
     var attachments by remember { mutableStateOf<List<String>>(emptyList()) }
+    var mediaKind by rememberSaveable { mutableStateOf<ModelType?>(null) }
+    var mediaProviderId by rememberSaveable { mutableStateOf("") }
+    var mediaModelId by rememberSaveable { mutableStateOf("") }
+    val mediaProviders = providers.mapNotNull { provider ->
+        if (provider.type !in listOf(ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES, ProviderType.GOOGLE)) {
+            return@mapNotNull null
+        }
+        val models = provider.config.modelConfigs.filter { (id, config) ->
+            config.modelType == mediaKind && provider.config.modelIds?.contains(id) != false
+        }
+        if (models.isEmpty()) null else provider.copy(config = provider.config.copy(
+            modelIds = models.keys.toList(), modelConfigs = models
+        ))
+    }
+    val mediaProvider = mediaProviders.find { it.id == mediaProviderId }
+    val mediaModel = mediaProvider?.config?.modelConfigs?.get(mediaModelId)
+    val mediaLabel = if (mediaKind == ModelType.VIDEO_GENERATION) "Video" else "Image"
+    LaunchedEffect(mediaKind, mediaProviders) {
+        if (mediaKind != null && mediaModel == null) {
+            mediaProviderId = mediaProviders.firstOrNull()?.id.orEmpty()
+            mediaModelId = mediaProviders.firstOrNull()?.config?.modelIds?.firstOrNull().orEmpty()
+        }
+    }
     val context = LocalContext.current
 
 
     val focusManager = LocalFocusManager.current
     var showModelPicker by remember { mutableStateOf(false) }
+    var showMediaMenu by remember { mutableStateOf(false) }
     var showQuickActions by remember { mutableStateOf(false) }
     var showConversationSummary by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
@@ -93,6 +136,7 @@ fun UserInputArea(
 
     LaunchedEffect(editDraft?.revision) {
         editDraft?.let {
+            mediaKind = null
             textState = it.text
             attachments = it.attachments
         }
@@ -128,8 +172,15 @@ fun UserInputArea(
         attachments = (attachments + picked.map(Uri::toString)).distinct()
     }
 
-    val canSend = textState.isNotBlank() || attachments.isNotEmpty()
-    val showStop = isGenerating && textState.isEmpty() && attachments.isEmpty()
+    val canSend = if (mediaKind == null) textState.isNotBlank() || attachments.isNotEmpty()
+        else textState.isNotBlank() && textState.length <= 32000 && attachments.isEmpty() && mediaModel != null && !isGenerating
+    val showStop = isGenerating && (mediaKind != null || (textState.isEmpty() && attachments.isEmpty()))
+    val mediaHint = when {
+        attachments.isNotEmpty() -> "Remove attachments to generate"
+        textState.length > 32000 -> "Prompt exceeds 32,000 characters"
+        mediaModel == null -> "Choose a $mediaLabel model"
+        else -> "$mediaLabel · Direct to ${mediaModel.displayName.ifBlank { mediaModelId }}"
+    }
 
     Box(
         modifier = modifier
@@ -142,11 +193,14 @@ fun UserInputArea(
         Surface(
             modifier = Modifier
                 .widthIn(max = 720.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .testTag("chat-input"),
             shape = RoundedCornerShape(36.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 3.dp,
-            shadowElevation = 8.dp
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            border = BorderStroke(1.dp, if (mediaKind != null) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+            tonalElevation = 2.dp,
+            shadowElevation = 3.dp
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 if (editDraft != null) {
@@ -196,8 +250,8 @@ fun UserInputArea(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Attachments and tools",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(30.dp)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
 
@@ -206,23 +260,46 @@ fun UserInputArea(
                         onValueChange = { textState = it },
                         textStyle = MaterialTheme.typography.bodyLarge.copy(
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 18.sp
+                            fontSize = 17.sp,
+                            lineHeight = 22.sp
                         ),
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
+                            .padding(horizontal = 8.dp, vertical = if (mediaKind != null) 4.dp else 10.dp),
                         maxLines = 6,
                         decorationBox = { innerTextField ->
-                            Box(contentAlignment = Alignment.CenterStart) {
+                            Column {
+                                if (mediaKind != null) {
+                                    Text(
+                                        mediaHint,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
+                                        color = if (attachments.isNotEmpty() || textState.length > 32000)
+                                            MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.clickable {
+                                            if (mediaModel == null) showModelPicker = true
+                                            else Toast.makeText(context, mediaHint, Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                                Box(contentAlignment = Alignment.CenterStart) {
                                 if (textState.isEmpty()) {
                                     Text(
-                                        text = stringResource(R.string.chat_input_placeholder),
-                                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                                        text = when (mediaKind) {
+                                            ModelType.IMAGE_GENERATION -> "Describe an image…"
+                                            ModelType.VIDEO_GENERATION -> "Describe a video…"
+                                            else -> stringResource(R.string.chat_input_placeholder)
+                                        },
+                                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp, lineHeight = 22.sp),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
                                     )
                                 }
                                 innerTextField()
+                                }
                             }
                         }
                     )
@@ -232,10 +309,16 @@ fun UserInputArea(
                             .padding(end = 6.dp)
                             .size(44.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                            .clickable { showModelPicker = true },
+                            .background(if (mediaKind != null) MaterialTheme.colorScheme.primaryContainer
+                                else MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .semantics { contentDescription = if (mediaKind != null) "$mediaLabel mode options" else "Select model" }
+                            .clickable { if (mediaKind != null) showMediaMenu = true else showModelPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
+                        if (mediaKind != null) {
+                            Icon(if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image else Icons.Outlined.Videocam,
+                                contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        } else {
                         val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
                         val selectedConfig = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
                             ?: selectedProvider?.config?.modelConfigs?.values?.firstOrNull {
@@ -243,7 +326,21 @@ fun UserInputArea(
                             }
                         EntityIcon(selectedConfig?.icon, Modifier.fillMaxSize(),
                             text = modelInitial(selectedModelName),
-                            matchName = selectedConfig?.displayName?.ifBlank { selectedModelName } ?: selectedModelName, model = true)
+                             matchName = selectedConfig?.displayName?.ifBlank { selectedModelName } ?: selectedModelName, model = true)
+                        }
+                        DropdownMenu(expanded = showMediaMenu, onDismissRequest = { showMediaMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Change $mediaLabel model") },
+                                leadingIcon = { Icon(if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image
+                                    else Icons.Outlined.Videocam, null) },
+                                onClick = { showMediaMenu = false; showModelPicker = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Back to Chat") },
+                                leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
+                                onClick = { showMediaMenu = false; mediaKind = null }
+                            )
+                        }
                     }
 
                     Box(
@@ -253,7 +350,7 @@ fun UserInputArea(
                             .background(
                                 when {
                                     showStop -> MaterialTheme.colorScheme.errorContainer
-                                    canSend -> MaterialTheme.colorScheme.primaryContainer
+                                    canSend -> MaterialTheme.colorScheme.primary
                                     else -> MaterialTheme.colorScheme.surfaceContainerHighest
                                 }
                             )
@@ -265,6 +362,8 @@ fun UserInputArea(
                                     } else if (canSend) {
                                         val submitted = editDraft?.let { draft ->
                                             onEditMessage(draft.messageId, textState, attachments)
+                                        } ?: mediaKind?.let { kind ->
+                                            onSendMedia(DirectMediaRequest(textState, kind, mediaProviderId, mediaModelId))
                                         } ?: onSendMessage(textState, attachments)
                                         if (submitted) {
                                             focusManager.clearFocus(force = true)
@@ -274,7 +373,7 @@ fun UserInputArea(
                                         } else {
                                             Toast.makeText(
                                                 context,
-                                                "Unable to submit this edit. Wait for the current response and try again.",
+                                                "Unable to submit. Check the selected model or wait for the current response and try again.",
                                                 Toast.LENGTH_SHORT
                                             ).show()
                                         }
@@ -292,10 +391,14 @@ fun UserInputArea(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.ArrowUpward,
-                                contentDescription = "Send message",
+                                imageVector = when (mediaKind) {
+                                    ModelType.IMAGE_GENERATION -> Icons.Outlined.Image
+                                    ModelType.VIDEO_GENERATION -> Icons.Outlined.Videocam
+                                    else -> Icons.Default.ArrowUpward
+                                },
+                                contentDescription = if (mediaKind != null) "Generate $mediaLabel" else "Send message",
                                 tint = if (canSend) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                    MaterialTheme.colorScheme.onPrimary
                                 } else {
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
                                 },
@@ -326,6 +429,8 @@ fun UserInputArea(
                 )
             },
             onTakePhoto = { showFilesSheet = true },
+            onCreateImage = { onCancelEdit(); mediaKind = ModelType.IMAGE_GENERATION },
+            onCreateVideo = { onCancelEdit(); mediaKind = ModelType.VIDEO_GENERATION },
             onOpenConversationSummary = { showConversationSummary = true },
             onOpenTools = { showQuickActions = true },
             onDismiss = { showAddMenu = false }
@@ -334,18 +439,21 @@ fun UserInputArea(
 
     if (showModelPicker) {
         ModelPickerSheet(
-            providers = providers,
+            providers = if (mediaKind != null) mediaProviders else providers,
             providerGroups = providerGroups,
             collapsedGroupIdsState = modelPickerCollapsedGroups,
             collapsedProviderIdsState = modelPickerCollapsedProviders,
             onCollapsedGroupIdsChange = onModelPickerCollapsedGroupsChange,
             onCollapsedProviderIdsChange = onModelPickerCollapsedProvidersChange,
-            selectedProviderId = selectedProviderId,
-            selectedModelId = selectedModelName,
-            conversationReasoningEffort = conversationReasoningEffort,
-            onSelectModel = onSelectModel,
-            onSetReasoningEffort = onSetReasoningEffort,
-            dynamicModelsMap = dynamicModelsMap,
+            selectedProviderId = if (mediaKind != null) mediaProviderId else selectedProviderId,
+            selectedModelId = if (mediaKind != null) mediaModelId else selectedModelName,
+            conversationReasoningEffort = if (mediaKind != null) null else conversationReasoningEffort,
+            onSelectModel = { provider, model ->
+                if (mediaKind != null) { mediaProviderId = provider; mediaModelId = model }
+                else onSelectModel(provider, model)
+            },
+            onSetReasoningEffort = { if (mediaKind == null) onSetReasoningEffort(it) },
+            dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap,
             onDismiss = { showModelPicker = false }
         )
     }

@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.data.model.MessageVersion
 import org.starfall.multigateway.data.model.StoredMessage
 import org.starfall.multigateway.data.model.ToolActivity
+import org.starfall.multigateway.data.tools.ToolFiles
+import org.starfall.multigateway.ui.tools.MediaFileCard
 
 @Composable
 fun AssistantMessageCard(
@@ -66,6 +68,18 @@ fun AssistantMessageCard(
                 processingDurationMillis = processingDurationMillis.takeUnless { isStreaming },
                 animateStreamingContent = isStreaming
             )
+        }
+
+        val generatedFiles = activeVersion.toolActivity.flatMap { it.files }
+            .map { it.removePrefix("tool-file:") }.distinct()
+        if (generatedFiles.isNotEmpty()) {
+            val store = remember(context) { ToolFiles(context) }
+            Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                generatedFiles.forEach { name -> key(name) { MediaFileCard(store, name) } }
+            }
+        }
+        if (activeVersion.files.isNotEmpty()) {
+            AttachmentStrip(activeVersion.files, removable = false, modifier = Modifier.padding(top = 8.dp))
         }
 
         if (isStreaming) {

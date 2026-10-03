@@ -6,7 +6,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -21,6 +20,8 @@ import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.UnfoldLess
+import androidx.compose.material.icons.outlined.UnfoldMore
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.*
@@ -35,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.LlmProviderInfo
+import org.starfall.multigateway.data.model.DEFAULT_CONTEXT_WINDOW_TOKENS
 import org.starfall.multigateway.data.model.ModelConfiguration
 import org.starfall.multigateway.data.model.ModelType
 import org.starfall.multigateway.data.model.ProviderGroup
@@ -81,7 +83,8 @@ fun computeModelPickerItems(
     query: String = "",
     providerFilterId: String? = null,
     collapsedGroupIds: Set<String> = emptySet(),
-    collapsedProviderIds: Set<String> = emptySet()
+    collapsedProviderIds: Set<String> = emptySet(),
+    expandSearchResults: Boolean = true
 ): List<ModelPickerItem> {
     data class ProviderNode(val provider: LlmProviderInfo, val models: List<String>)
 
@@ -117,7 +120,7 @@ fun computeModelPickerItems(
             }
     }
 
-    val forceExpanded = normalizedQuery.isNotBlank() || providerFilterId != null
+    val forceExpanded = (normalizedQuery.isNotBlank() && expandSearchResults) || providerFilterId != null
     fun modelItems(node: ProviderNode, depth: Int): List<ModelPickerItem> =
         node.models.map { modelId ->
             val config = node.provider.config.modelConfigs[modelId] ?: ModelConfiguration()
@@ -176,7 +179,8 @@ fun ModelPickerSheet(
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    var providerFilterId by remember { mutableStateOf<String?>(null) }
+    var expandSearchResults by remember(query) { mutableStateOf(true) }
+    val forceExpanded = query.isNotBlank() && expandSearchResults
     var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
     var collapsedProviderIds by remember { mutableStateOf(collapsedProviderIdsState) }
     LaunchedEffect(collapsedGroupIdsState) {
@@ -201,7 +205,7 @@ fun ModelPickerSheet(
         selectedProviderId,
         selectedModelId,
         query,
-        providerFilterId,
+        expandSearchResults,
         collapsedGroupIds,
         collapsedProviderIds
     ) {
@@ -212,7 +216,7 @@ fun ModelPickerSheet(
             selectedProviderId = selectedProviderId,
             selectedModelId = selectedModelId,
             query = query,
-            providerFilterId = providerFilterId,
+            expandSearchResults = expandSearchResults,
             collapsedGroupIds = collapsedGroupIds,
             collapsedProviderIds = collapsedProviderIds
         )
@@ -227,9 +231,12 @@ fun ModelPickerSheet(
         LazyListState(firstVisibleItemIndex = targetIndex)
     }
 
-    LaunchedEffect(query, providerFilterId) {
-        if (query.isNotBlank() || providerFilterId != null) listState.scrollToItem(0)
+    LaunchedEffect(query) {
+        if (query.isNotBlank()) listState.scrollToItem(0)
     }
+    val allCollapsed = !forceExpanded &&
+        providerGroups.all { it.id in collapsedGroupIds } &&
+        providers.all { it.id in collapsedProviderIds }
 
     AppBottomSheet(
         onDismissRequest = onDismiss,
@@ -242,17 +249,42 @@ fun ModelPickerSheet(
                 .fillMaxHeight()
                 .imePadding()
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text(stringResource(R.string.search_models_placeholder)) },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalIconButton(
+                    enabled = providers.isNotEmpty() || providerGroups.isNotEmpty(),
+                    onClick = {
+                        expandSearchResults = false
+                        if (allCollapsed) {
+                            setCollapsedGroups(emptySet())
+                            setCollapsedProviders(emptySet())
+                        } else {
+                            setCollapsedGroups(providerGroups.map { it.id }.toSet())
+                            setCollapsedProviders(providers.map { it.id }.toSet())
+                        }
+                    },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        if (allCollapsed) Icons.Outlined.UnfoldMore else Icons.Outlined.UnfoldLess,
+                        contentDescription = stringResource(
+                            if (allCollapsed) R.string.expand_all_model_sections else R.string.collapse_all_model_sections
+                        )
+                    )
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    placeholder = { Text(stringResource(R.string.search_models_placeholder)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.weight(1f)
+                )
+            }
 
             LazyColumn(
                 state = listState,
@@ -289,14 +321,15 @@ fun ModelPickerSheet(
                         when (item) {
                             is ModelPickerItem.Group -> {
                                 val collapsed = item.group.id in collapsedGroupIds &&
-                                    query.isBlank() && providerFilterId == null
+                                    !forceExpanded
                                 ModelPickerGroupRow(
                                     group = item.group,
                                     providerCount = item.providerCount,
                                     collapsed = collapsed,
                                     onToggle = {
+                                        expandSearchResults = false
                                         setCollapsedGroups(
-                                            if (item.group.id in collapsedGroupIds) collapsedGroupIds - item.group.id
+                                            if (collapsed) collapsedGroupIds - item.group.id
                                             else collapsedGroupIds + item.group.id
                                         )
                                     }
@@ -305,7 +338,7 @@ fun ModelPickerSheet(
 
                             is ModelPickerItem.Provider -> {
                                 val collapsed = item.provider.id in collapsedProviderIds &&
-                                    query.isBlank() && providerFilterId == null
+                                    !forceExpanded
                                 ModelPickerProviderRow(
                                     provider = item.provider,
                                     modelCount = item.modelCount,
@@ -313,8 +346,9 @@ fun ModelPickerSheet(
                                     collapsed = collapsed,
                                     selected = item.provider.id == selectedProviderId,
                                     onToggle = {
+                                        expandSearchResults = false
                                         setCollapsedProviders(
-                                            if (item.provider.id in collapsedProviderIds) collapsedProviderIds - item.provider.id
+                                            if (collapsed) collapsedProviderIds - item.provider.id
                                             else collapsedProviderIds + item.provider.id
                                         )
                                     }
@@ -338,43 +372,6 @@ fun ModelPickerSheet(
                             }
                         }
                     }
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 10.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item(key = "all-providers") {
-                    FilterChip(
-                        selected = providerFilterId == null,
-                        onClick = { providerFilterId = null },
-                        label = { Text(stringResource(R.string.common_all)) }
-                    )
-                }
-                items(providers, key = { it.id }) { provider ->
-                    FilterChip(
-                        selected = providerFilterId == provider.id,
-                        onClick = { providerFilterId = provider.id },
-                        leadingIcon = {
-                            ProviderMark(
-                                provider = provider,
-                                modelId = provider.config.modelIds?.firstOrNull().orEmpty(),
-                                compact = true
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = provider.name,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    )
                 }
             }
         }
@@ -645,6 +642,10 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        if (config.modelType == ModelType.TEXT_GENERATION) {
+            ModelBadge(label = stringResource(R.string.context_window_badge,
+                java.text.NumberFormat.getIntegerInstance().format(config.contextWindowTokens.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS)))
+        }
         ModelBadge(
             label = when (config.modelType) {
                 ModelType.TEXT_GENERATION -> "Chat"
@@ -719,7 +720,7 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
 private fun ModelBadge(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    colors: ChipColors
+    colors: ChipColors = AssistChipDefaults.assistChipColors()
 ) {
     AssistChip(
         onClick = {},

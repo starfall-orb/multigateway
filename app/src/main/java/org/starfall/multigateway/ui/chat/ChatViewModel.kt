@@ -66,11 +66,6 @@ class ChatViewModel(
     val summaryProgress: StateFlow<ConversationSummaryProgress?> = _summaryProgress.asStateFlow()
     private var summaryJob: Job? = null
 
-    private data class EffectiveContext(
-        val messages: List<StoredMessage>,
-        val systemPrompt: String
-    )
-
     private fun providerWithReasoning(
         provider: LlmProviderInfo,
         modelId: String,
@@ -85,39 +80,6 @@ class ChatViewModel(
                     (modelId to config.withConversationReasoning(effort))
             )
         )
-    }
-
-    private fun effectiveContext(
-        conversation: Conversation,
-        source: List<StoredMessage>,
-        baseSystemPrompt: String
-    ): EffectiveContext {
-        val summary = conversation.summary ?: return EffectiveContext(source, baseSystemPrompt)
-        val cutoff = source.indexOfFirst { it.id == summary.throughMessageId }
-        if (cutoff < 0) return EffectiveContext(source, baseSystemPrompt)
-        val after = source.drop(cutoff + 1)
-        return when (summary.role) {
-            SummaryRole.SYSTEM -> EffectiveContext(
-                after,
-                listOf(baseSystemPrompt, "Conversation summary:\n${summary.content}")
-                    .filter { it.isNotBlank() }
-                    .joinToString("\n\n")
-            )
-            SummaryRole.ASSISTANT, SummaryRole.USER -> {
-                val role = if (summary.role == SummaryRole.ASSISTANT) ChatRole.MODEL else ChatRole.USER
-                val synthetic = StoredMessage(
-                    id = "summary_${summary.id}",
-                    role = role,
-                    versions = listOf(
-                        MessageVersion(
-                            content = summary.content,
-                            timestamp = summary.createdAt.toString()
-                        )
-                    )
-                )
-                EffectiveContext(listOf(synthetic) + after, baseSystemPrompt)
-            }
-        }
     }
 
     private fun summaryAfterMessageMutation(
@@ -146,19 +108,60 @@ class ChatViewModel(
     }
     val isGenerating = generation.busy
 
+    val contextWindowStatus = combine(_currentConversation, appPreferences, providers) { conversation, prefs, available ->
+        val config = available.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId)
+        if (conversation == null || config == null || config.modelType != ModelType.TEXT_GENERATION) null
+        else contextWindowStatus(conversation, prefs.defaultSystemPrompt, config)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    private var lastAutomaticSummaryAttempt: String? = null
+
+    private fun summaryTextModel(): Pair<LlmProviderInfo, SystemToolConfig>? {
+        configuredTextModel("chat_summary")?.let { return it }
+        val prefs = appPreferences.value
+        val provider = providers.value.find { it.id == prefs.selectedProviderId } ?: return null
+        val model = provider.config.modelConfigs[prefs.selectedModelId] ?: return null
+        if (model.modelType != ModelType.TEXT_GENERATION) return null
+        return provider to SystemToolConfig(providerId = provider.id, modelId = prefs.selectedModelId)
+    }
+
+    private fun maybeStartAutomaticSummary(incoming: StoredMessage? = null): Boolean {
+        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
+        val current = _currentConversation.value ?: return false
+        val prefs = appPreferences.value
+        val model = providers.value.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId) ?: return false
+        val status = contextWindowStatus(current, prefs.defaultSystemPrompt, model)
+        val projected = status.copy(estimatedTokens = status.estimatedTokens + (incoming?.let { estimateMessageTokens(it, false) } ?: 0))
+        if (model.modelType != ModelType.TEXT_GENERATION || !projected.shouldAutoSummarize) return false
+        val boundary = current.messages.lastOrNull()?.id ?: return false
+        if (current.summary?.throughMessageId == boundary) return false
+        val attempt = "${current.id}/$boundary/${current.summary?.id}/${prefs.selectedProviderId}/${prefs.selectedModelId}"
+        if (lastAutomaticSummaryAttempt == attempt) return false
+        val helper = summaryTextModel() ?: return false
+        val helperWindow = helper.first.config.modelConfigs[helper.second.modelId]?.contextWindowTokens?.coerceAtLeast(1) ?: DEFAULT_CONTEXT_WINDOW_TOKENS
+        lastAutomaticSummaryAttempt = attempt
+        return startConversationSummary(ConversationSummaryRequest(
+            targetTokens = minOf(1200, (helperWindow / 8).coerceAtLeast(1)),
+            chunked = true,
+            tokensPerChunk = minOf(20_000, (helperWindow * 0.6).toInt().coerceAtLeast(1))
+        ))
+    }
+
     private val _queuedMessages = MutableStateFlow<List<StoredMessage>>(emptyList())
     val queuedMessages: StateFlow<List<StoredMessage>> = _queuedMessages.asStateFlow()
 
     init {
+        viewModelScope.launch { contextWindowStatus.collect { maybeStartAutomaticSummary() } }
         viewModelScope.launch {
             isGenerating.collect { busy ->
-                if (!busy) drainQueuedMessages()
+                if (!busy && !maybeStartAutomaticSummary()) drainQueuedMessages()
             }
         }
     }
 
     private fun drainQueuedMessages() {
         if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return
+        if (maybeStartAutomaticSummary()) return
         val next = _queuedMessages.value.firstOrNull() ?: return
         _queuedMessages.value = _queuedMessages.value.drop(1)
         sendMessage(next.content, next.files)
@@ -369,32 +372,16 @@ class ChatViewModel(
     }
 
     private fun estimateTokens(message: StoredMessage): Int =
-        ((message.content.length + message.reasoningContent.orEmpty().length) / 4).coerceAtLeast(1)
+        estimateMessageTokens(message, includeReasoning = true).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
-    private fun chunkMessages(messages: List<StoredMessage>, tokenLimit: Int): List<List<StoredMessage>> {
-        if (messages.isEmpty()) return emptyList()
-        val chunks = mutableListOf<MutableList<StoredMessage>>()
-        var current = mutableListOf<StoredMessage>()
-        var tokens = 0
-        messages.forEach { message ->
-            val cost = estimateTokens(message)
-            if (current.isNotEmpty() && tokens + cost > tokenLimit) {
-                chunks += current
-                current = mutableListOf()
-                tokens = 0
-            }
-            current += message
-            tokens += cost
-        }
-        if (current.isNotEmpty()) chunks += current
-        return chunks
-    }
+    private fun chunkMessages(messages: List<StoredMessage>, tokenLimit: Int): List<List<StoredMessage>> =
+        chunkSummaryMessages(messages, tokenLimit)
 
     fun startConversationSummary(request: ConversationSummaryRequest): Boolean {
         if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
         val conversation = _currentConversation.value ?: return false
         if (conversation.messages.isEmpty()) return false
-        val configured = configuredTextModel("chat_summary") ?: return false
+        val configured = summaryTextModel() ?: return false
         val (provider, config) = configured
         val targetTokens = request.targetTokens.coerceAtLeast(1)
         val cutoff = conversation.messages.last().id
@@ -444,7 +431,22 @@ class ChatViewModel(
                     _summaryProgress.value = ConversationSummaryProgress(
                         conversation.id, cutoff, "Merging summaries…", 0.9f
                     )
-                    val mergeMessages = partials.mapIndexed { index, part ->
+                    val helperWindow = provider.config.modelConfigs[modelId]?.contextWindowTokens?.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS
+                    val mergeBudget = (helperWindow * 0.6).toInt().coerceAtLeast(16)
+                    var merging = partials.toList()
+                    while (merging.sumOf { estimateTextTokens(it) + 4 } > mergeBudget && merging.size > 1) {
+                        val batches = chunkMessages(merging.mapIndexed { index, part ->
+                            StoredMessage("merge_$index", ChatRole.USER, listOf(MessageVersion(content = part)))
+                        }, mergeBudget)
+                        val reduced = batches.map { batch ->
+                            toolChat.completeText(provider, modelId, batch, basePrompt, maxOutputTokens = targetTokens).trim()
+                        }
+                        check(reduced.sumOf { estimateTextTokens(it) } < merging.sumOf { estimateTextTokens(it) }) {
+                            "Summary could not be compressed to fit the summary model's context window"
+                        }
+                        merging = reduced
+                    }
+                    val mergeMessages = merging.mapIndexed { index, part ->
                         StoredMessage(
                             id = "summary_part_$index",
                             role = ChatRole.USER,
@@ -460,6 +462,7 @@ class ChatViewModel(
                     )
                 }.trim()
 
+                check(text.isNotBlank()) { "Summary returned no content" }
                 if (text.isNotBlank()) {
                     val latest = conversationRepo.getById(conversation.id)
                         ?: _currentConversation.value?.takeIf { it.id == conversation.id }
@@ -560,6 +563,13 @@ class ChatViewModel(
             return true
         }
 
+        val incoming = StoredMessage(UUID.randomUUID().toString(), ChatRole.USER,
+            listOf(MessageVersion(content = userText, files = fileAttachments, timestamp = System.currentTimeMillis().toString())),
+            isQueued = true)
+        if (maybeStartAutomaticSummary(incoming)) {
+            _queuedMessages.value = _queuedMessages.value + incoming
+            return true
+        }
         val prefs = appPreferences.value
         val baseProvider = providers.value.find { it.id == prefs.selectedProviderId }
         val modelId = prefs.selectedModelId
@@ -625,6 +635,33 @@ class ChatViewModel(
             )
         }
         return started
+    }
+
+    fun sendMedia(request: DirectMediaRequest): Boolean {
+        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0 ||
+            request.prompt.isBlank() || request.prompt.length > 32000) return false
+        if (request.kind !in listOf(ModelType.IMAGE_GENERATION, ModelType.VIDEO_GENERATION)) return false
+        val provider = providers.value.find { it.id == request.providerId } ?: return false
+        if (provider.config.modelConfigs[request.modelId]?.modelType != request.kind ||
+            provider.config.modelIds?.contains(request.modelId) == false) return false
+        val now = System.currentTimeMillis()
+        val user = StoredMessage(UUID.randomUUID().toString(), ChatRole.USER,
+            listOf(MessageVersion(content = request.prompt, timestamp = now.toString())))
+        val assistant = StoredMessage(UUID.randomUUID().toString(), ChatRole.MODEL,
+            listOf(MessageVersion(timestamp = now.toString())))
+        val existing = _currentConversation.value
+        val conversation = (existing ?: Conversation(
+            id = UUID.randomUUID().toString(), title = request.prompt.take(30),
+            createdAt = now, updatedAt = now
+        )).copy(messages = existing?.messages.orEmpty() + user + assistant, updatedAt = now)
+        val name = if (request.kind == ModelType.IMAGE_GENERATION) "generate_image" else "generate_video"
+        val config = toolSettings.value.system[name]?.takeIf {
+            it.providerId == provider.id && it.modelId == request.modelId
+        }
+        _currentConversation.value = conversation
+        return generation.startEvents(conversation, assistant.id,
+            toolChat.generateMedia(provider, request.modelId, request.kind, request.prompt,
+                config?.imageOptions ?: obj()))
     }
 
     fun stopGeneration() { generation.stop() }

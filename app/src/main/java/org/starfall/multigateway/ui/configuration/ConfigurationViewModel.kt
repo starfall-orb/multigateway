@@ -23,6 +23,27 @@ class ConfigurationViewModel(
     val providerGroups = llmRepo.allGroups
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    private val _importedProviderId = MutableStateFlow<String?>(null)
+    val importedProviderId = _importedProviderId.asStateFlow()
+    private val _providerImportError = MutableStateFlow<String?>(null)
+    val providerImportError = _providerImportError.asStateFlow()
+
+    fun importProvider(provider: LlmProviderInfo) {
+        viewModelScope.launch {
+            try {
+                llmRepo.saveProvider(provider)
+                _importedProviderId.value = provider.id
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                _providerImportError.value = "Could not save the imported provider. Please try again."
+            }
+        }
+    }
+
+    fun providerImportOpened(id: String) { _importedProviderId.compareAndSet(id, null) }
+    fun clearProviderImportError() { _providerImportError.value = null }
+
     private val _mcpToolsCache = MutableStateFlow<Map<String, List<ToolDefinition>>>(emptyMap())
     val mcpToolsCache: StateFlow<Map<String, List<ToolDefinition>>> = _mcpToolsCache.asStateFlow()
 
@@ -156,8 +177,8 @@ class ConfigurationViewModel(
         return llmRepo.testModel(provider, modelId)
     }
 
-    suspend fun fetchProviderModels(provider: LlmProviderInfo): List<String> =
-        llmRepo.fetchProviderModels(provider)
+    suspend fun fetchProviderModels(provider: LlmProviderInfo): List<DiscoveredModel> =
+        llmRepo.fetchProviderModelCatalog(provider)
 
     suspend fun fetchOllamaModels(baseUrl: String): List<String> {
         return llmRepo.fetchOllamaModels(baseUrl)

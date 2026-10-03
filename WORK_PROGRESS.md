@@ -166,3 +166,76 @@ Track and complete the unfinished work currently present in the local working tr
 - [x] Bump app version to `1.0.5` / versionCode `15`
 
 - 2026-10-03: Increased app version after Provider Group and bottom-sheet fixes.
+
+### Bottom sheet content safe-area correction
+
+- [x] Keep sheet surface edge-to-edge behind the navigation bar
+- [x] Restore navigation-bar bottom inset for sheet content only
+- [x] Re-run compile/tests/lint/build
+
+- 2026-10-03: Restored `WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)` as `contentWindowInsets` in shared AppBottomSheet so controls stay above the navbar while the sheet background still reaches the window bottom.
+
+### Provider editor cleanup
+
+- [x] Allow saving Provider with an empty Base URL
+- [x] Keep URL validation only when Base URL is non-empty
+- [x] Remove Custom Headers description text
+- [x] Fix new Provider IDs to use a unique UUID instead of a literal interpolated string
+- [x] Move expanded Provider Group overflow menu to the right and reduce header height
+- [ ] Run validation and reinstall on ADB
+
+- 2026-10-03: Found the one-provider bug in the device DB: every new Provider used the literal primary key `custom_${System.currentTimeMillis()}`. Replaced it with a UUID-based ID and added regression coverage.
+
+### Provider Group icon interaction
+
+- [x] Tapping the group icon while a group is expanded collapses that group
+
+- 2026-10-03: Wired the expanded group icon tile to the same collapse action as the group header.
+
+### Bottom sheet anchor and content safe area
+
+- [x] Keep Material3 surface constraints at the full dialog height
+- [x] Limit content height below the status bar, including the measured drag handle and IME inset
+- [x] Apply consumed safe-area padding to content only; keep the surface behind the navbar
+- [x] Verify short/expanded sheets and IME insets with three device instrumentation tests
+- [x] Verify the actual navbar pixels match the sheet color
+- [x] Verify Model Picker with Gboard manually on the connected Android 11 device
+- [x] Build debug APK/test APK, lint (0 errors), and check the diff
+
+- 2026-10-03: The surface-level `heightIn` reduced the constraints Material3 uses for its bottom anchor, leaving a 60px scrim-colored band at the bottom and placing a tall sheet behind the status bar. Moved the height cap into the content and removed manual navigation-bar padding in favor of consumed safeDrawing insets. The installed debug build now fills the area behind the 3-button navbar while controls remain above it.
+
+### Provider folder drag and drop
+
+- [x] Drag a provider outside its expanded folder to clear folder membership
+- [x] Drop on an open/closed folder to add membership without moving the folder during the drag
+- [x] Transfer between folders and preserve provider reordering on drop
+- [x] Draw the dragged provider above folder surfaces so it remains visible outside the folder
+- [x] Fix interpolated root item keys for multiple providers/folders
+- [x] Verify 11 gesture cases on Android 11 in list/grid layouts, 4 ProviderGroup unit tests, debug/test APK builds, lint (0 errors), and diff checks
+- [x] Install the debug build on the connected device
+
+- 2026-10-03: Provider drags now resolve folder membership before reordering when released. Moving outside all folders clears membership; cancellation makes no changes. The device low-memory killer interrupted the first instrumentation batch after six passing cases; the five remaining cases passed in a separate batch.
+
+### Unified General Settings
+
+- [x] Merge Menu and Settings into General Settings with Configuration and System Settings sections
+- [x] Move Software Update into About with an explicit check-for-updates action
+- [x] Share rounded cards, section headings, icon tiles, spacing and colors across settings pages and Default Models
+- [x] Replace chat toolbar icons with a left menu and right settings gear; remove the duplicate sidebar Menu entry
+- [x] Preserve General Settings in the back stack when opening Configuration pages; redirect old saved Menu routes
+- [x] Build debug/test APKs, pass four GeneralSettings device tests, check the diff, and install the debug APK
+
+- 2026-10-03: The four device tests cover all Configuration callbacks, About/update placement and back navigation, a single preference-toggle callback, and both chat toolbar actions. Existing provider dragging and bottom-sheet safe-area changes are preserved.
+
+### Model picker collapse/expand all
+
+- [x] Remove the provider filter bar from the model picker bottom sheet
+- [x] Add a 48dp collapse/expand-all button to the left of model search
+- [x] Persist collapse state for every folder and provider, including nested providers
+- [x] Let manual collapse override automatic expansion of search results
+- [x] Verify four ProviderGroup unit tests and a device test covering nested/root providers, both toggle directions, persistence callbacks and active search
+- [x] Build debug/test APKs, check the diff and install the latest debug APK on the connected phone
+
+- 2026-10-03: The global button collapses all sections when any section is open, then expands all on the next tap. Search still opens matching sections automatically when its query changes, while the global and individual toggles remain effective during search.
+
+- 2026-10-03: Renamed the System Settings entry Data & Storage to App Data, with a description of conversation history/application reset. Configuration retains the single Storage entry for generated tool files. Removed the unsupported backup claim from the description.

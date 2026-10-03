@@ -10,19 +10,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.Conversation
 
 @Composable
 fun ChatAppBar(
     currentSession: Conversation?,
     onOpenDrawer: () -> Unit,
-    onOpenEndDrawer: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -44,7 +42,7 @@ fun ChatAppBar(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    painter = painterResource(R.drawable.ic_side_navigation),
+                    imageVector = Icons.Default.Menu,
                     contentDescription = "Open side navigation",
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(24.dp)
@@ -76,7 +74,7 @@ fun ChatAppBar(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .size(48.dp)
-                .clickable(onClick = onOpenEndDrawer),
+                .clickable(onClick = onOpenSettings),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
             shadowElevation = 4.dp,
@@ -84,8 +82,8 @@ fun ChatAppBar(
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "Open menu",
+                    imageVector = Icons.Outlined.Settings,
+                    contentDescription = "General Settings",
                     tint = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.size(22.dp)
                 )

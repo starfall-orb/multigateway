@@ -16,6 +16,7 @@ import org.starfall.multigateway.data.repository.LlmRepository
 import org.starfall.multigateway.data.service.LlmService
 import org.starfall.multigateway.ui.chat.ModelPickerItem
 import org.starfall.multigateway.ui.chat.computeModelPickerItems
+import org.starfall.multigateway.ui.providers.newProviderId
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
@@ -167,6 +168,45 @@ class ProviderGroupTest {
             repo.moveProviderToGroup("root", null)
             assertNull(repo.getProviderById("root")?.groupId)
             assertTrue((repo.getProviderById("root")?.sortOrder ?: -1) > repo.allGroups.first().maxOf { it.sortOrder })
+        } finally {
+            db.close()
+        }
+    }
+
+
+    @Test
+    fun creatingMultipleProvidersUsesDistinctPersistentIds() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            val firstId = newProviderId()
+            val secondId = newProviderId()
+            assertNotEquals(firstId, secondId)
+            assertTrue(firstId.startsWith("custom_"))
+            assertTrue(secondId.startsWith("custom_"))
+
+            repo.saveProvider(
+                LlmProviderInfo(
+                    id = firstId,
+                    name = "First",
+                    type = ProviderType.OPENAI,
+                    baseUrl = "https://first.example/v1"
+                )
+            )
+            repo.saveProvider(
+                LlmProviderInfo(
+                    id = secondId,
+                    name = "Second",
+                    type = ProviderType.OPENAI,
+                    baseUrl = "https://second.example/v1"
+                )
+            )
+
+            assertEquals(
+                setOf(firstId, secondId),
+                repo.allProviders.first().map { it.id }.toSet()
+            )
         } finally {
             db.close()
         }

@@ -9,6 +9,31 @@ import java.util.UUID
 
 /** Native structured tool calls, bounded rounds, no executable text extracted from answers. */
 class ToolChat(private val http: ToolHttp, private val mcp: McpService, private val llm: LlmService) {
+    fun generateMedia(
+        provider: LlmProviderInfo,
+        model: String,
+        kind: ModelType,
+        prompt: String,
+        imageOptions: JsonObject = obj()
+    ): Flow<GenerationEvent> = flow {
+        require(kind == ModelType.IMAGE_GENERATION || kind == ModelType.VIDEO_GENERATION)
+        val name = if (kind == ModelType.IMAGE_GENERATION) "generate_image" else "generate_video"
+        val activity = ToolActivity(UUID.randomUUID().toString(), name,
+            arguments = obj("prompt" to str(prompt)).toString())
+        emit(GenerationEvent.Tool(activity))
+        try {
+            val result = SystemMediaTools(http).generate(name, provider, model, prompt, imageOptions)
+            val summary = summarizeToolResult(result, http.requireFiles())
+            emit(GenerationEvent.Tool(activity.copy(status = "success", summary = summary.preview,
+                files = summary.files, response = summary.content.toString())))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emit(GenerationEvent.Tool(activity.copy(status = "error", summary = e.message.orEmpty())))
+            throw e
+        }
+    }
+
     suspend fun completeText(
         provider: LlmProviderInfo,
         model: String,

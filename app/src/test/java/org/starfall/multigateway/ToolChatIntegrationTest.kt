@@ -21,6 +21,39 @@ import java.nio.file.Files
 class ToolChatIntegrationTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    @Test fun directImageGenerationSendsOriginalPromptWithoutCallingTextModel() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val root = Files.createTempDirectory("direct-image-test").toFile()
+        val bytes = ByteArray(100) { 42 }.also { it[0] = 0x89.toByte(); it[1] = 0x50 }
+        val b64 = java.util.Base64.getEncoder().encodeToString(bytes)
+        server.enqueue(MockResponse().addHeader("Content-Type", "application/json")
+            .setBody("{\"data\":[{\"b64_json\":\"$b64\"}]}"))
+        try {
+            val provider = LlmProviderInfo("p", "local", ProviderType.OPENAI,
+                baseUrl = server.url("/v1").toString())
+            val http = ToolHttp(ToolFiles(root))
+            val engine = ToolChat(http, McpService(http), LlmService(context))
+            val prompt = "A watercolor landscape with a blue lake"
+            val events = engine.generateMedia(provider, "image-model", ModelType.IMAGE_GENERATION,
+                prompt, buildJsonObject { put("quality", "high") }).toList()
+            assertEquals(1, server.requestCount)
+            val request = server.takeRequest()
+            assertEquals("/v1/images/generations", request.path)
+            val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+            assertEquals(prompt, body["prompt"]!!.jsonPrimitive.content)
+            assertEquals("image-model", body["model"]!!.jsonPrimitive.content)
+            assertEquals("high", body["quality"]!!.jsonPrimitive.content)
+            assertTrue(events.filterIsInstance<GenerationEvent.Text>().isEmpty())
+            val result = events.filterIsInstance<GenerationEvent.Tool>().last().activity
+            assertEquals("success", result.status)
+            assertTrue(result.files.isNotEmpty())
+        } finally {
+            server.shutdown()
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun modelCallsImageToolAndResumesWithStreamedAnswerWithoutBase64InChat() = runBlocking {
         val server=MockWebServer();server.start()
         val root=Files.createTempDirectory("tool-chat-test").toFile()

@@ -4,10 +4,11 @@ MultiGateway is a native Android application written in Kotlin with Jetpack Comp
 
 ## Development
 
-Use JDK 17 and Android SDK 34. Open the repository root in Android Studio and sync
-Gradle, or use the included Android dev container. The Gradle wrapper is the entry
-point for all builds; no separate language SDK or package manager is required.
-Configure `sdk.dir` in your untracked `local.properties` or set `ANDROID_HOME`.
+Use JDK 17 and Android SDK 36. Open the repository root in Android Studio and sync
+Gradle, or use another Android development environment with API 36 and build-tools
+36.0.0 installed. The Gradle wrapper is the entry point for all builds; no separate
+language SDK or package manager is required. Configure `sdk.dir` in your untracked
+`local.properties` or set `ANDROID_HOME`.
 
 ```bash
 ./gradlew :app:assembleDebug

@@ -785,69 +785,71 @@ fun UpdateSettingsView() {
                             }
                         }
 
-                        // APK Downloads List
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Download APK Variants",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
-                        )
+                        if (updateAvailable) {
+                            // APK Downloads List
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Download APK Variants",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                            )
 
-                        if (release.apkAssets.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                release.apkAssets.forEach { apkAsset ->
-                                    val formattedSize = formatFileSize(apkAsset.sizeBytes)
-                                    OutlinedButton(
-                                        onClick = {
-                                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkAsset.downloadUrl)))
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                            if (release.apkAssets.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    release.apkAssets.forEach { apkAsset ->
+                                        val formattedSize = formatFileSize(apkAsset.sizeBytes)
+                                        OutlinedButton(
+                                            onClick = {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkAsset.downloadUrl)))
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.weight(1f)
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Icon(
-                                                    imageVector = Icons.Outlined.FileDownload,
-                                                    contentDescription = "Download APK",
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = apkAsset.name,
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                                                    maxLines = 1,
-                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            if (formattedSize.isNotBlank()) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = formattedSize,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.outline
-                                                )
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.FileDownload,
+                                                        contentDescription = "Download APK",
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = apkAsset.name,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                                        maxLines = 1,
+                                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                if (formattedSize.isNotBlank()) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = formattedSize,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.outline
+                                                    )
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                        } else {
-                            Button(
-                                onClick = {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Open GitHub Release Page")
+                            } else {
+                                Button(
+                                    onClick = {
+                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(release.pageUrl)))
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(Icons.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Open GitHub Release Page")
+                                }
                             }
                         }
                     }

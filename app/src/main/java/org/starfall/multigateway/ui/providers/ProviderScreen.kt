@@ -44,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.UUID
@@ -78,6 +79,8 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
 private const val UNGROUPED_SECTION = "__ungrouped__"
+private val ProviderListCardHeight = 88.dp
+private val ProviderGridCardHeight = 152.dp
 
 private sealed interface ProviderRootItem {
     val id: String
@@ -154,7 +157,6 @@ fun ProviderScreen(
     var movingProvider by remember { mutableStateOf<LlmProviderInfo?>(null) }
     var creatingGroup by remember { mutableStateOf(false) }
     val groupCardBounds = remember { mutableStateMapOf<String, Rect>() }
-    val groupChildrenBounds = remember { mutableStateMapOf<String, Rect>() }
 
     val sortedGroups = remember(providerGroups) {
         providerGroups.sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
@@ -189,10 +191,7 @@ fun ProviderScreen(
 
     fun dropGroupAt(point: Offset, sourceGroupId: String?): String? =
         providerGroups.firstOrNull { group ->
-            group.id != sourceGroupId && (
-                groupCardBounds[group.id]?.containsPoint(point) == true ||
-                    groupChildrenBounds[group.id]?.containsPoint(point) == true
-                )
+            group.id != sourceGroupId && groupCardBounds[group.id]?.containsPoint(point) == true
         }?.id
 
     LaunchedEffect(collapsedSectionsState) {
@@ -202,7 +201,6 @@ fun ProviderScreen(
         val cleaned = collapsedSections.filterTo(linkedSetOf()) { it in validGroupIds }
         if (cleaned != collapsedSections) setCollapsedSections(cleaned)
         groupCardBounds.keys.toList().filterNot { it in validGroupIds }.forEach(groupCardBounds::remove)
-        groupChildrenBounds.keys.toList().filterNot { it in validGroupIds }.forEach(groupChildrenBounds::remove)
     }
 
     SlideScreenContent(
@@ -319,20 +317,23 @@ fun ProviderScreen(
                                     is ProviderRootItem.GroupItem -> {
                                         val group = rootItem.group
                                         val groupProviders = orderedProviders.filter { it.groupId == group.id }
-                                        item(key = "group_\${group.id}") {
-                                            ProviderGroupCard(
-                                                group = group,
-                                                count = groupProviders.size,
-                                                isGrid = isGridView,
-                                                collapsed = group.id in collapsedSections,
-                                                modifier = Modifier
-                                                    .animateItem(
+                                        val expanded = group.id !in collapsedSections
+                                        item(
+                                            key = "group_\${group.id}",
+                                            span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
+                                        ) {
+                                            if (expanded) {
+                                                ProviderGroupExpandedContainer(
+                                                    group = group,
+                                                    providers = groupProviders,
+                                                    isGrid = isGridView,
+                                                    modifier = Modifier.animateItem(
                                                         placementSpec = spring(
                                                             dampingRatio = Spring.DampingRatioNoBouncy,
                                                             stiffness = Spring.StiffnessMediumLow
                                                         )
-                                                    )
-                                                    .longPressReorder(
+                                                    ),
+                                                    headerDragModifier = Modifier.longPressReorder(
                                                         index = rootIndex,
                                                         itemCount = rootItems.size,
                                                         columns = if (isGridView) 2 else 1,
@@ -341,67 +342,58 @@ fun ProviderScreen(
                                                         },
                                                         onDrop = ::persistRootOrder
                                                     ),
-                                                onBoundsChanged = { bounds ->
-                                                    if (bounds == null) groupCardBounds.remove(group.id)
-                                                    else groupCardBounds[group.id] = bounds
-                                                },
-                                                onToggle = { toggleSection(group.id) },
-                                                onRename = { groupToRename = group },
-                                                onDelete = { deletingGroup = group }
-                                            )
-                                        }
-
-                                        if (group.id !in collapsedSections) {
-                                            item(
-                                                key = "group_children_\${group.id}",
-                                                span = { GridItemSpan(maxLineSpan) }
-                                            ) {
-                                                ProviderGroupChildrenContainer(
-                                                    group = group,
-                                                    providers = groupProviders,
                                                     onBoundsChanged = { bounds ->
-                                                        if (bounds == null) groupChildrenBounds.remove(group.id)
-                                                        else groupChildrenBounds[group.id] = bounds
-                                                    }
-                                                ) {
-                                                    groupProviders.forEachIndexed { childIndex, provider ->
-                                                        ProviderUnifiedCard(
-                                                            provider = provider,
-                                                            isGrid = false,
-                                                            modifier = Modifier
-                                                                .fillMaxWidth()
-                                                                .animateItem(
-                                                                    placementSpec = spring(
-                                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                                        stiffness = Spring.StiffnessMediumLow
-                                                                    )
-                                                                )
-                                                                .longPressReorder(
-                                                                    index = childIndex,
-                                                                    itemCount = groupProviders.size,
-                                                                    columns = 1,
-                                                                    onMove = { from, to ->
-                                                                        moveWithinGroup(group.id, from, to)
-                                                                    },
-                                                                    onDrop = {
-                                                                        onReorderProviders(
-                                                                            orderedProviders
-                                                                                .filter { it.groupId == group.id }
-                                                                                .map { it.id }
-                                                                        )
-                                                                    },
-                                                                    onDropAt = { point ->
-                                                                        dropGroupAt(point, group.id)?.let { targetGroupId ->
-                                                                            onMoveProviderToGroup(provider.id, targetGroupId)
-                                                                        }
-                                                                    }
-                                                                ),
-                                                            onEdit = { editor = ProviderEditor(provider, false) },
-                                                            onMoveToGroup = { movingProvider = provider },
-                                                            onDelete = { deletingProviderId = provider.id }
+                                                        if (bounds == null) groupCardBounds.remove(group.id)
+                                                        else groupCardBounds[group.id] = bounds
+                                                    },
+                                                    onCollapse = { toggleSection(group.id) },
+                                                    onEditGroup = { groupToRename = group },
+                                                    onDeleteGroup = { deletingGroup = group },
+                                                    onEditProvider = { provider -> editor = ProviderEditor(provider, false) },
+                                                    onMoveProvider = { provider -> movingProvider = provider },
+                                                    onDeleteProvider = { provider -> deletingProviderId = provider.id },
+                                                    onMoveWithinGroup = { from, to ->
+                                                        moveWithinGroup(group.id, from, to)
+                                                    },
+                                                    onPersistProviderOrder = {
+                                                        onReorderProviders(
+                                                            orderedProviders
+                                                                .filter { it.groupId == group.id }
+                                                                .map { it.id }
                                                         )
+                                                    },
+                                                    onDropProviderAt = { provider, point ->
+                                                        dropGroupAt(point, group.id)?.let { targetGroupId ->
+                                                            onMoveProviderToGroup(provider.id, targetGroupId)
+                                                        }
                                                     }
-                                                }
+                                                )
+                                            } else {
+                                                ProviderGroupCollapsedCard(
+                                                    group = group,
+                                                    isGrid = isGridView,
+                                                    modifier = Modifier
+                                                        .animateItem(
+                                                            placementSpec = spring(
+                                                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                                                stiffness = Spring.StiffnessMediumLow
+                                                            )
+                                                        )
+                                                        .longPressReorder(
+                                                            index = rootIndex,
+                                                            itemCount = rootItems.size,
+                                                            columns = if (isGridView) 2 else 1,
+                                                            onMove = { from, to ->
+                                                                rootItems = rootItems.moved(from, to)
+                                                            },
+                                                            onDrop = ::persistRootOrder
+                                                        ),
+                                                    onBoundsChanged = { bounds ->
+                                                        if (bounds == null) groupCardBounds.remove(group.id)
+                                                        else groupCardBounds[group.id] = bounds
+                                                    },
+                                                    onOpen = { toggleSection(group.id) }
+                                                )
                                             }
                                         }
                                     }
@@ -450,13 +442,15 @@ fun ProviderScreen(
                 ProviderGroupNameDialog(
                     title = stringResource(R.string.new_provider_group),
                     initialName = "",
+                    initialIcon = null,
                     onDismiss = { creatingGroup = false },
-                    onSave = { name ->
+                    onSave = { name, icon ->
                         onSaveGroup(
                             ProviderGroup(
                                 id = UUID.randomUUID().toString(),
                                 name = name,
-                                sortOrder = (rootItems.maxOfOrNull { it.sortOrder } ?: -1) + 1
+                                sortOrder = (rootItems.maxOfOrNull { it.sortOrder } ?: -1) + 1,
+                                icon = icon
                             )
                         )
                         creatingGroup = false
@@ -466,11 +460,12 @@ fun ProviderScreen(
 
             groupToRename?.let { group ->
                 ProviderGroupNameDialog(
-                    title = stringResource(R.string.rename_provider_group),
+                    title = stringResource(R.string.edit_provider_group),
                     initialName = group.name,
+                    initialIcon = group.icon,
                     onDismiss = { groupToRename = null },
-                    onSave = { name ->
-                        onSaveGroup(group.copy(name = name))
+                    onSave = { name, icon ->
+                        onSaveGroup(group.copy(name = name, icon = icon))
                         groupToRename = null
                     }
                 )
@@ -539,16 +534,12 @@ fun ProviderScreen(
 }
 
 @Composable
-private fun ProviderGroupCard(
+private fun ProviderGroupCollapsedCard(
     group: ProviderGroup,
-    count: Int,
     isGrid: Boolean,
-    collapsed: Boolean,
     modifier: Modifier = Modifier,
     onBoundsChanged: (Rect?) -> Unit,
-    onToggle: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit
+    onOpen: () -> Unit
 ) {
     DisposableEffect(group.id) {
         onDispose { onBoundsChanged(null) }
@@ -561,9 +552,92 @@ private fun ProviderGroupCard(
         ),
         label = "providerGroupCorner"
     )
+    val height = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight
 
     Surface(
         shape = RoundedCornerShape(corner),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .onGloballyPositioned { coordinates ->
+                val position = coordinates.positionInRoot()
+                onBoundsChanged(
+                    Rect(
+                        left = position.x,
+                        top = position.y,
+                        right = position.x + coordinates.size.width,
+                        bottom = position.y + coordinates.size.height
+                    )
+                )
+            }
+            .clickable(onClick = onOpen)
+    ) {
+        if (isGrid) {
+            Box(Modifier.fillMaxSize().padding(14.dp)) {
+                EntityIcon(
+                    image = group.icon,
+                    modifier = Modifier.size(42.dp).align(Alignment.TopStart),
+                    fallback = Icons.Outlined.Folder,
+                    matchName = group.name
+                )
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.BottomStart)
+                )
+            }
+        } else {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                EntityIcon(
+                    image = group.icon,
+                    modifier = Modifier.size(42.dp),
+                    fallback = Icons.Outlined.Folder,
+                    matchName = group.name
+                )
+                Spacer(Modifier.width(14.dp))
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderGroupExpandedContainer(
+    group: ProviderGroup,
+    providers: List<LlmProviderInfo>,
+    isGrid: Boolean,
+    modifier: Modifier = Modifier,
+    headerDragModifier: Modifier = Modifier,
+    onBoundsChanged: (Rect?) -> Unit,
+    onCollapse: () -> Unit,
+    onEditGroup: () -> Unit,
+    onDeleteGroup: () -> Unit,
+    onEditProvider: (LlmProviderInfo) -> Unit,
+    onMoveProvider: (LlmProviderInfo) -> Unit,
+    onDeleteProvider: (LlmProviderInfo) -> Unit,
+    onMoveWithinGroup: (Int, Int) -> Unit,
+    onPersistProviderOrder: () -> Unit,
+    onDropProviderAt: (LlmProviderInfo, Offset) -> Unit
+) {
+    DisposableEffect(group.id) {
+        onDispose { onBoundsChanged(null) }
+    }
+
+    Surface(
+        shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
@@ -579,96 +653,166 @@ private fun ProviderGroupCard(
                     )
                 )
             }
-            .clickable(onClick = onToggle)
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.size(42.dp)
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = headerDragModifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onCollapse)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(24.dp))
+                ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    text = group.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            if (isGrid) {
+                Column(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    var providerIndex = 0
+                    var slot = 0
+                    val totalSlots = providers.size + 1
+                    while (slot < totalSlots) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            repeat(2) {
+                                when {
+                                    slot == 0 -> {
+                                        ProviderGroupIconTile(
+                                            group = group,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+
+                                    providerIndex < providers.size -> {
+                                        val childIndex = providerIndex
+                                        val provider = providers[childIndex]
+                                        ProviderUnifiedCard(
+                                            provider = provider,
+                                            isGrid = true,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .longPressReorder(
+                                                    index = childIndex + 1,
+                                                    itemCount = providers.size + 1,
+                                                    columns = 2,
+                                                    minIndex = 1,
+                                                    onMove = { from, to ->
+                                                        onMoveWithinGroup(from - 1, to - 1)
+                                                    },
+                                                    onDrop = onPersistProviderOrder,
+                                                    onDropAt = { point ->
+                                                        onDropProviderAt(provider, point)
+                                                    }
+                                                ),
+                                            onEdit = { onEditProvider(provider) },
+                                            onMoveToGroup = { onMoveProvider(provider) },
+                                            onDelete = { onDeleteProvider(provider) }
+                                        )
+                                        providerIndex++
+                                    }
+
+                                    else -> Spacer(Modifier.weight(1f))
+                                }
+                                slot++
+                            }
+                        }
+                    }
+                    if (providers.isEmpty()) {
+                        Text(
+                            stringResource(R.string.empty_provider_group),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    ProviderGroupIconTile(
+                        group = group,
+                        modifier = Modifier.width(ProviderListCardHeight),
+                        tileHeight = ProviderListCardHeight
+                    )
+                    Column(
+                        Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (providers.isEmpty()) {
+                            Text(
+                                stringResource(R.string.empty_provider_group),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        } else {
+                            providers.forEachIndexed { childIndex, provider ->
+                                ProviderUnifiedCard(
+                                    provider = provider,
+                                    isGrid = false,
+                                    modifier = Modifier.longPressReorder(
+                                        index = childIndex,
+                                        itemCount = providers.size,
+                                        columns = 1,
+                                        onMove = onMoveWithinGroup,
+                                        onDrop = onPersistProviderOrder,
+                                        onDropAt = { point -> onDropProviderAt(provider, point) }
+                                    ),
+                                    onEdit = { onEditProvider(provider) },
+                                    onMoveToGroup = { onMoveProvider(provider) },
+                                    onDelete = { onDeleteProvider(provider) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    group.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    stringResource(R.string.provider_count, count),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                if (collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                contentDescription = stringResource(
-                    if (collapsed) R.string.expand_group else R.string.collapse_group,
-                    group.name
-                )
-            )
-            ProviderGroupOverflowMenu(onRename, onDelete)
         }
     }
 }
 
 @Composable
-private fun ProviderGroupChildrenContainer(
+private fun ProviderGroupIconTile(
     group: ProviderGroup,
-    providers: List<LlmProviderInfo>,
-    onBoundsChanged: (Rect?) -> Unit,
-    content: @Composable ColumnScope.() -> Unit
+    modifier: Modifier = Modifier,
+    tileHeight: Dp = ProviderGridCardHeight
 ) {
-    DisposableEffect(group.id) {
-        onDispose { onBoundsChanged(null) }
-    }
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInRoot()
-                onBoundsChanged(
-                    Rect(
-                        left = position.x,
-                        top = position.y,
-                        right = position.x + coordinates.size.width,
-                        bottom = position.y + coordinates.size.height
-                    )
-                )
-            }
+        modifier = modifier.height(tileHeight)
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (providers.isEmpty()) {
-                Text(
-                    stringResource(R.string.empty_provider_group),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp)
-                )
-            } else {
-                content()
-            }
+        Box(contentAlignment = Alignment.Center) {
+            EntityIcon(
+                image = group.icon,
+                modifier = Modifier.size(72.dp),
+                fallback = Icons.Outlined.Folder,
+                matchName = group.name
+            )
         }
     }
 }
 
 @Composable
-private fun ProviderGroupOverflowMenu(onRename: () -> Unit, onDelete: () -> Unit) {
+private fun ProviderGroupOverflowMenu(onEdit: () -> Unit, onDelete: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -676,9 +820,9 @@ private fun ProviderGroupOverflowMenu(onRename: () -> Unit, onDelete: () -> Unit
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
-                text = { Text(stringResource(R.string.rename_group)) },
+                text = { Text(stringResource(R.string.common_edit)) },
                 leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                onClick = { expanded = false; onRename() }
+                onClick = { expanded = false; onEdit() }
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.delete_group), color = MaterialTheme.colorScheme.error) },
@@ -699,28 +843,46 @@ private fun ProviderGroupOverflowMenu(onRename: () -> Unit, onDelete: () -> Unit
 private fun ProviderGroupNameDialog(
     title: String,
     initialName: String,
+    initialIcon: String?,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (String, String?) -> Unit
 ) {
     var name by remember(initialName) { mutableStateOf(initialName) }
+    var icon by remember(initialIcon) { mutableStateOf(initialIcon) }
+    var iconImporting by remember { mutableStateOf(false) }
     val trimmed = name.trim()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text(stringResource(R.string.provider_group_name)) },
-                supportingText = {
-                    if (name.isNotEmpty() && trimmed.isEmpty()) Text(stringResource(R.string.provider_group_name_required))
-                },
-                isError = name.isNotEmpty() && trimmed.isEmpty(),
-                singleLine = true
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                IconPickerRow(
+                    image = icon,
+                    onChange = { icon = it },
+                    fallback = Icons.Outlined.Folder,
+                    onBusyChange = { iconImporting = it },
+                    matchName = trimmed.ifBlank { name }
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text(stringResource(R.string.provider_group_name)) },
+                    supportingText = {
+                        if (name.isNotEmpty() && trimmed.isEmpty()) {
+                            Text(stringResource(R.string.provider_group_name_required))
+                        }
+                    },
+                    isError = name.isNotEmpty() && trimmed.isEmpty(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         },
         confirmButton = {
-            TextButton(enabled = trimmed.isNotEmpty(), onClick = { onSave(trimmed) }) {
+            TextButton(
+                enabled = trimmed.isNotEmpty() && !iconImporting,
+                onClick = { onSave(trimmed, icon) }
+            ) {
                 Text(stringResource(R.string.common_save))
             }
         },
@@ -786,7 +948,10 @@ fun ProviderUnifiedCard(
         shape = RoundedCornerShape(shapeCorner),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = modifier.fillMaxWidth().clickable { onEdit() }
+        modifier = modifier
+            .fillMaxWidth()
+            .height(if (isGrid) ProviderGridCardHeight else ProviderListCardHeight)
+            .clickable { onEdit() }
     ) {
         MorphingCardLayout(
             isGrid = isGrid,

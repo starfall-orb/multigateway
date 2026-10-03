@@ -28,7 +28,7 @@ class ProviderGroupTest {
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         try {
             val repo = LlmRepository(db, LlmService(context))
-            val group = ProviderGroup("g1", "Work", 0)
+            val group = ProviderGroup("g1", "Work", 0, "icon-11111111-1111-1111-1111-111111111111.png")
             repo.saveGroup(group)
             repo.saveProvider(
                 LlmProviderInfo(

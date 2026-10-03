@@ -403,7 +403,12 @@ private fun ModelPickerGroupRow(
                 modifier = Modifier.size(22.dp)
             )
             Spacer(Modifier.width(4.dp))
-            Icon(Icons.Outlined.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
+            EntityIcon(
+                image = group.icon,
+                modifier = Modifier.size(24.dp),
+                fallback = Icons.Outlined.Folder,
+                matchName = group.name
+            )
             Spacer(Modifier.width(8.dp))
             Text(
                 group.name,

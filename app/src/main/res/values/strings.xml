@@ -213,4 +213,5 @@
     <string name="search_models_placeholder">Search models</string>
     <string name="common_all">All</string>
     <string name="empty_provider_group">No providers in this group</string>
+    <string name="edit_provider_group">Edit Provider Group</string>
 </resources>

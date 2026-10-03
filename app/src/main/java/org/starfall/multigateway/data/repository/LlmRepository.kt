@@ -26,7 +26,7 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     }
 
     val allGroups: Flow<List<ProviderGroup>> = groupDao.getAllGroups().map { groups ->
-        groups.map { ProviderGroup(it.id, it.name, it.sortOrder) }
+        groups.map { ProviderGroup(it.id, it.name, it.sortOrder, it.icon) }
     }
 
     suspend fun getProviderById(id: String): LlmProviderInfo? {
@@ -35,7 +35,8 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     }
 
     suspend fun saveGroup(group: ProviderGroup) {
-        groupDao.insertOrUpdate(ProviderGroupEntity(group.id, group.name.trim(), group.sortOrder))
+        group.icon?.let { icons?.cache(group.name, it) }
+        groupDao.insertOrUpdate(ProviderGroupEntity(group.id, group.name.trim(), group.sortOrder, group.icon))
     }
 
     suspend fun deleteGroup(id: String) {

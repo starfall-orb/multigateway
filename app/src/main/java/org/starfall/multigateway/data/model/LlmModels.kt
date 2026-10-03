@@ -152,7 +152,8 @@ data class LlmProviderInfo(
 data class ProviderGroup(
     val id: String,
     val name: String,
-    val sortOrder: Int = Int.MAX_VALUE
+    val sortOrder: Int = Int.MAX_VALUE,
+    val icon: String? = null
 )
 
 

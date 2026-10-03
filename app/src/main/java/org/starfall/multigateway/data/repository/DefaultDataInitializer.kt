@@ -74,6 +74,7 @@ class DefaultDataInitializer(
                 add(provider.icon)
                 provider.config.modelConfigs.values.forEach { add(it.icon) }
             }
+            llmRepo.allGroups.first().forEach { add(it.icon) }
             mcpRepo.allServers.first().forEach { add(it.icon) }
         }
         icons.prune(entityImages)

@@ -70,7 +70,9 @@ fun MorphingCardLayout(
         val topRowHeight = maxOf(iconHeight, actionsHeight)
         val gridHeight = topRowHeight + vSpacingPx + contentHeight
 
-        val totalHeight = lerp(listHeight.toFloat(), gridHeight.toFloat(), progress).toInt().coerceAtLeast(0)
+        val totalHeight = lerp(listHeight.toFloat(), gridHeight.toFloat(), progress)
+            .toInt()
+            .coerceIn(constraints.minHeight, constraints.maxHeight)
 
         layout(maxWidth, totalHeight) {
             // Icon coordinates

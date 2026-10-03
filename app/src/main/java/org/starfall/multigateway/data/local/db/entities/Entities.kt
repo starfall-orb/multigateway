@@ -33,7 +33,8 @@ data class ChatProfileEntity(
 data class ProviderGroupEntity(
     @PrimaryKey val id: String,
     val name: String,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val icon: String?
 )
 
 @Entity(tableName = "llm_providers")

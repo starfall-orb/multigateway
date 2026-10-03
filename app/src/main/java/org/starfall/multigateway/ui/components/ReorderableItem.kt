@@ -22,6 +22,7 @@ fun Modifier.longPressReorder(
     index: Int,
     itemCount: Int,
     columns: Int = 1,
+    minIndex: Int = 0,
     onMove: (from: Int, to: Int) -> Unit,
     onDrop: () -> Unit,
     onDropAt: ((Offset) -> Unit)? = null
@@ -36,6 +37,7 @@ fun Modifier.longPressReorder(
     val currentIndexState = rememberUpdatedState(index)
     val itemCountState = rememberUpdatedState(itemCount)
     val columnsState = rememberUpdatedState(columns)
+    val minIndexState = rememberUpdatedState(minIndex)
     val onMoveState = rememberUpdatedState(onMove)
     val onDropState = rememberUpdatedState(onDrop)
     val onDropAtState = rememberUpdatedState(onDropAt)
@@ -117,7 +119,7 @@ fun Modifier.longPressReorder(
 
                     if (delta != 0) {
                         val currentIdx = activeIndex
-                        val target = (currentIdx + delta).coerceIn(0, count - 1)
+                        val target = (currentIdx + delta).coerceIn(minIndexState.value.coerceAtMost(count - 1), count - 1)
                         if (target != currentIdx) {
                             onMoveState.value(currentIdx, target)
                             activeIndex = target

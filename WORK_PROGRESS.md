@@ -127,3 +127,42 @@ Track and complete the unfinished work currently present in the local working tr
 - 2026-10-03: Added repository persistence for shared root ordering and tested group membership moves.
 
 - 2026-10-03: Final 1.0.4 validation passed: testDebugUnitTest, assembleDebugAndroidTest, lintDebug, assembleDebug and git diff --check.
+
+### Software Update button visibility
+
+- [x] Hide APK download/update actions when the installed version is already up to date
+- [x] Compile/build validation
+
+- 2026-10-03: Update screen now only renders download/release actions when `updateAvailable` is true.
+- 2026-10-03: compileDebugKotlin, assembleDebug and git diff --check passed.
+
+### Provider Group visual redesign
+
+- [x] Collapsed group card matches Provider card dimensions in grid/list and shows only icon + name
+- [x] Add persistent custom icon to Provider Group with shared icon matching/cache behavior
+- [x] Expanded group becomes one full-width bordered container with header (name + overflow menu)
+- [x] Expanded body places group icon in the leading cell/area and Providers in distinct child slots
+- [x] Update model-picker group icon to use the same shared icon system
+- [x] Add Room migration/schema/tests and run validation
+
+- 2026-10-03: Started redesign from annotated Provider screenshots.
+- 2026-10-03: Collapsed groups now use the same fixed list/grid dimensions as Provider cards and show only icon + name.
+- 2026-10-03: Expanded groups now render as one full-width bordered container: left-fixed overflow menu + group name header, group icon tile, then Provider child slots.
+- 2026-10-03: Provider Groups gained persistent custom icons via Room schema v7; shared icon cache/matching and model-picker group icons use the same system as Provider/MCP.
+- 2026-10-03: Validation passed: compileDebugKotlin, testDebugUnitTest, assembleDebugAndroidTest, lintDebug, assembleDebug and git diff --check.
+
+### Bottom sheet inset correction from device screenshot
+
+- [x] Compensate ModalBottomSheet surface position by navigation-bar bottom inset
+- [x] Keep expanded top edge capped at fullWindow - status/status-cutout inset
+- [x] Configure the actual Material3 dialog window edge-to-edge via DialogWindowProvider
+- [x] Force dialog status/navigation bars transparent and disable contrast scrims
+- [x] Final tests/lint/build validation
+
+- 2026-10-03: Device screenshot confirmed Material3 sheet anchor ended above 3-button navbar while max height used full-window height, shifting the expanded top behind the status bar. Fixed both at the shared AppBottomSheet layer.
+
+### Version 1.0.5
+
+- [x] Bump app version to `1.0.5` / versionCode `15`
+
+- 2026-10-03: Increased app version after Provider Group and bottom-sheet fixes.

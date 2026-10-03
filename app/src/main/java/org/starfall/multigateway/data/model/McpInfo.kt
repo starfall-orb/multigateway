@@ -38,3 +38,12 @@ data class McpInfo(
     val sortOrder: Int = Int.MAX_VALUE,
     val icon: String? = null
 )
+
+const val CONTENT_API_MCP_ENDPOINT = "https://serverweb.serv00.net/mcp"
+
+fun String.isContentApiName(): Boolean =
+    trim().lowercase().replace("-", "").replace(" ", "") == "contentapi"
+
+/** Returns the effective endpoint while allowing the built-in Content API URL to stay hidden. */
+fun McpInfo.resolvedUrl(): String? = url?.trim()?.takeIf(String::isNotEmpty)
+    ?: CONTENT_API_MCP_ENDPOINT.takeIf { name.isContentApiName() }

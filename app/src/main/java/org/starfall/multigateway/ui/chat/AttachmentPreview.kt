@@ -128,7 +128,7 @@ private fun AttachmentTile(
         if (preview?.mimeType?.startsWith("video/") == true || preview?.mimeType?.startsWith("audio/") == true) {
             Surface(modifier = Modifier.align(Alignment.Center), shape = CircleShape,
                 color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)) {
-                Icon(Icons.Default.PlayArrow, "Play media", Modifier.padding(8.dp), tint = androidx.compose.ui.graphics.Color.White)
+                Icon(Icons.Default.PlayArrow, "Play media", Modifier.padding(8.dp), tint = MaterialTheme.colorScheme.inverseOnSurface)
             }
         }
         preview?.durationMs?.let { duration ->

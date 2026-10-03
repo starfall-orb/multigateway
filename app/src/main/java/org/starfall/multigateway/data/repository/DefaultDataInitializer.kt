@@ -58,6 +58,20 @@ class DefaultDataInitializer(
             initDefaultMcpServers()
             prefsRepo.setMcpPresetsInitialized(true)
         }
+        // This has its own migration marker so existing installations receive it exactly once.
+        // Deleting the preset is respected because the marker remains set.
+        if (!prefs.contentApiPresetInitialized) {
+            val exists = mcpRepo.allServers.first().any { it.name.isContentApiName() }
+            if (!exists) {
+                mcpRepo.saveServer(McpInfo(
+                    id = "content-api",
+                    name = "Content API",
+                    protocol = McpProtocol.STREAMABLE_HTTP,
+                    url = null
+                ))
+            }
+            prefsRepo.setContentApiPresetInitialized(true)
+        }
 
         speechRepo.allServices.first().let { currentServices ->
             if (currentServices.isEmpty()) {

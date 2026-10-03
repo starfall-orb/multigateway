@@ -39,6 +39,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
+import org.starfall.multigateway.ui.theme.ThemePresets
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
     APPEARANCE("Appearance", "Theme, color palette & dynamic color", Icons.Outlined.Palette),
@@ -192,6 +193,7 @@ private fun SettingsGroupHeading(title: String) {
         color = MaterialTheme.colorScheme.primary)
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AppearanceSettingsView(
     appPreferences: AppPreferences,
@@ -221,21 +223,25 @@ fun AppearanceSettingsView(
                 if (!appPreferences.useDynamicColor) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Text("Color palette", style = MaterialTheme.typography.titleMedium)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf("DEFAULT" to Color(0xFF0B57D0), "EMERALD" to Color(0xFF006C4C),
-                            "SUNSET" to Color(0xFFA04000), "CRIMSON" to Color(0xFFB3261E), "VIOLET" to Color(0xFF6B4FA0)
-                        ).forEach { (name, color) ->
+                    androidx.compose.foundation.layout.FlowRow(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ThemePresets.forEach { preset ->
+                            val name = preset.name
+                            val color = preset.preview
                             val selected = appPreferences.colorSchemeName == name
                             Surface(shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.15f),
                                 border = androidx.compose.foundation.BorderStroke(if (selected) 2.dp else 1.dp,
                                     if (selected) color else color.copy(alpha = 0.3f)),
-                                modifier = Modifier.weight(1f).height(56.dp)
+                                modifier = Modifier.width(58.dp).height(56.dp)
                                     .toggleable(selected, role = Role.RadioButton, onValueChange = { onColorSchemeChange(name) })
                                     .then(Modifier.semantics { contentDescription = name.lowercase().replaceFirstChar { it.uppercase() } })
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Box(Modifier.size(26.dp).clip(CircleShape).background(color))
-                                    if (selected) Icon(Icons.Outlined.Check, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    if (selected) Icon(Icons.Outlined.Check, null, tint = MaterialTheme.colorScheme.inverseOnSurface, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }

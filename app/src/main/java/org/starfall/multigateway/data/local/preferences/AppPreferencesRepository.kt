@@ -39,6 +39,7 @@ data class AppPreferences(
     val modelPickerCollapsedGroups: Set<String> = emptySet(),
     val modelPickerCollapsedProviders: Set<String> = emptySet(),
     val mcpPresetsInitialized: Boolean = false,
+    val contentApiPresetInitialized: Boolean = false,
     val latexMode: String = "AUTO" // ON, OFF, AUTO
 )
 
@@ -71,6 +72,7 @@ class AppPreferencesRepository(private val context: Context) {
         val MODEL_PICKER_COLLAPSED_GROUPS = stringSetPreferencesKey("model_picker_collapsed_groups")
         val MODEL_PICKER_COLLAPSED_PROVIDERS = stringSetPreferencesKey("model_picker_collapsed_providers")
         val MCP_PRESETS_INITIALIZED = booleanPreferencesKey("mcp_presets_initialized")
+        val CONTENT_API_PRESET_INITIALIZED = booleanPreferencesKey("content_api_preset_initialized")
         val LATEX_MODE = stringPreferencesKey("latex_mode")
     }
 
@@ -106,6 +108,7 @@ class AppPreferencesRepository(private val context: Context) {
                 modelPickerCollapsedGroups = preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_GROUPS].orEmpty(),
                 modelPickerCollapsedProviders = preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS].orEmpty(),
                 mcpPresetsInitialized = preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] ?: false,
+                contentApiPresetInitialized = preferences[PreferenceKeys.CONTENT_API_PRESET_INITIALIZED] ?: false,
                 latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO"
             )
         }
@@ -272,6 +275,12 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setMcpPresetsInitialized(initialized: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] = initialized
+        }
+    }
+
+    suspend fun setContentApiPresetInitialized(initialized: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferenceKeys.CONTENT_API_PRESET_INITIALIZED] = initialized
         }
     }
 

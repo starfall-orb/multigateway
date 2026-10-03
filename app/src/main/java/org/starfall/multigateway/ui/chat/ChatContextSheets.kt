@@ -107,6 +107,11 @@ fun ConversationSummarySheet(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Text(
+                "Token counts are estimates based on text length, not the exact tokenizer of each model.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Text("Target summary size: ${targetTokens ?: 0} tokens", style = MaterialTheme.typography.titleMedium)
             Slider(

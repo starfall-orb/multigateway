@@ -5,7 +5,6 @@ import org.starfall.multigateway.data.model.*
 
 data class ToolControls(
     val servers: List<McpInfo> = emptyList(),
-    val profile: ChatProfile? = null,
     val settings: ToolSettings = ToolSettings(),
     val providers: List<LlmProviderInfo> = emptyList(),
     val setSystem: (String,SystemToolConfig)->Unit = {_,_->},

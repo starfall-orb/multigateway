@@ -13,17 +13,29 @@ import java.io.BufferedReader
 import java.io.StringReader
 import java.util.UUID
 
-class McpService(private val http: ToolHttp = ToolHttp()) {
+class McpService(
+    private val http: ToolHttp = ToolHttp(),
+    private val oauth: McpOAuthService? = null
+) {
     suspend fun listTools(info: McpInfo): List<String> = discover(info).map { it.originalName }
     suspend fun discover(info: McpInfo): List<ToolDefinition> = session(info).useSession { it.tools() }
     suspend fun session(info: McpInfo): McpSession {
-        val session = McpSession(info, http)
+        val oauthToken = if (info.auth.method == McpAuthMethod.OAUTH2) {
+            oauth?.accessToken(info) ?: info.auth.token
+        } else {
+            info.auth.token
+        }
+        val session = McpSession(info, http, oauthToken)
         try { session.initialize(); return session } catch (e: Throwable) { session.close(); throw e }
     }
 }
 suspend fun <T> McpSession.useSession(block: suspend (McpSession) -> T): T = try { block(this) } finally { close() }
 
-class McpSession(private val info: McpInfo, private val http: ToolHttp) {
+class McpSession(
+    private val info: McpInfo,
+    private val http: ToolHttp,
+    private val oauthToken: String = info.auth.token
+) {
     private val endpoint = info.resolvedUrl() ?: error("MCP URL is missing")
     private var postEndpoint = endpoint
     private var sessionId: String? = null
@@ -50,7 +62,7 @@ class McpSession(private val info: McpInfo, private val http: ToolHttp) {
                     auth.token.takeIf { it.isNotBlank() }?.let { header(name, bearerHeaderValue(name, it)) }
                 }
                 McpAuthMethod.OAUTH2 ->
-                    auth.token.takeIf { it.isNotBlank() }?.let { header("Authorization", bearerHeaderValue("Authorization", it)) }
+                    oauthToken.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") }
                 McpAuthMethod.NONE, McpAuthMethod.QUERY_PARAM -> Unit
             }
             header("Accept", "application/json, text/event-stream")

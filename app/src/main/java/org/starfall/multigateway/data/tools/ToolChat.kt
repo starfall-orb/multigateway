@@ -53,14 +53,13 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         prompt: String,
         servers: List<McpInfo>,
         providers: List<LlmProviderInfo>,
-        access: () -> Map<String, McpAccess>,
         settings: () -> ToolSettings
     ): Flow<GenerationEvent> = channelFlow {
         val sessions = mutableMapOf<String, McpSession>()
         val tools = mutableListOf<ToolDefinition>()
         try {
             servers
-                .filter { (access()[it.id]?.enabled ?: true) && settings().quickMcp[it.id] != false }
+                .filter { settings().quickMcp[it.id] != false }
                 .forEach { server ->
                     val activity = ToolActivity(UUID.randomUUID().toString(), "${server.name}: connect")
                     send(GenerationEvent.Tool(activity))
@@ -68,12 +67,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         val session = mcp.session(server)
                         sessions[server.id] = session
                         tools += session.tools().filter {
-                            toolAllowed(
-                                access()[server.id],
-                                settings().quickMcp[server.id],
-                                globalMcpToolEnabled(settings(), server.id, it.originalName),
-                                it.originalName
-                            )
+                            globalMcpToolEnabled(settings(), server.id, it.originalName)
                         }
                         send(GenerationEvent.Tool(activity.copy(status = "success", summary = "Tools ready")))
                     } catch (e: CancellationException) {
@@ -146,12 +140,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         val config = settings().system[tool.name]
                         config?.enabled == true
                     } else {
-                        toolAllowed(
-                            access()[tool.serverId],
-                            settings().quickMcp[tool.serverId],
-                            globalMcpToolEnabled(settings(), tool.serverId, tool.originalName),
-                            tool.originalName
-                        )
+                        settings().quickMcp[tool.serverId] != false &&
+                            globalMcpToolEnabled(settings(), tool.serverId, tool.originalName)
                     }
                 }
 
@@ -210,12 +200,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         val args = toolArguments(function["arguments"])
                         result = if (tool.serverId != null) {
                             check(
-                                toolAllowed(
-                                    access()[tool.serverId],
-                                    settings().quickMcp[tool.serverId],
-                                    globalMcpToolEnabled(settings(), tool.serverId, tool.originalName),
-                                    tool.originalName
-                                )
+                                settings().quickMcp[tool.serverId] != false &&
+                                    globalMcpToolEnabled(settings(), tool.serverId, tool.originalName)
                             ) { "MCP tool disabled" }
                             (sessions[tool.serverId] ?: error("MCP session unavailable"))
                                 .call(tool.originalName, args)

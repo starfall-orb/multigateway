@@ -21,7 +21,10 @@ enum class McpAuthMethod {
 data class McpAuthorization(
     val method: McpAuthMethod = McpAuthMethod.NONE,
     val key: String? = null,
-    val value: String? = null
+    val value: String? = null,
+    val oauthClientId: String? = null,
+    val oauthClientSecret: String? = null,
+    val oauthAuthorized: Boolean = false
 ) {
     val token: String get() = value.orEmpty()
 }

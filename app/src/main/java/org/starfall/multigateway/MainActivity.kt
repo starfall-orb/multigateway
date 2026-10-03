@@ -1,9 +1,6 @@
 package org.starfall.multigateway
 
 import android.content.Intent
-import android.content.Context
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.net.Uri
 import android.widget.Toast
 import android.os.Bundle
@@ -28,7 +25,6 @@ import org.starfall.multigateway.ui.theme.MultiGatewayTheme
 import org.starfall.multigateway.ui.chat.ChatViewModel
 import org.starfall.multigateway.ui.configuration.ConfigurationViewModel
 import org.starfall.multigateway.ui.settings.SettingsViewModel
-import org.starfall.multigateway.ui.mcp.OAuthReceiver
 import org.starfall.multigateway.data.model.parseProviderLink
 
 class MainActivity : ComponentActivity() {
@@ -100,22 +96,6 @@ class MainActivity : ComponentActivity() {
                 }
             return
         }
-        if (data.scheme == "multigateway" && data.host == "oauth") {
-            val fragment = data.encodedFragment?.let { Uri.parse("https://callback.invalid/?$it") }
-            fun parameter(name: String) = data.getQueryParameter(name) ?: fragment?.getQueryParameter(name)
-            val state = parameter("state")
-            val token = parameter("access_token")
-            if (token != null && OAuthReceiver.postToken(token, state)) {
-                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(this)
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("OAuth Token", token))
-                Toast.makeText(this, "OAuth2 Authenticated! Token copied and auto-filled.", Toast.LENGTH_LONG).show()
-                intent.data = null
-            } else if (parameter("error") != null && OAuthReceiver.cancel(state)) {
-                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(this)
-                Toast.makeText(this, "OAuth authorization was denied.", Toast.LENGTH_LONG).show()
-                intent.data = null
-            }
-        }
+
     }
 }

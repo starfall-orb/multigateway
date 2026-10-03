@@ -58,8 +58,6 @@ import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import androidx.compose.ui.focus.onFocusChanged
 import org.starfall.multigateway.R
@@ -71,6 +69,7 @@ import org.starfall.multigateway.data.model.McpProtocol
 import org.starfall.multigateway.data.model.isContentApiName
 import org.starfall.multigateway.data.model.ToolDefinition
 import org.starfall.multigateway.data.model.ToolSettings
+import org.starfall.multigateway.data.service.McpOAuthService
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
@@ -94,6 +93,8 @@ fun McpScreen(
     onDeleteMcpServer: (String) -> Unit,
     onReorderMcpServers: (List<String>) -> Unit,
     onRefreshTools: suspend (McpInfo) -> Result<List<ToolDefinition>>,
+    onAuthorizeOAuth: suspend (McpInfo) -> Result<McpInfo>,
+    onClearOAuth: suspend (McpInfo) -> McpInfo,
     onBack: () -> Unit
 ) {
     var editor by remember { mutableStateOf<McpEditor?>(null) }
@@ -111,6 +112,8 @@ fun McpScreen(
             initialServer = page.server,
             isNew = page.isNew,
             onRefreshTools = onRefreshTools,
+            onAuthorizeOAuth = onAuthorizeOAuth,
+            onClearOAuth = onClearOAuth,
             cachedTools = toolsCache[page.server.id] ?: page.server.cachedTools,
             cachedError = toolErrors[page.server.id],
             cachedLoading = page.server.id in toolsLoading,
@@ -398,6 +401,8 @@ fun AddOrEditMcpScreenContent(
     initialServer: McpInfo,
     isNew: Boolean,
     onRefreshTools: suspend (McpInfo) -> Result<List<ToolDefinition>>,
+    onAuthorizeOAuth: suspend (McpInfo) -> Result<McpInfo>,
+    onClearOAuth: suspend (McpInfo) -> McpInfo,
     cachedTools: List<ToolDefinition>?,
     cachedError: String?,
     cachedLoading: Boolean,
@@ -418,28 +423,40 @@ fun AddOrEditMcpScreenContent(
     var selectedTab by remember(initialServer.id) { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
-    var oauthAuthUrl by remember(initialServer.id, url) {
-        val guess = if (url.isNotBlank()) {
-            if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
-        } else ""
-        mutableStateOf(guess)
-    }
-    var oauthClientId by remember(initialServer.id) { mutableStateOf("multigateway") }
-
-    LaunchedEffect(initialServer.id) {
-        OAuthReceiver.tokenFlow.collect { receivedToken ->
-            if (receivedToken != null) {
-                authValue = receivedToken
-                OAuthReceiver.consume(receivedToken)
-            }
-        }
+    var oauthClientId by remember(initialServer.id) { mutableStateOf(initialServer.auth.oauthClientId.orEmpty()) }
+    var oauthClientSecret by remember(initialServer.id) { mutableStateOf(initialServer.auth.oauthClientSecret.orEmpty()) }
+    var oauthAuthorized by remember(initialServer.id) {
+        mutableStateOf(
+            initialServer.auth.oauthAuthorized ||
+                (initialServer.auth.method == McpAuthMethod.OAUTH2 && initialServer.auth.value?.isNotBlank() == true)
+        )
     }
 
-    fun currentAuth() = McpAuthorization(
-        method = authMethod,
-        key = if (authMethod in listOf(McpAuthMethod.BEARER_TOKEN, McpAuthMethod.QUERY_PARAM)) authKey.trim() else null,
-        value = if (authMethod == McpAuthMethod.NONE) null else if (authMethod == McpAuthMethod.BEARER_TOKEN) bearerHeaderValue(authKey.ifBlank { "Authorization" }, authValue) else authValue.trim()
-    )
+    fun currentAuth(): McpAuthorization = when (authMethod) {
+        McpAuthMethod.NONE -> McpAuthorization()
+        McpAuthMethod.OAUTH2 -> McpAuthorization(
+            method = McpAuthMethod.OAUTH2,
+            value = authValue.trim().takeIf { it.isNotEmpty() },
+            oauthClientId = oauthClientId.trim().takeIf { it.isNotEmpty() },
+            oauthClientSecret = oauthClientSecret.takeIf { it.isNotBlank() },
+            oauthAuthorized = oauthAuthorized
+        )
+        McpAuthMethod.BEARER_TOKEN -> McpAuthorization(
+            method = authMethod,
+            key = authKey.trim(),
+            value = bearerHeaderValue(authKey.ifBlank { "Authorization" }, authValue)
+        )
+        McpAuthMethod.QUERY_PARAM -> McpAuthorization(
+            method = authMethod,
+            key = authKey.trim(),
+            value = authValue.trim()
+        )
+        McpAuthMethod.CUSTOM_HEADER -> McpAuthorization(
+            method = McpAuthMethod.BEARER_TOKEN,
+            key = authKey.trim(),
+            value = authValue.trim()
+        )
+    }
 
     fun currentServer(): McpInfo = initialServer.copy(
         name = name.trim(),
@@ -530,9 +547,16 @@ fun AddOrEditMcpScreenContent(
                         protocol = protocol,
                         onProtocolChange = { protocol = it },
                         url = url,
-                        onUrlChange = { url = it },
+                        onUrlChange = { changed ->
+                            if (authMethod == McpAuthMethod.OAUTH2 && changed.trim() != url.trim()) oauthAuthorized = false
+                            url = changed
+                        },
                         authMethod = authMethod,
                         onAuthMethodChange = { method ->
+                            if (method != authMethod) {
+                                authValue = ""
+                                if (method == McpAuthMethod.OAUTH2) oauthAuthorized = false
+                            }
                             authMethod = method
                             authKey = if (method == McpAuthMethod.QUERY_PARAM) "key" else "Authorization"
                         },
@@ -543,10 +567,32 @@ fun AddOrEditMcpScreenContent(
                         authValid = authValid,
                         headers = headers,
                         onHeadersChange = { headers = it },
-                        oauthAuthUrl = oauthAuthUrl,
-                        onOauthAuthUrlChange = { oauthAuthUrl = it },
                         oauthClientId = oauthClientId,
-                        onOauthClientIdChange = { oauthClientId = it },
+                        onOauthClientIdChange = { changed ->
+                            if (changed.trim() != oauthClientId.trim()) oauthAuthorized = false
+                            oauthClientId = changed
+                        },
+                        oauthClientSecret = oauthClientSecret,
+                        onOauthClientSecretChange = { changed ->
+                            if (changed != oauthClientSecret) oauthAuthorized = false
+                            oauthClientSecret = changed
+                        },
+                        oauthAuthorized = oauthAuthorized,
+                        onAuthorizeOAuth = {
+                            onAuthorizeOAuth(currentServer()).map { authorized ->
+                                oauthClientId = authorized.auth.oauthClientId.orEmpty()
+                                oauthClientSecret = authorized.auth.oauthClientSecret.orEmpty()
+                                oauthAuthorized = authorized.auth.oauthAuthorized
+                                authValue = authorized.auth.value.orEmpty()
+                            }
+                        },
+                        onClearOAuth = {
+                            val cleared = onClearOAuth(currentServer())
+                            oauthClientId = cleared.auth.oauthClientId.orEmpty()
+                            oauthClientSecret = cleared.auth.oauthClientSecret.orEmpty()
+                            oauthAuthorized = false
+                            authValue = cleared.auth.value.orEmpty()
+                        },
                         modifier = Modifier.weight(1f)
                     )
                 } else {
@@ -587,10 +633,13 @@ private fun McpBasicSettings(
     authValid: Boolean,
     headers: List<Pair<String, String>>,
     onHeadersChange: (List<Pair<String, String>>) -> Unit,
-    oauthAuthUrl: String,
-    onOauthAuthUrlChange: (String) -> Unit,
     oauthClientId: String,
     onOauthClientIdChange: (String) -> Unit,
+    oauthClientSecret: String,
+    onOauthClientSecretChange: (String) -> Unit,
+    oauthAuthorized: Boolean,
+    onAuthorizeOAuth: suspend () -> Result<Unit>,
+    onClearOAuth: suspend () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var oauthAdvancedExpanded by remember { mutableStateOf(false) }
@@ -677,13 +726,10 @@ private fun McpBasicSettings(
         }
 
         if (authMethod == McpAuthMethod.OAUTH2) {
-            Text(stringResource(R.string.oauth2_authorization_endpoint), style = MaterialTheme.typography.titleSmall)
-            OutlinedTextField(
-                value = oauthAuthUrl,
-                onValueChange = onOauthAuthUrlChange,
-                placeholder = { Text("https://example.com/oauth/authorize") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                stringResource(R.string.mcp_oauth_discovery_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Row(
@@ -711,13 +757,23 @@ private fun McpBasicSettings(
                 OutlinedTextField(
                     value = oauthClientId,
                     onValueChange = onOauthClientIdChange,
-                    placeholder = { Text("multigateway") },
+                    placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
+                    supportingText = { Text(stringResource(R.string.mcp_oauth_client_id_help)) },
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = oauthClientSecret,
+                    onValueChange = onOauthClientSecretChange,
+                    label = { Text(stringResource(R.string.client_secret)) },
+                    supportingText = { Text(stringResource(R.string.mcp_oauth_client_secret_help)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(stringResource(R.string.redirect_uri), style = MaterialTheme.typography.titleSmall)
                 OutlinedTextField(
-                    value = "multigateway://oauth",
+                    value = McpOAuthService.REDIRECT_URI,
                     onValueChange = {},
                     readOnly = true,
                     singleLine = true,
@@ -729,101 +785,64 @@ private fun McpBasicSettings(
                 )
             }
 
-            val browserContext = LocalContext.current
-            val scope = rememberCoroutineScope()
-            var isDiscovering by remember { mutableStateOf(false) }
-
+            val oauthScope = rememberCoroutineScope()
+            var oauthBusy by remember { mutableStateOf(false) }
+            var oauthError by remember { mutableStateOf<String?>(null) }
+            Text(
+                stringResource(if (oauthAuthorized) R.string.mcp_oauth_authorized else R.string.mcp_oauth_not_authorized),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (oauthAuthorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Button(
                 onClick = org.starfall.multigateway.ui.components.rememberOAuthStart {
-                    scope.launch {
-                        isDiscovering = true
-                        var finalAuthUrl = oauthAuthUrl.trim()
-                        
-                        // If no auth URL is entered, perform automatic discovery handshake!
-                        if (finalAuthUrl.isBlank() && url.isNotBlank()) {
-                            try {
-                                val client = okhttp3.OkHttpClient()
-                                val request = okhttp3.Request.Builder().url(url).build()
-                                withContext(Dispatchers.IO) {
-                                    client.newCall(request).execute().use { response ->
-                                        // 1. Check WWW-Authenticate header for OAuth2 endpoints
-                                        val authHeader = response.header("WWW-Authenticate")
-                                        if (authHeader != null) {
-                                            val uriRegex = """authorization_uri="([^"]+)"""".toRegex()
-                                            val match = uriRegex.find(authHeader)
-                                            if (match != null) {
-                                                finalAuthUrl = match.groupValues[1]
-                                            }
-                                        }
-                                        // 2. Or check standard PRM / metadata if JSON is returned
-                                        if (finalAuthUrl.isBlank()) {
-                                            val body = response.body?.string()
-                                            if (body != null && body.contains("authorization_endpoint")) {
-                                                val json = kotlinx.serialization.json.Json.parseToJsonElement(body).jsonObject
-                                                finalAuthUrl = json["authorization_endpoint"]?.jsonPrimitive?.content.orEmpty()
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                // Fallback to a sensible default guess
-                                finalAuthUrl = if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
-                            }
-                        }
-                        
-                        // If still blank, fallback to guess
-                        if (finalAuthUrl.isBlank() && url.isNotBlank()) {
-                            finalAuthUrl = if (url.endsWith("/")) url + "oauth/authorize" else url + "/oauth/authorize"
-                        }
-                        
-                        isDiscovering = false
-                        
-                        if (finalAuthUrl.isNotBlank()) {
-                            val computedUrl = android.net.Uri.parse(finalAuthUrl).buildUpon()
-                                .appendQueryParameter("response_type", "token")
-                                .appendQueryParameter("state", OAuthReceiver.begin())
-                                .appendQueryParameter("client_id", oauthClientId.trim())
-                                .appendQueryParameter("redirect_uri", "multigateway://oauth")
-                                .build().toString()
-                                
-                            try {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(computedUrl))
-                                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.start(browserContext)
-                                browserContext.startActivity(intent)
-                            } catch (e: Exception) {
-                                org.starfall.multigateway.data.adapter.common.OAuthCallbackService.stop(browserContext)
-                                android.widget.Toast.makeText(browserContext, browserContext.getString(R.string.cannot_open_browser, e.message.orEmpty()), android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            android.widget.Toast.makeText(browserContext, browserContext.getString(R.string.enter_server_url_first), android.widget.Toast.LENGTH_SHORT).show()
+                    oauthScope.launch {
+                        oauthBusy = true
+                        oauthError = null
+                        try {
+                            onAuthorizeOAuth().onFailure { oauthError = it.message ?: it.toString() }
+                        } finally {
+                            oauthBusy = false
                         }
                     }
                 },
-                enabled = !isDiscovering && url.isNotBlank(),
+                enabled = !oauthBusy && url.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (isDiscovering) {
+                if (oauthBusy) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.discovering_endpoint))
-                } else {
-                    Text(stringResource(R.string.authorize_in_browser))
                 }
+                Text(stringResource(if (oauthAuthorized) R.string.mcp_reauthorize_oauth else R.string.authorize_in_browser))
+            }
+            if (oauthAuthorized) {
+                OutlinedButton(
+                    onClick = {
+                        oauthScope.launch {
+                            oauthBusy = true
+                            oauthError = null
+                            try { onClearOAuth() } finally { oauthBusy = false }
+                        }
+                    },
+                    enabled = !oauthBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.mcp_remove_oauth))
+                }
+            }
+            oauthError?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
         }
 
-        if (authMethod != McpAuthMethod.NONE) {
+        if (authMethod != McpAuthMethod.NONE && authMethod != McpAuthMethod.OAUTH2) {
             OutlinedTextField(
                 value = authValue,
                 onValueChange = onAuthValueChange,
                 label = {
                     Text(
                         stringResource(
-                            when (authMethod) {
-                                McpAuthMethod.OAUTH2 -> R.string.oauth2_access_token
-                                McpAuthMethod.BEARER_TOKEN -> R.string.bearer_token
-                                else -> R.string.common_value
-                            }
+                            if (authMethod == McpAuthMethod.BEARER_TOKEN) R.string.bearer_token
+                            else R.string.common_value
                         )
                     )
                 },

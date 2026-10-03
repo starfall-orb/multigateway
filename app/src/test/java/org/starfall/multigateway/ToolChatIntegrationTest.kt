@@ -85,7 +85,7 @@ class ToolChatIntegrationTest {
                 modelIds=listOf("chat","image"),modelConfigs=mapOf("chat" to ModelConfiguration(supportsToolCalls=true),"image" to ModelConfiguration(modelType=ModelType.IMAGE_GENERATION))))
             val files=ToolFiles(root);val http=ToolHttp(files)
             val engine=ToolChat(http,McpService(http),LlmService(context))
-            val events=engine.generate(provider,"chat",listOf(StoredMessage("u",ChatRole.USER,listOf(MessageVersion("Draw a tree")))),"",emptyList(),listOf(provider),{emptyMap()},{ToolSettings(system=mapOf("generate_image" to SystemToolConfig(true,"p","image").withImageOptions(buildJsonObject { put("quality","high"); put("output_format","webp") })))}).toList()
+            val events=engine.generate(provider,"chat",listOf(StoredMessage("u",ChatRole.USER,listOf(MessageVersion("Draw a tree")))),"",emptyList(),listOf(provider),{ToolSettings(system=mapOf("generate_image" to SystemToolConfig(true,"p","image").withImageOptions(buildJsonObject { put("quality","high"); put("output_format","webp") })))}).toList()
             assertEquals(1,mediaCalls);assertEquals(2,rounds)
             val imageBody=Json.parseToJsonElement(imageRequest).jsonObject
             assertEquals("high",imageBody["quality"]!!.jsonPrimitive.content)

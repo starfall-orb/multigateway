@@ -16,7 +16,6 @@ import org.starfall.multigateway.data.tools.*
 
 class ChatViewModel(
     private val conversationRepo: ConversationRepository,
-    private val profileRepo: ProfileRepository,
     private val llmRepo: LlmRepository,
     private val mcpRepo: McpRepository,
     private val prefsRepo: AppPreferencesRepository,
@@ -41,7 +40,6 @@ class ChatViewModel(
     }
     private fun toolEvents(provider: LlmProviderInfo, model: String, messages: List<StoredMessage>, prompt: String) =
         toolChat.generate(provider, model, messages, prompt, mcpServers.value, providers.value,
-            access = { emptyMap() },
             settings = { toolSettings.value })
 
     val conversations: StateFlow<List<Conversation>> = conversationRepo.allConversations

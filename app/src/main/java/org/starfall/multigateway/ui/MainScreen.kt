@@ -92,7 +92,6 @@ fun MainScreen(
 
     CompositionLocalProvider(LocalToolControls provides ToolControls(
         servers = mcpServers,
-        profile = null,
         settings = toolSettings,
         providers = providers,
         setSystem = viewModel::setSystemTool,
@@ -294,6 +293,8 @@ fun MainScreen(
                             onDeleteMcpServer = { configurationViewModel.deleteMcpServer(it) },
                             onReorderMcpServers = configurationViewModel::reorderMcpServers,
                             onRefreshTools = { configurationViewModel.refreshMcpTools(it) },
+                            onAuthorizeOAuth = { configurationViewModel.authorizeMcpOAuth(it) },
+                            onClearOAuth = { configurationViewModel.clearMcpOAuth(it) },
                             onBack = { navController.popBackStack() }
                         )
                     }

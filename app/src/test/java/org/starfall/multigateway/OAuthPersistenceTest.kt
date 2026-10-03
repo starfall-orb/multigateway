@@ -3,7 +3,6 @@ package org.starfall.multigateway
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -16,7 +15,6 @@ import org.starfall.multigateway.data.adapter.codex.CodexTokenState
 import org.starfall.multigateway.data.adapter.common.*
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.AttachmentResolver
-import org.starfall.multigateway.ui.mcp.OAuthReceiver
 
 @Config(sdk = [28])
 @RunWith(RobolectricTestRunner::class)
@@ -43,14 +41,5 @@ class OAuthPersistenceTest {
         assertEquals(token, CodexTokenStore(context).load("first-codex-login"))
     }
 
-    @Test fun mcpCallbackBeforeCollectorIsRetainedAndConsumedOnlyOnce() = runBlocking {
-        val state = OAuthReceiver.begin()
-        assertFalse(OAuthReceiver.postToken("wrong-callback", "wrong-state"))
-        assertNull(OAuthReceiver.tokenFlow.value)
-        assertTrue(OAuthReceiver.postToken("first-callback", state))
-        val token = withTimeout(1000) { OAuthReceiver.tokenFlow.first { it != null } }!!
-        assertEquals("first-callback", token)
-        OAuthReceiver.consume(token)
-        assertNull(OAuthReceiver.tokenFlow.value)
-    }
+
 }

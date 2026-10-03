@@ -19,12 +19,13 @@ class AppContainer(context: Context) {
     private val llmService = LlmService(appContext)
     val toolFiles = ToolFiles(appContext)
     private val toolHttp = ToolHttp(toolFiles)
-    private val mcpService = McpService(toolHttp)
+    private val mcpOAuth = McpOAuthService(appContext, toolHttp)
+    private val mcpService = McpService(toolHttp, mcpOAuth)
     private val conversations = ConversationRepository(database)
     private val profiles = ProfileRepository(database)
     private val icons = IconStore(appContext)
     private val providers = LlmRepository(database, llmService, icons)
-    private val mcp = McpRepository(database, mcpService, icons)
+    private val mcp = McpRepository(database, mcpService, icons, mcpOAuth)
     private val speech = SpeechRepository(database)
     private val preferences = AppPreferencesRepository(appContext)
     private val toolSettings = ToolSettingsStore(appContext)
@@ -34,7 +35,6 @@ class AppContainer(context: Context) {
         initializer {
             ChatViewModel(
                 conversations,
-                profiles,
                 providers,
                 mcp,
                 preferences,

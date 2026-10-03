@@ -9,6 +9,7 @@ import org.starfall.multigateway.data.local.db.SecretCipher
 import org.starfall.multigateway.data.local.db.entities.*
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.McpService
+import org.starfall.multigateway.data.service.McpOAuthService
 import org.starfall.multigateway.data.service.IconStore
 
 @Serializable
@@ -18,8 +19,26 @@ private data class McpPersistedHttpConfig(
     val icon: String? = null
 )
 
-class McpRepository(private val db: AppDatabase, private val service: McpService, private val icons: IconStore? = null) {
+class McpRepository(
+    private val db: AppDatabase,
+    private val service: McpService,
+    private val icons: IconStore? = null,
+    private val oauth: McpOAuthService? = null
+) {
     suspend fun discoverTools(server: McpInfo) = service.discover(server)
+
+    suspend fun authorizeOAuth(server: McpInfo): Result<McpInfo> = runCatching {
+        val authorized = (oauth ?: error("MCP OAuth is unavailable")).authorize(server)
+        if (getById(server.id) != null) saveServer(authorized)
+        authorized
+    }
+
+    suspend fun clearOAuth(server: McpInfo): McpInfo {
+        oauth?.clear(server.id)
+        val cleared = server.copy(auth = server.auth.copy(value = null, oauthAuthorized = false))
+        if (getById(server.id) != null) saveServer(cleared)
+        return cleared
+    }
 
     private val dao = db.mcpServerDao()
 
@@ -46,6 +65,7 @@ class McpRepository(private val db: AppDatabase, private val service: McpService
     }
 
     suspend fun deleteServer(id: String) {
+        oauth?.clear(id)
         dao.deleteById(id)
     }
 

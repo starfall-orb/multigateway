@@ -55,19 +55,11 @@ fun QuickActionsSheet(onDismiss: () -> Unit) {
                 )
             }
             controls.servers.forEach { server ->
-                val permitted = if (controls.profile == null) {
-                    true
-                } else {
-                    controls.profile.config.mcpAccess[server.id]?.enabled == true
-                }
                 ToolSwitch(
                     server.name,
-                    permitted && controls.settings.quickMcp[server.id] != false,
-                    enabled = permitted
+                    controls.settings.quickMcp[server.id] != false,
+                    enabled = true
                 ) { controls.setMcp(server.id, it) }
-                if (controls.profile != null && !permitted) {
-                    Text("Disabled by profile", style = MaterialTheme.typography.bodySmall)
-                }
             }
         }
     }

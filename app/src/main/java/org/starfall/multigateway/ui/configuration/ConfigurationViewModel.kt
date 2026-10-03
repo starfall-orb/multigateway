@@ -184,6 +184,12 @@ class ConfigurationViewModel(
         return llmRepo.fetchOllamaModels(baseUrl)
     }
 
+    suspend fun authorizeMcpOAuth(server: McpInfo): Result<McpInfo> =
+        mcpRepo.authorizeOAuth(server)
+
+    suspend fun clearMcpOAuth(server: McpInfo): McpInfo =
+        mcpRepo.clearOAuth(server)
+
     fun saveMcpServer(server: McpInfo) {
         viewModelScope.launch {
             mcpRepo.saveServer(server)

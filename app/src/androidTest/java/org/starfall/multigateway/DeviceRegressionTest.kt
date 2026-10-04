@@ -18,12 +18,33 @@ import org.junit.Rule
 import org.junit.Test
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.chat.ModelPickerSheet
+import org.starfall.multigateway.ui.chat.FilesActionSheet
 import org.starfall.multigateway.ui.components.InlineVideoPreview
 import org.starfall.multigateway.ui.components.mediaThumbnail
 import java.io.File
 
 class DeviceRegressionTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun addSheetStartsHalfHeightExpandsAndShowsToolsBeforeSummary() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        compose.setContent { MaterialTheme {
+            FilesActionSheet({}, {}, {}, {}, {}, {}, {}, {})
+        } }
+        compose.waitForIdle()
+        val photos = compose.onNodeWithText("Photos")
+        val initialTop = photos.fetchSemanticsNode().boundsInRoot.top
+        val screenHeight = context.getSystemService(android.view.WindowManager::class.java)
+            .currentWindowMetrics.bounds.height()
+        assertTrue("Sheet did not open at half height", initialTop >= screenHeight * 0.45f)
+        photos.performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        assertTrue("Sheet did not expand", photos.fetchSemanticsNode().boundsInRoot.top < initialTop - 100)
+        compose.onNodeWithText("Summary").performScrollTo()
+        val tools = compose.onNodeWithText("Tools Manage").fetchSemanticsNode().boundsInRoot
+        val summary = compose.onNodeWithText("Summary").fetchSemanticsNode().boundsInRoot
+        assertTrue("Tools Manage must precede Summary", tools.top < summary.top)
+    }
 
     @Test fun modelPickerDoesNotDismissWhenFlingReachesTop() {
         var dismissed = false

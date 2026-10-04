@@ -1,5 +1,10 @@
 package org.starfall.multigateway.ui.tools
 import org.starfall.multigateway.ui.components.ChatFilePreview
+import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
+import org.starfall.multigateway.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import org.starfall.multigateway.ui.components.MediaViewerToolbar
 import org.starfall.multigateway.ui.components.windowHeight
 import org.starfall.multigateway.ui.components.windowHeightIn
@@ -13,6 +18,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +27,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -88,7 +97,7 @@ fun StorageScreen(store: ToolFiles, onBack: () -> Unit) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item(key = "storage-summary") {
                 Surface(
@@ -140,22 +149,8 @@ fun StorageScreen(store: ToolFiles, onBack: () -> Unit) {
                 }
             } else {
                 items(files, key = { it.name }) { file ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = file.name in selected,
-                            onCheckedChange = { checked ->
-                                selected = if (checked) selected + file.name else selected - file.name
-                            }
-                        )
-                        Column(Modifier.weight(1f)) {
-                            MediaFileCard(store, file.name)
-                            Text(
-                                android.text.format.Formatter.formatFileSize(context, file.length()),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 12.dp, top = 4.dp)
-                            )
-                        }
+                    StorageFileRow(store, file, file.name in selected) { checked ->
+                        selected = if (checked) selected + file.name else selected - file.name
                     }
                 }
             }
@@ -178,6 +173,59 @@ fun StorageScreen(store: ToolFiles, onBack: () -> Unit) {
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } }
         )
     }
+}
+
+@Composable
+private fun StorageFileRow(store: ToolFiles, file: File, selected: Boolean, onSelect: (Boolean) -> Unit) {
+    val context = LocalContext.current
+    val mime = remember(file.name) { file.mime() }
+    var thumbnail by remember(file.path) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var viewing by remember(file.path) { mutableStateOf(false) }
+    LaunchedEffect(file.path, file.lastModified()) {
+        thumbnail = mediaThumbnail(context, file.path, mime, 112)
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(88.dp).clickable { viewing = true },
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(Modifier.fillMaxSize().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                modifier = Modifier.size(56.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    thumbnail?.let {
+                        Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    } ?: Icon(
+                        when {
+                            mime.startsWith("audio/") -> Icons.Outlined.Audiotrack
+                            mime.startsWith("video/") -> Icons.Outlined.Videocam
+                            mime.startsWith("image/") -> Icons.Outlined.BrokenImage
+                            else -> Icons.Outlined.InsertDriveFile
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    android.text.format.Formatter.formatFileSize(context, file.length()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            Checkbox(checked = selected, onCheckedChange = onSelect)
+        }
+    }
+    if (viewing) MediaViewer(store, file) { viewing = false }
 }
 
 @Composable
@@ -212,6 +260,7 @@ fun MediaFileCard(
 @Composable
 private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
     val context=LocalContext.current
+    val attachmentSelection = LocalChatAttachmentSelection.current
     val scope=rememberCoroutineScope()
     var details by remember { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -227,6 +276,16 @@ private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
     Dialog(onDismissRequest=onDismiss) {
         Surface(shape=MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.85f).padding(12.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(file.name, modifier = Modifier.weight(1f), maxLines = 2,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    attachmentSelection?.let { selection ->
+                        val attached = file.path in selection.attachments.value
+                        val description = stringResource(if (attached) R.string.file_remove_next_message else R.string.file_attach_next_message)
+                        Checkbox(checked = attached, onCheckedChange = { selection.toggle(file.path) },
+                            modifier = Modifier.semantics { contentDescription = description })
+                    }
+                }
                 LazyColumn(Modifier.weight(1f,fill=false)) {
                     item {
                         if (isPreviewableMedia(file.mime())) MediaContent(file.path, file.mime())

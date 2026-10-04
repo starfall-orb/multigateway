@@ -20,7 +20,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 internal fun Modifier.providerDrag(
     providerId: String,
     onBoundsChanged: (Rect?) -> Unit,
-    onDrag: (Rect) -> Unit,
+    onDrag: (Rect, Offset) -> Unit,
     onDrop: (Offset) -> Unit,
     onCancel: () -> Unit
 ): Modifier = composed {
@@ -49,13 +49,13 @@ internal fun Modifier.providerDrag(
                 pointer = bounds.topLeft + it
                 distance = Offset.Zero
                 dragging = true
-                drag(startBounds)
+                drag(startBounds, pointer)
             },
             onDrag = { change, amount ->
                 change.consume()
                 pointer += amount
                 distance += amount
-                drag(startBounds.translate(distance))
+                drag(startBounds.translate(distance), pointer)
             },
             onDragEnd = {
                 dragging = false

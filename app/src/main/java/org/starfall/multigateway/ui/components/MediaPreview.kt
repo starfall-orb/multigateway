@@ -1,10 +1,8 @@
 package org.starfall.multigateway.ui.components
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.DialogProperties
@@ -392,12 +390,13 @@ private fun MediaSeekBar(value: Float, onValueChange: (Float) -> Unit, onValueCh
         colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.Gray),
         thumb = { Box(Modifier.size(8.dp).background(Color.White, CircleShape)) },
         track = { state ->
-            Canvas(Modifier.fillMaxWidth().height(3.dp)) {
-                val end = Offset(size.width, size.height / 2)
-                val start = Offset(0f, size.height / 2)
-                drawLine(Color.Gray, start, end, 3.dp.toPx(), StrokeCap.Round)
-                drawLine(Color.White, start, Offset(size.width * (state.value / duration).coerceIn(0f, 1f), end.y), 3.dp.toPx(), StrokeCap.Round)
-            }
+            SliderDefaults.Track(
+                sliderState = state,
+                modifier = Modifier.fillMaxWidth().height(3.dp),
+                colors = SliderDefaults.colors(activeTrackColor = Color.White, inactiveTrackColor = Color.Gray),
+                thumbTrackGapSize = 0.dp,
+                drawStopIndicator = null
+            )
         })
 }
 

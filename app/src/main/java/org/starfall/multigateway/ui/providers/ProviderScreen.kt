@@ -161,6 +161,12 @@ fun ProviderScreen(
     val groupCardBounds = remember { mutableStateMapOf<String, Rect>() }
     val providerCardBounds = remember { mutableStateMapOf<String, Rect>() }
     var draggedProvider by remember { mutableStateOf<DraggedProvider?>(null) }
+    var draggedGroupId by remember { mutableStateOf<String?>(null) }
+    var dragRootSnapshot by remember { mutableStateOf<List<ProviderRootItem>?>(null) }
+    var dragProviderSnapshot by remember { mutableStateOf<List<LlmProviderInfo>?>(null) }
+    var folderReorderCandidate by remember { mutableStateOf<String?>(null) }
+    var lastReorderTarget by remember { mutableStateOf<String?>(null) }
+    var liveOrderChanged by remember { mutableStateOf(false) }
     var contentPosition by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
 
@@ -211,11 +217,23 @@ fun ProviderScreen(
 
     fun dropProvider(provider: LlmProviderInfo, point: Offset) {
         draggedProvider = null
+        folderReorderCandidate = null
+        dragRootSnapshot = null
+        dragProviderSnapshot = null
         val sourceGroupId = provider.groupId?.takeIf { it in validGroupIds }
         val targetGroupId = groupCardBounds.entries.firstOrNull { it.value.containsPoint(point) }?.key
         // Folder membership takes priority over reordering, including leaving a folder.
         if (targetGroupId != sourceGroupId) {
+            if (liveOrderChanged) {
+                if (sourceGroupId == null) persistRootOrder()
+                else onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
+            }
             onMoveProviderToGroup(provider.id, targetGroupId)
+            return
+        }
+        if (liveOrderChanged) {
+            if (sourceGroupId == null) persistRootOrder()
+            else onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
             return
         }
         val target = orderedProviders.firstOrNull {
@@ -240,10 +258,69 @@ fun ProviderScreen(
                 if (bounds == null) providerCardBounds.remove(provider.id)
                 else providerCardBounds[provider.id] = bounds
             },
-            onDrag = { draggedProvider = DraggedProvider(provider, it) },
+            onDrag = { bounds, point ->
+                if (draggedProvider == null) {
+                    dragRootSnapshot = rootItems
+                    dragProviderSnapshot = orderedProviders
+                    liveOrderChanged = false
+                    lastReorderTarget = null
+                }
+                draggedProvider = DraggedProvider(provider, bounds)
+                val sourceGroup = provider.groupId?.takeIf { it in validGroupIds }
+                val insideFolder = groupCardBounds.entries.firstOrNull { it.value.containsPoint(point) }?.key
+                val margin = with(density) { 36.dp.toPx() }
+                folderReorderCandidate = if (sourceGroup == null && insideFolder == null) {
+                    groupCardBounds.entries.filter { it.value.inflate(margin).containsPoint(point) }
+                        .minByOrNull { (it.value.center - point).getDistance() }?.key
+                } else null
+                if (insideFolder == sourceGroup) {
+                    val target = orderedProviders.firstOrNull {
+                        it.id != provider.id && it.groupId?.takeIf { id -> id in validGroupIds } == sourceGroup &&
+                            providerCardBounds[it.id]?.containsPoint(point) == true
+                    }
+                    if (target != null && lastReorderTarget != target.id) {
+                        if (sourceGroup != null) {
+                            val members = orderedProviders.filter { it.groupId == sourceGroup }
+                            moveWithinGroup(sourceGroup, members.indexOfFirst { it.id == provider.id }, members.indexOfFirst { it.id == target.id })
+                            liveOrderChanged = true
+                            lastReorderTarget = target.id
+                        } else {
+                            val from = rootItems.indexOfFirst { it.id == provider.id }
+                            val to = rootItems.indexOfFirst { it.id == target.id }
+                            // A provider cannot displace a folder until the explicit outside dwell.
+                            if (from >= 0 && to >= 0 && rootItems.subList(minOf(from, to), maxOf(from, to) + 1)
+                                    .none { it is ProviderRootItem.GroupItem }) {
+                                rootItems = rootItems.moved(from, to)
+                                liveOrderChanged = true
+                                lastReorderTarget = target.id
+                            }
+                        }
+                    }
+                }
+            },
             onDrop = { dropProvider(provider, it) },
-            onCancel = { draggedProvider = null }
+            onCancel = {
+                dragRootSnapshot?.let { rootItems = it }
+                dragProviderSnapshot?.let { orderedProviders = it }
+                draggedProvider = null
+                folderReorderCandidate = null
+                dragRootSnapshot = null
+                dragProviderSnapshot = null
+            }
         )
+
+    LaunchedEffect(folderReorderCandidate) {
+        val groupId = folderReorderCandidate ?: return@LaunchedEffect
+        kotlinx.coroutines.delay(1_000)
+        val provider = draggedProvider?.provider ?: return@LaunchedEffect
+        val from = rootItems.indexOfFirst { it is ProviderRootItem.ProviderItem && it.id == provider.id }
+        val to = rootItems.indexOfFirst { it is ProviderRootItem.GroupItem && it.id == groupId }
+        if (from >= 0 && to >= 0 && from != to) {
+            rootItems = rootItems.moved(from, to)
+            liveOrderChanged = true
+            lastReorderTarget = groupId
+        }
+    }
 
     LaunchedEffect(collapsedSectionsState) {
         collapsedSections = collapsedSectionsState
@@ -363,7 +440,8 @@ fun ProviderScreen(
                                             key = "group_${group.id}",
                                             span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
                                         ) {
-                                            Box(Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
+                                             Box(Modifier.zIndex(if (draggedGroupId == group.id) 100f else 0f)
+                                                 .animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
                                             if (expanded) {
                                                 ProviderGroupExpandedContainer(
                                                     group = group,
@@ -382,7 +460,8 @@ fun ProviderScreen(
                                                         onMove = { from, to ->
                                                             rootItems = rootItems.moved(from, to)
                                                         },
-                                                        onDrop = ::persistRootOrder
+                                                        onDrop = ::persistRootOrder,
+                                                        onDraggingChanged = { dragging -> draggedGroupId = group.id.takeIf { dragging } }
                                                     ),
                                                     onBoundsChanged = { bounds ->
                                                         if (bounds == null) groupCardBounds.remove(group.id)
@@ -416,7 +495,8 @@ fun ProviderScreen(
                                                             onMove = { from, to ->
                                                                 rootItems = rootItems.moved(from, to)
                                                             },
-                                                            onDrop = ::persistRootOrder
+                                                            onDrop = ::persistRootOrder,
+                                                            onDraggingChanged = { dragging -> draggedGroupId = group.id.takeIf { dragging } }
                                                         ),
                                                     onBoundsChanged = { bounds ->
                                                         if (bounds == null) groupCardBounds.remove(group.id)

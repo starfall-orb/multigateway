@@ -36,7 +36,7 @@ class ProviderDragBehaviorTest {
     private val rootOrders = mutableListOf<List<ProviderRootOrderItem>>()
     private val memberOrders = mutableListOf<List<String>>()
 
-    private fun show(grid: Boolean, grouped: Boolean, collapsed: Boolean = false, bothGrouped: Boolean = false) {
+    private fun show(grid: Boolean, grouped: Boolean, collapsed: Boolean = false, bothGrouped: Boolean = false, includeFolders: Boolean = true) {
         providers.value = listOf(
             LlmProviderInfo("p1", "First", ProviderType.OPENAI, baseUrl = "", sortOrder = 1,
                 groupId = if (grouped) "g1" else null),
@@ -47,7 +47,7 @@ class ProviderDragBehaviorTest {
             MaterialTheme {
                 ProviderScreen(
                     providers = providers.value,
-                    providerGroups = listOf(ProviderGroup("g1", "Folder", 0), ProviderGroup("g2", "Other", 2)),
+                    providerGroups = if (includeFolders) listOf(ProviderGroup("g1", "Folder", 0), ProviderGroup("g2", "Other", 2)) else emptyList(),
                     collapsedSectionsState = if (collapsed) setOf("g1", "g2") else setOf("g2"),
                     isGridView = grid,
                     onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
@@ -134,15 +134,35 @@ class ProviderDragBehaviorTest {
     }
 
     @Test fun rootProvidersCanStillBeReorderedOnDrop() {
-        show(grid = false, grouped = false)
-        dragTo(bounds("provider_p2").center)
+        show(grid = false, grouped = false, includeFolders = false)
+        val targetBefore = bounds("provider_p2")
+        dragTo(targetBefore.center) {
+            assertTrue("Other provider must move before release", bounds("provider_p2").top < targetBefore.top)
+            assertTrue("Persist order only on release", rootOrders.isEmpty())
+        }
         assertTrue(moves.isEmpty())
-        assertEquals(listOf("g1", "g2", "p2", "p1"), rootOrders.single().map { it.id })
+        assertEquals(listOf("p2", "p1"), rootOrders.single().map { it.id })
+    }
+
+    @Test fun folderYieldsOnlyAfterOneSecondOutsideDwell() {
+        show(grid = false, grouped = false, collapsed = true)
+        val folder = bounds("provider_group_g2")
+        dragTo(Offset(folder.right + 8f, folder.center.y)) {
+            assertEquals("Folder must initially stay in place", folder, bounds("provider_group_g2"))
+            compose.waitUntil(3_000) { bounds("provider_group_g2").top < folder.top - 10f }
+            assertTrue(rootOrders.isEmpty())
+        }
+        assertTrue("Outside dwell is reorder, not membership", moves.isEmpty())
+        assertEquals(listOf("g1", "g2", "p1", "p2"), rootOrders.single().map { it.id })
     }
 
     @Test fun providersCanStillBeReorderedWithinFolderInGrid() {
         show(grid = true, grouped = true, bothGrouped = true)
-        dragTo(bounds("provider_p2").center)
+        val before = bounds("provider_p2")
+        dragTo(before.center) {
+            assertTrue("Folder member must move before release", bounds("provider_p2").left < before.left)
+            assertTrue(memberOrders.isEmpty())
+        }
         assertTrue(moves.isEmpty())
         assertEquals(listOf("p2", "p1"), memberOrders.single())
     }

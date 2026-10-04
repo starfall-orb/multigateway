@@ -25,7 +25,8 @@ fun Modifier.longPressReorder(
     minIndex: Int = 0,
     onMove: (from: Int, to: Int) -> Unit,
     onDrop: () -> Unit,
-    onDropAt: ((Offset) -> Unit)? = null
+    onDropAt: ((Offset) -> Unit)? = null,
+    onDraggingChanged: (Boolean) -> Unit = {}
 ): Modifier = composed {
     var isDragging by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
@@ -41,6 +42,7 @@ fun Modifier.longPressReorder(
     val onMoveState = rememberUpdatedState(onMove)
     val onDropState = rememberUpdatedState(onDrop)
     val onDropAtState = rememberUpdatedState(onDropAt)
+    val onDraggingChangedState = rememberUpdatedState(onDraggingChanged)
 
     val animatedScale by animateFloatAsState(
         targetValue = if (isDragging) 1.04f else 1f,
@@ -79,6 +81,7 @@ fun Modifier.longPressReorder(
             detectDragGesturesAfterLongPress(
                 onDragStart = {
                     isDragging = true
+                    onDraggingChangedState.value(true)
                     dragOffset = Offset.Zero
                     startDragRootPosition = currentItemPosition
                     activeIndex = currentIndexState.value
@@ -87,6 +90,7 @@ fun Modifier.longPressReorder(
                 },
                 onDragCancel = {
                     isDragging = false
+                    onDraggingChangedState.value(false)
                     dragOffset = Offset.Zero
                     onDropState.value()
                 },
@@ -96,6 +100,7 @@ fun Modifier.longPressReorder(
                         currentItemSize.height / 2f
                     )
                     isDragging = false
+                    onDraggingChangedState.value(false)
                     dragOffset = Offset.Zero
                     onDropAtState.value?.invoke(dropCenter)
                     onDropState.value()

@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+import org.starfall.multigateway.ui.components.bottomSheetListScrollBoundary
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -29,12 +31,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -246,17 +244,7 @@ fun ModelPickerSheet(
     val listState = remember(targetIndex) {
         LazyListState(firstVisibleItemIndex = targetIndex)
     }
-    val listScrollBoundary = remember {
-        object : NestedScrollConnection {
-            // Downward overscroll belongs to the list, not the sheet. In
-            // particular, a fling reaching item zero must not dismiss it.
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-                Offset(0f, available.y.coerceAtLeast(0f))
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                Velocity(0f, available.y.coerceAtLeast(0f))
-        }
-    }
+    val listScrollBoundary = remember { bottomSheetListScrollBoundary() }
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) listState.scrollToItem(0)
@@ -302,7 +290,7 @@ fun ModelPickerSheet(
                         )
                     )
                 }
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },

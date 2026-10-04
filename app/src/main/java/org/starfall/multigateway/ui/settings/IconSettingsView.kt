@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.settings
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import org.starfall.multigateway.ui.components.windowHeightIn
 
@@ -106,7 +107,7 @@ fun IconSettingsView() {
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SettingsCard {
-            OutlinedTextField(value = query, onValueChange = { query = it },
+            SelectableOutlinedTextField(value = query, onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                 label = { Text(stringResource(R.string.icon_cache_search)) },
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) })
@@ -199,7 +200,7 @@ fun IconSettingsView() {
                             val pattern = patterns[index]
                             val invalid = pattern.isBlank() || runCatching { Regex(pattern) }.isFailure
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(value = pattern, onValueChange = { value ->
+                                SelectableOutlinedTextField(value = pattern, onValueChange = { value ->
                                     patterns = patterns.toMutableList().apply { this[index] = value }
                                 }, modifier = Modifier.weight(1f), enabled = !busy,
                                     label = { Text(stringResource(R.string.icon_cache_regex)) }, isError = invalid,

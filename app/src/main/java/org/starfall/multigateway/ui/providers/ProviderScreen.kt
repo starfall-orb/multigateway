@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
@@ -50,6 +51,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -845,107 +847,100 @@ private fun ProviderGroupExpandedContainer(
 
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-            if (isGrid) {
-                Column(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    var providerIndex = 0
-                    var slot = 0
-                    val totalSlots = providers.size + 1
-                    while (slot < totalSlots) {
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            repeat(2) {
-                                when {
-                                    slot == 0 -> {
-                                        ProviderGroupIconTile(
-                                            group = group,
-                                            modifier = Modifier.weight(1f),
-                                            onClick = onCollapse
-                                        )
-                                    }
-
-                                    providerIndex < providers.size -> {
-                                        val childIndex = providerIndex
-                                        val provider = providers[childIndex]
-                                        ProviderUnifiedCard(
-                                            provider = provider,
-                                            isGrid = true,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .animateProviderPlacement(provider.id, placementAnimationState)
-                                                .then(providerDragModifier(provider)),
-                                            onEdit = { onEditProvider(provider) },
-                                            onMoveToGroup = { onMoveProvider(provider) },
-                                            onDelete = { onDeleteProvider(provider) }
-                                        )
-                                        providerIndex++
-                                    }
-
-                                    else -> Spacer(Modifier.weight(1f))
-                                }
-                                slot++
-                            }
-                        }
-                    }
-                    if (providers.isEmpty()) {
-                        Text(
-                            stringResource(R.string.empty_provider_group),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            } else {
-                Column(
-                    Modifier.fillMaxWidth().padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.Top) {
+            ProviderGroupItemsLayout(
+                isGrid = isGrid,
+                modifier = Modifier.fillMaxWidth().padding(12.dp)
+            ) {
+                key("group-icon") {
                     ProviderGroupIconTile(
                         group = group,
-                        modifier = Modifier.width(ProviderListCardHeight),
-                        tileHeight = ProviderListCardHeight,
-                        fillFrame = false,
+                        tileHeight = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight,
+                        fillFrame = isGrid,
                         onClick = onCollapse
                     )
-                        if (providers.isEmpty()) {
-                            Text(
-                                stringResource(R.string.empty_provider_group),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f).padding(8.dp)
-                            )
-                        } else {
-                            providers.firstOrNull()?.let { provider ->
-                                ProviderUnifiedCard(
-                                    provider = provider,
-                                    isGrid = false,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .animateProviderPlacement(provider.id, placementAnimationState)
-                                        .then(providerDragModifier(provider)),
-                                    onEdit = { onEditProvider(provider) },
-                                    onMoveToGroup = { onMoveProvider(provider) },
-                                    onDelete = { onDeleteProvider(provider) }
-                                )
-                            }
-                        }
-                    }
-                    providers.drop(1).forEach { provider ->
-                        ProviderUnifiedCard(provider = provider, isGrid = false,
+                }
+                providers.forEach { provider ->
+                    key(provider.id) {
+                        ProviderUnifiedCard(
+                            provider = provider,
+                            isGrid = isGrid,
                             modifier = Modifier
                                 .animateProviderPlacement(provider.id, placementAnimationState)
                                 .then(providerDragModifier(provider)),
                             onEdit = { onEditProvider(provider) },
                             onMoveToGroup = { onMoveProvider(provider) },
-                            onDelete = { onDeleteProvider(provider) })
+                            onDelete = { onDeleteProvider(provider) }
+                        )
                     }
+                }
+            }
+            if (providers.isEmpty()) {
+                Text(
+                    stringResource(R.string.empty_provider_group),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Keeps every provider under the same layout parent. Moving a provider between nested Rows used to
+ * dispose and recreate its pointer input midway through a drag, which cancelled the gesture and
+ * also made the placement animation start from the wrong item.
+ */
+@Composable
+private fun ProviderGroupItemsLayout(
+    isGrid: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val horizontalGap = 12.dp
+    val verticalGap = if (isGrid) 12.dp else 8.dp
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val hGap = horizontalGap.roundToPx()
+        val vGap = verticalGap.roundToPx()
+        val fullWidth = constraints.maxWidth
+        val firstWidth = if (isGrid) (fullWidth - hGap).coerceAtLeast(0) / 2
+            else ProviderListCardHeight.roundToPx().coerceAtMost(fullWidth)
+        val secondWidth = (fullWidth - firstWidth - hGap).coerceAtLeast(0)
+        val placeables = measurables.mapIndexed { index, measurable ->
+            val width = when {
+                isGrid -> firstWidth
+                index == 0 -> firstWidth
+                index == 1 -> secondWidth
+                else -> fullWidth
+            }
+            measurable.measure(constraints.copy(minWidth = width, maxWidth = width, minHeight = 0))
+        }
+        val rows = placeables.chunked(2).takeIf { isGrid }
+        val height = if (isGrid) {
+            rows.orEmpty().sumOf { row -> row.maxOf { it.height } } +
+                vGap * (rows.orEmpty().size - 1).coerceAtLeast(0)
+        } else {
+            val firstRowHeight = placeables.take(2).maxOfOrNull { it.height } ?: 0
+            firstRowHeight + placeables.drop(2).sumOf { it.height } +
+                vGap * (placeables.size - 2).coerceAtLeast(0)
+        }
+        layout(fullWidth, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
+            if (isGrid) {
+                var y = 0
+                placeables.chunked(2).forEach { row ->
+                    row.forEachIndexed { column, placeable ->
+                        placeable.placeRelative(column * (firstWidth + hGap), y)
+                    }
+                    y += row.maxOf { it.height } + vGap
+                }
+            } else {
+                val firstRowHeight = placeables.take(2).maxOfOrNull { it.height } ?: 0
+                placeables.getOrNull(0)?.placeRelative(0, 0)
+                placeables.getOrNull(1)?.placeRelative(firstWidth + hGap, 0)
+                var y = firstRowHeight + vGap
+                placeables.drop(2).forEach { placeable ->
+                    placeable.placeRelative(0, y)
+                    y += placeable.height + vGap
                 }
             }
         }
@@ -1038,7 +1033,7 @@ private fun ProviderGroupNameDialog(
                     onBusyChange = { iconImporting = it },
                     matchName = trimmed.ifBlank { name }
                 )
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text(stringResource(R.string.provider_group_name)) },

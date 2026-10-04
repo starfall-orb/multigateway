@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.speech
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.compose.animation.animateContentSize
@@ -444,7 +445,7 @@ private fun AddOrEditSpeechDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             ) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Service name") },
@@ -530,7 +531,7 @@ private fun AddOrEditSpeechDialog(
                     )
                 }
 
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = voice,
                     onValueChange = { voice = it },
                     label = {
@@ -557,7 +558,7 @@ private fun AddOrEditSpeechDialog(
 
                 if (!system) {
                     if (supportsInstructions) {
-                        OutlinedTextField(
+                        SelectableOutlinedTextField(
                             value = instructions, onValueChange = { instructions = it },
                             label = { Text("Voice instructions") },
                             supportingText = { Text("Tone, accent, emotion${if (google) " and speaking speed" else ""}.") },
@@ -565,7 +566,7 @@ private fun AddOrEditSpeechDialog(
                         )
                     }
                     if (google) {
-                        OutlinedTextField(
+                        SelectableOutlinedTextField(
                             value = languageCode, onValueChange = { languageCode = it },
                             label = { Text("Language code (optional)") },
                             placeholder = { Text("vi-VN") }, singleLine = true,
@@ -586,14 +587,14 @@ private fun AddOrEditSpeechDialog(
                             }
                         }
                     }
-                    OutlinedTextField(
+                    SelectableOutlinedTextField(
                         value = extraBodyText, onValueChange = { extraBodyText = it },
                         label = { Text("Additional API parameters (JSON)") },
                         isError = extraBody == null,
                         supportingText = { Text(if (extraBody == null) "Enter a valid JSON object." else "Provider-specific parameters; model, text and voice use the fields above.") },
                         modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5
                     )
-                    OutlinedTextField(
+                    SelectableOutlinedTextField(
                         value = apiKey, onValueChange = { apiKey = it },
                         label = { Text("API key override (optional)") },
                         supportingText = { Text("Leave empty to use the provider's authentication.") },

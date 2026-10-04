@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.activity.compose.BackHandler
@@ -112,7 +113,7 @@ fun ModelEditScreen(
                 matchName = config.displayName.ifBlank { modelId },
                 model = true
             )
-            OutlinedTextField(
+            SelectableOutlinedTextField(
                 value = modelId,
                 onValueChange = { modelId = it },
                 label = { Text(stringResource(R.string.model_id)) },
@@ -121,7 +122,7 @@ fun ModelEditScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            OutlinedTextField(
+            SelectableOutlinedTextField(
                 value = config.displayName,
                 onValueChange = { config = config.copy(displayName = it) },
                 label = { Text(stringResource(R.string.display_name)) },
@@ -130,7 +131,7 @@ fun ModelEditScreen(
                 modifier = Modifier.fillMaxWidth()
             )
             ExposedDropdownMenuBox(expanded = typeExpanded, onExpandedChange = { typeExpanded = !typeExpanded }) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = config.modelType.displayName,
                     onValueChange = {},
                     readOnly = true,
@@ -151,7 +152,7 @@ fun ModelEditScreen(
                 }
             }
             if (config.modelType == ModelType.TEXT_GENERATION) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = contextWindowText,
                     onValueChange = { if (it.all(Char::isDigit)) contextWindowText = it },
                     label = { Text(stringResource(R.string.context_window)) },

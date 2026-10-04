@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.drawer
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -53,7 +54,7 @@ fun PromptLibraryDialog(initialLibrary: PromptLibrary, onChange: (PromptLibrary)
                         IconButton(onClick = onDismiss) { Icon(Icons.Outlined.Close, "Close prompts") }
                     }
                     Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(name, { name = it }, label = { Text("Prompt name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        SelectableOutlinedTextField(name, { name = it }, label = { Text("Prompt name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                         val roles = listOf(ChatRole.SYSTEM, ChatRole.USER, ChatRole.MODEL)
                         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                             roles.forEachIndexed { index, value ->
@@ -61,7 +62,7 @@ fun PromptLibraryDialog(initialLibrary: PromptLibrary, onChange: (PromptLibrary)
                                     shape = SegmentedButtonDefaults.itemShape(index, roles.size)) { Text(promptRoleName(value)) }
                             }
                         }
-                        OutlinedTextField(content, { content = it }, label = { Text("Prompt") },
+                        SelectableOutlinedTextField(content, { content = it }, label = { Text("Prompt") },
                             minLines = 6, maxLines = 12, modifier = Modifier.fillMaxWidth())
                     }
                 } else {

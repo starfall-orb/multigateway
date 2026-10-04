@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,7 +46,7 @@ fun InputBar(
                 )
             }
 
-            OutlinedTextField(
+            SelectableOutlinedTextField(
                 value = textState,
                 onValueChange = { textState = it },
                 placeholder = { Text("Type some text...") },

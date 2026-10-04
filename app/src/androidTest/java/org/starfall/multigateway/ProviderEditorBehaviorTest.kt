@@ -84,6 +84,30 @@ class ProviderEditorBehaviorTest {
             assertEquals("test-key", saved?.auth?.value)
         }
     }
+
+    @Test fun apiKeyGrowsToThreeLinesAndThenStopsGrowing() {
+        compose.setContent { MaterialTheme {
+            ProviderEditScreen(provider, false, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                onDismiss = {}, onSave = {})
+        } }
+        val field = compose.onNodeWithTag("provider_api_key").performScrollTo()
+        val singleLineHeight = field.fetchSemanticsNode().boundsInRoot.height
+
+        field.performTextReplacement("k".repeat(256))
+        compose.waitForIdle()
+        val threeLineHeight = field.fetchSemanticsNode().boundsInRoot.height
+        assertTrue("A long API key should expand the field", threeLineHeight > singleLineHeight)
+
+        field.performTextReplacement("k".repeat(1_024))
+        compose.waitForIdle()
+        assertEquals(
+            "API key field should stop growing after three lines",
+            threeLineHeight,
+            field.fetchSemanticsNode().boundsInRoot.height,
+            1f
+        )
+    }
+
     @Test fun connectionDialogTestsOnlyTextModelsAndRemovesFailedModels() {
         val calls = mutableListOf<String>()
         var saved = emptyMap<String, ModelConfiguration>()

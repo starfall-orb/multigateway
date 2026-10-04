@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.profiles
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import org.starfall.multigateway.data.model.McpInfo
 import org.starfall.multigateway.data.model.McpAccess
@@ -334,7 +335,7 @@ fun AddOrEditProfileDialog(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Profile Name") },
@@ -342,7 +343,7 @@ fun AddOrEditProfileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = systemPrompt,
                     onValueChange = { systemPrompt = it },
                     label = { Text("System Prompt") },

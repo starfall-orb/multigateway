@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -137,7 +138,7 @@ fun ProviderEditScreen(
                         if (page == 0) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             IconPickerRow(providerIcon, { providerIcon = it }, text = providerInitials(name), onBusyChange = { iconImporting = it }, matchName = name)
                             ExposedDropdownMenuBox(typeExpanded, { typeExpanded = !typeExpanded }, modifier = Modifier.fillMaxWidth()) {
-                                OutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
+                                SelectableOutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                                 ExposedDropdownMenu(typeExpanded, { typeExpanded = false }) {
                                     ProviderType.entries.forEach { next -> RoundedDropdownMenuItem(text = { Text(next.displayName) }, onClick = {
@@ -152,11 +153,11 @@ fun ProviderEditScreen(
                                     }) }
                                 }
                             }
-                            OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            SelectableOutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             ProviderBaseUrlField(type, baseUrl, urlValid) { baseUrl = it }
                             if (baseUrl.trim().startsWith("http://", true)) Text(stringResource(R.string.http_unencrypted_provider_warning),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) OutlinedTextField(authName, { authName = it },
+                            if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) SelectableOutlinedTextField(authName, { authName = it },
                                 label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
                                 isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
                             if (!type.isAccountProvider || authMethod != AuthMethod.OAUTH) ProviderAuthField(authMethod, apiKey, !type.isAccountProvider,
@@ -193,8 +194,8 @@ fun ProviderEditScreen(
                             }
                             headerRows.forEachIndexed { index, row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(row.first, { headerRows[index] = it to headerRows[index].second }, label = { Text(stringResource(R.string.common_key)) }, singleLine = true, modifier = Modifier.weight(1f))
-                                OutlinedTextField(row.second, { headerRows[index] = headerRows[index].first to it }, label = { Text(stringResource(R.string.common_value)) }, singleLine = true, modifier = Modifier.weight(1f))
+                                SelectableOutlinedTextField(row.first, { headerRows[index] = it to headerRows[index].second }, label = { Text(stringResource(R.string.common_key)) }, singleLine = true, modifier = Modifier.weight(1f))
+                                SelectableOutlinedTextField(row.second, { headerRows[index] = headerRows[index].first to it }, label = { Text(stringResource(R.string.common_value)) }, singleLine = true, modifier = Modifier.weight(1f))
                                 IconButton(onClick = { headerRows.removeAt(index) }) { Icon(Icons.Outlined.Delete, stringResource(R.string.delete_header)) }
                             } }
                             if (!headersValid) Text("Header names and values must be valid and header names must be unique.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

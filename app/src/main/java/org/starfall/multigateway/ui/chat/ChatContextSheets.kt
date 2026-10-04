@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.layout.*
@@ -125,7 +126,7 @@ fun ConversationSummarySheet(
                 Text("Custom target")
             }
             if (customTarget) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = customTargetText,
                     onValueChange = { customTargetText = it.filter(Char::isDigit) },
                     label = { Text("Target tokens") },
@@ -164,7 +165,7 @@ fun ConversationSummarySheet(
                     Text("Custom per-pass limit")
                 }
                 if (customChunk) {
-                    OutlinedTextField(
+                    SelectableOutlinedTextField(
                         value = customChunkText,
                         onValueChange = { customChunkText = it.filter(Char::isDigit) },
                         label = { Text("Tokens / pass") },

@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -26,6 +29,7 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.bottomSheetListScrollBoundary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +64,7 @@ internal fun ProviderModelCatalogSheet(
         it.contains(query, ignoreCase = true) || modelsById[it]?.displayName?.contains(query, ignoreCase = true) == true
     }
     val allVisibleSelected = visibleModels.isNotEmpty() && visibleModels.all { it in selectedModels }
+    val listScrollBoundary = remember { bottomSheetListScrollBoundary() }
     AppBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding().padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
@@ -67,7 +72,7 @@ internal fun ProviderModelCatalogSheet(
                 IconButton(onClick = { refresh++ }, enabled = !loading) {
                     Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.refresh_models))
                 }
-                OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_models)) },
+                SelectableOutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_models)) },
                     singleLine = true, modifier = Modifier.weight(1f))
                 TriStateCheckbox(
                     state = when {
@@ -87,7 +92,13 @@ internal fun ProviderModelCatalogSheet(
                 Text(it, color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = { refresh++ }, enabled = !loading) { Text(stringResource(R.string.common_retry)) }
             }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
+            LazyColumn(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .testTag("provider-model-catalog-list")
+                    .nestedScroll(listScrollBoundary),
+                contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (visibleModels.isEmpty() && !loading && loadError == null) {
                     item { Text(stringResource(if (query.isBlank()) R.string.no_models_returned else R.string.no_matching_models), modifier = Modifier.padding(16.dp)) }

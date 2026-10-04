@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.chat
 
 import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.selectAllOnTripleClick
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -32,6 +33,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -92,6 +95,7 @@ fun UserInputArea(
     modifier: Modifier = Modifier
 ) {
     var textState by remember { mutableStateOf("") }
+    var textSelection by remember { mutableStateOf(TextRange.Zero) }
     var inputRowWidthPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -162,6 +166,7 @@ fun UserInputArea(
         editDraft?.let {
             mediaKind = null
             textState = it.text
+            textSelection = TextRange(it.text.length)
             onAttachmentsChange(it.attachments)
         }
     }
@@ -281,6 +286,7 @@ fun UserInputArea(
                             onClick = {
                                 onCancelEdit()
                                 textState = ""
+                                textSelection = TextRange.Zero
                                 onAttachmentsChange(emptyList())
                             }
                         ) { Text("Cancel") }
@@ -318,13 +324,25 @@ fun UserInputArea(
                     }
 
                     BasicTextField(
-                        value = textState,
-                        onValueChange = { textState = it },
+                        value = TextFieldValue(
+                            textState,
+                            TextRange(
+                                textSelection.start.coerceAtMost(textState.length),
+                                textSelection.end.coerceAtMost(textState.length)
+                            )
+                        ),
+                        onValueChange = {
+                            textState = it.text
+                            textSelection = it.selection
+                        },
                         textStyle = inputTextStyle,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
-                             .padding(horizontal = 8.dp, vertical = 10.dp),
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                            .selectAllOnTripleClick {
+                                textSelection = TextRange(0, textState.length)
+                            },
                         maxLines = 6,
                         decorationBox = { innerTextField ->
                             Column {
@@ -406,6 +424,7 @@ fun UserInputArea(
                                         if (submitted) {
                                             focusManager.clearFocus(force = true)
                                             textState = ""
+                                            textSelection = TextRange.Zero
                                             onAttachmentsChange(emptyList())
                                             if (editDraft != null) onCancelEdit()
                                         } else {

@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.tools
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.settings.SettingsCard
@@ -163,7 +164,7 @@ fun SystemToolsScreen(
                     style = MaterialTheme.typography.titleLarge)
                 Text("Customize the instructions sent to this default model.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = prompt,
                     onValueChange = { prompt = it },
                     label = { Text("Instruction prompt") },

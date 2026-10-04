@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.mcp
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -31,13 +32,13 @@ internal fun McpOAuthFields(url: String, clientId: String, onClientIdChange: (St
     }
     if (advanced) {
         Text(stringResource(R.string.client_id), style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(clientId, onClientIdChange, placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
+        SelectableOutlinedTextField(clientId, onClientIdChange, placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_id_help)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(clientSecret, onClientSecretChange, label = { Text(stringResource(R.string.client_secret)) },
+        SelectableOutlinedTextField(clientSecret, onClientSecretChange, label = { Text(stringResource(R.string.client_secret)) },
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_secret_help)) }, singleLine = true,
             visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.redirect_uri), style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(McpOAuthService.REDIRECT_URI, {}, readOnly = true, singleLine = true, modifier = Modifier.fillMaxWidth(),
+        SelectableOutlinedTextField(McpOAuthService.REDIRECT_URI, {}, readOnly = true, singleLine = true, modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
     }

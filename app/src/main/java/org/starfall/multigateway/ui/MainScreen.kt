@@ -315,7 +315,19 @@ fun MainScreen(
                         )
                     }
 
-                    composable(AppDestination.SYSTEM_TOOLS.route) { SystemToolsScreen(providers, toolSettings, viewModel::setSystemTool) { navController.popBackStack() } }
+                    composable(AppDestination.SYSTEM_TOOLS.route) {
+                        SystemToolsScreen(
+                            providers = providers,
+                            settings = toolSettings,
+                            onSave = viewModel::setSystemTool,
+                            providerGroups = providerGroups,
+                            collapsedGroupIds = appPrefs.modelPickerCollapsedGroups,
+                            collapsedProviderIds = appPrefs.modelPickerCollapsedProviders,
+                            onCollapsedGroupIdsChange = settingsViewModel::setModelPickerCollapsedGroups,
+                            onCollapsedProviderIdsChange = settingsViewModel::setModelPickerCollapsedProviders,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
                     composable(AppDestination.STORAGE.route) { StorageScreen(toolFiles) { navController.popBackStack() } }
                     composable(AppDestination.SETTINGS.route) {
                         SettingsScreen(

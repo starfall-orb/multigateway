@@ -20,7 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -116,6 +119,14 @@ fun ChatScreen(
         }
     }
     val messageIndexOffset = if (isGenerating && !streamingHere) 1 else 0
+    suspend fun scrollToBottom() {
+        val index = listState.layoutInfo.totalItemsCount - 1
+        if (index < 0) return
+        listState.scrollToItem(index)
+        val height = listState.layoutInfo.visibleItemsInfo
+            .firstOrNull { it.index == index }?.size ?: 0
+        listState.scrollToItem(index, height + listState.layoutInfo.afterContentPadding)
+    }
     val messageIds = remember(messages) { messages.map { it.id } }
     LaunchedEffect(conversation?.id, messageIds, autoScroll) {
         val newMessageIndex = messageIds.indexOfLast { it !in seenMessageIds }
@@ -134,10 +145,7 @@ fun ChatScreen(
         if (autoScroll) summaryProgress?.progress else null
     ) {
         if (autoScroll && followBottom && messages.isNotEmpty()) {
-            listState.scrollToItem(messages.lastIndex + messageIndexOffset)
-            val height = listState.layoutInfo.visibleItemsInfo
-                .firstOrNull { it.key == lastMessage?.id }?.size ?: 0
-            if (height > 0) listState.scrollToItem(messages.lastIndex + messageIndexOffset, height)
+            scrollToBottom()
         }
     }
     LaunchedEffect(chatError) {
@@ -152,18 +160,27 @@ fun ChatScreen(
         }
     }
 
-    val topBarClearance = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 80.dp
+    val density = LocalDensity.current
+    var appBarHeightPx by remember { mutableIntStateOf(0) }
+    var inputAreaHeightPx by remember { mutableIntStateOf(0) }
+    val appBarHeight = if (appBarHeightPx > 0) with(density) { appBarHeightPx.toDp() }
+        else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
+        // Reserve the app bar's actual bounds rather than scrollable list padding.
+        BoxWithConstraints(
+            Modifier.fillMaxSize().padding(top = appBarHeight).clipToBounds()
+        ) {
+        val bottomClearance = with(density) { inputAreaHeightPx.toDp() } + maxHeight * 0.015f
         if (messages.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = topBarClearance, bottom = 88.dp),
+                    .padding(top = 8.dp, bottom = 88.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
@@ -190,7 +207,7 @@ fun ChatScreen(
                     "A response is running in another conversation. Use Stop to cancel it.",
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .padding(top = topBarClearance, start = 12.dp, end = 12.dp),
+                        .padding(top = 8.dp, start = 12.dp, end = 12.dp),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -200,7 +217,7 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(scrollConnection),
-                contentPadding = PaddingValues(top = topBarClearance, bottom = 104.dp)
+                contentPadding = PaddingValues(top = 8.dp, bottom = bottomClearance)
             ) {
                 if (isGenerating && !streamingHere) {
                     item(key = "generation-warning") {
@@ -304,12 +321,6 @@ fun ChatScreen(
                     }
                 }
 
-                item(key = "chat-bottom-spacer") {
-                    // Leave enough room to align even a short new bubble below the top bar.
-                    val spacerHeight = if (autoScroll) 96.dp else
-                        (maxHeight - topBarClearance - 104.dp).coerceAtLeast(96.dp)
-                    Spacer(modifier = Modifier.height(spacerHeight))
-                }
             }
         }
 
@@ -323,13 +334,7 @@ fun ChatScreen(
                     onClick = {
                         followBottom = true
                         coroutineScope.launch {
-                            val index = messages.lastIndex + messageIndexOffset
-                            listState.scrollToItem(index)
-                            if (autoScroll) {
-                                val height = listState.layoutInfo.visibleItemsInfo
-                                    .firstOrNull { it.key == lastMessage?.id }?.size ?: 0
-                                if (height > 0) listState.scrollToItem(index, height)
-                            }
+                            scrollToBottom()
                         }
                     },
                     modifier = Modifier
@@ -361,6 +366,7 @@ fun ChatScreen(
                 }
             }
             UserInputArea(
+                modifier = Modifier.onSizeChanged { inputAreaHeightPx = it.height },
                 isGenerating = isGenerating,
                 onSendMedia = { request ->
                     onSendMedia(request).also { if (it) followBottom = true }
@@ -395,11 +401,13 @@ fun ChatScreen(
             )
         }
 
+        }
         ChatAppBar(
             currentSession = conversation,
             onOpenDrawer = onOpenDrawer,
             onOpenSettings = onOpenSettings,
             modifier = Modifier.align(Alignment.TopCenter)
+                .onSizeChanged { appBarHeightPx = it.height }
         )
     }
 

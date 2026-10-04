@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/multigateway_logo.jpg" alt="MultiGateway Logo" width="160" style="border-radius: 24px;"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/dark-logo.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/light-logo.png">
+    <img alt="MultiGateway Logo" src="docs/light-logo.png" width="160" style="border-radius: 24px;">
+  </picture>
 </p>
 
 # MultiGateway

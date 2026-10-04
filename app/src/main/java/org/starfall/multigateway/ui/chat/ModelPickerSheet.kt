@@ -84,7 +84,8 @@ fun computeModelPickerItems(
     providerFilterId: String? = null,
     collapsedGroupIds: Set<String> = emptySet(),
     collapsedProviderIds: Set<String> = emptySet(),
-    expandSearchResults: Boolean = true
+    expandSearchResults: Boolean = true,
+    modelFilter: (LlmProviderInfo, String, ModelConfiguration) -> Boolean = { _, _, _ -> true }
 ): List<ModelPickerItem> {
     data class ProviderNode(val provider: LlmProviderInfo, val models: List<String>)
 
@@ -99,6 +100,9 @@ fun computeModelPickerItems(
             ?.contains(normalizedQuery, ignoreCase = true) == true
         val providerMatches = provider.name.contains(normalizedQuery, ignoreCase = true)
         val models = providerModels(provider, dynamicModelsMap, selectedProviderId, selectedModelId)
+            .filter { modelId ->
+                modelFilter(provider, modelId, provider.config.modelConfigs[modelId] ?: ModelConfiguration())
+            }
             .filter { modelId ->
                 normalizedQuery.isBlank() ||
                     groupMatches ||
@@ -176,6 +180,8 @@ fun ModelPickerSheet(
     onSelectModel: (providerId: String, modelId: String) -> Unit,
     onSetReasoningEffort: (String?) -> Unit,
     dynamicModelsMap: Map<String, List<String>> = emptyMap(),
+    modelFilter: (LlmProviderInfo, String, ModelConfiguration) -> Boolean = { _, _, _ -> true },
+    showReasoningEffort: Boolean = true,
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -207,7 +213,8 @@ fun ModelPickerSheet(
         query,
         expandSearchResults,
         collapsedGroupIds,
-        collapsedProviderIds
+        collapsedProviderIds,
+        modelFilter
     ) {
         computeModelPickerItems(
             providers = providers,
@@ -218,7 +225,8 @@ fun ModelPickerSheet(
             query = query,
             expandSearchResults = expandSearchResults,
             collapsedGroupIds = collapsedGroupIds,
-            collapsedProviderIds = collapsedProviderIds
+            collapsedProviderIds = collapsedProviderIds,
+            modelFilter = modelFilter
         )
     }
 
@@ -363,6 +371,7 @@ fun ModelPickerSheet(
                                         isSelected = item.isSelected,
                                         conversationReasoningEffort = conversationReasoningEffort,
                                         onSetReasoningEffort = onSetReasoningEffort,
+                                        showReasoningEffort = showReasoningEffort,
                                         onClick = {
                                             onSelectModel(item.provider.id, item.modelId)
                                             onDismiss()
@@ -482,6 +491,7 @@ private fun ModelPickerCard(
     isSelected: Boolean,
     conversationReasoningEffort: String?,
     onSetReasoningEffort: (String?) -> Unit,
+    showReasoningEffort: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
@@ -544,7 +554,7 @@ private fun ModelPickerCard(
             }
 
             // Expanded section for currently selected model: Reasoning Effort (only if reasoning is supported/enabled)
-            if (isSelected && config.supportsThinking) {
+            if (showReasoningEffort && isSelected && config.supportsThinking) {
                 val efforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
                 val labels = listOf("Off", "Auto", "Low", "Medium", "High", "Extra high")
                 val currentEffortNormalized = conversationReasoningEffort?.lowercase()?.trim()

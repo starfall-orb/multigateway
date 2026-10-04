@@ -2,6 +2,12 @@ package org.starfall.multigateway.ui.tools
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.settings.SettingsCard
+import org.starfall.multigateway.ui.chat.ModelPickerSheet
+import org.starfall.multigateway.ui.components.EntityIcon
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,6 +48,11 @@ fun SystemToolsScreen(
     providers: List<LlmProviderInfo>,
     settings: ToolSettings,
     onSave: (String, SystemToolConfig) -> Unit,
+    providerGroups: List<ProviderGroup> = emptyList(),
+    collapsedGroupIds: Set<String> = emptySet(),
+    collapsedProviderIds: Set<String> = emptySet(),
+    onCollapsedGroupIdsChange: (Set<String>) -> Unit = {},
+    onCollapsedProviderIdsChange: (Set<String>) -> Unit = {},
     onBack: () -> Unit
 ) {
     var choosing by remember { mutableStateOf<String?>(null) }
@@ -97,12 +108,7 @@ fun SystemToolsScreen(
                         config.enabled,
                         enabled = true
                     ) { onSave(name, config.copy(enabled = it)) }
-                    Text(
-                        if (model == null) "Select a model"
-                        else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    TextButton(onClick = { choosing = name }) { Text("Choose model") }
+                    DefaultModelSelector(provider, config.modelId, model, onClick = { choosing = name })
                     if (name == "generate_image") {
                         TextButton(
                             enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
@@ -132,13 +138,8 @@ fun SystemToolsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        if (model == null) "Select a text model"
-                        else "${provider.name} / ${model.displayName.ifBlank { config.modelId }}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    DefaultModelSelector(provider, config.modelId, model, onClick = { choosing = name })
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { choosing = name }) { Text("Choose model") }
                         TextButton(onClick = { editingPrompt = name }) { Text("Instructions") }
                     }
                 }
@@ -189,50 +190,83 @@ fun SystemToolsScreen(
             "generate_video" -> ModelType.VIDEO_GENERATION
             else -> ModelType.TEXT_GENERATION
         }
-        val choices = providers.flatMap { provider ->
-            provider.config.modelConfigs
-                .filter { (id, config) ->
-                    config.modelType == type && provider.config.modelIds?.contains(id) != false
-                }
-                .map { (id, config) -> Triple(provider, id, config) }
-        }
-        AppBottomSheet(
-            onDismissRequest = { choosing = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val current = settings.system[name] ?: SystemToolConfig()
+        ModelPickerSheet(
+            providers = providers,
+            providerGroups = providerGroups,
+            collapsedGroupIdsState = collapsedGroupIds,
+            collapsedProviderIdsState = collapsedProviderIds,
+            onCollapsedGroupIdsChange = onCollapsedGroupIdsChange,
+            onCollapsedProviderIdsChange = onCollapsedProviderIdsChange,
+            selectedProviderId = current.providerId,
+            selectedModelId = current.modelId,
+            conversationReasoningEffort = null,
+            onSetReasoningEffort = {},
+            showReasoningEffort = false,
+            modelFilter = { provider, id, config ->
+                config.modelType == type &&
+                    provider.config.modelConfigs.containsKey(id) &&
+                    provider.config.modelIds?.contains(id) != false &&
+                    (type == ModelType.TEXT_GENERATION || provider.type.isOpenAi || provider.type == ProviderType.GOOGLE)
+            },
+            onSelectModel = { providerId, modelId ->
+                onSave(name, current.copy(providerId = providerId, modelId = modelId))
+            },
+            onDismiss = { choosing = null }
+        )
+    }
+    }
+    }
+}
+
+@Composable
+private fun DefaultModelSelector(
+    provider: LlmProviderInfo?,
+    modelId: String,
+    model: ModelConfiguration?,
+    onClick: () -> Unit
+) {
+    val modelName = model?.displayName?.ifBlank { modelId }
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Row(
+            Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            LazyColumn(
-                Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(),
-                contentPadding = PaddingValues(16.dp)
-            ) {
-                item {
-                    Text("Choose ${type.displayName}", style = MaterialTheme.typography.titleLarge)
-                }
-                if (choices.isEmpty()) {
-                    item { Text("Add a model with this type in Providers first.") }
-                }
-                items(choices) { (provider, id, config) ->
-                    val mediaTask = name == "generate_image" || name == "generate_video"
-                    val supported = !mediaTask || provider.type.isOpenAi || provider.type == ProviderType.GOOGLE
-                    TextButton(
-                        enabled = supported,
-                        onClick = {
-                            val current = settings.system[name] ?: SystemToolConfig()
-                            onSave(name, current.copy(providerId = provider.id, modelId = id))
-                            choosing = null
-                        }
-                    ) {
-                        Text(
-                            "${provider.name} / ${config.displayName.ifBlank { id }}" +
-                                if (!supported) " (media API unsupported)" else ""
-                        )
-                    }
-                }
+            EntityIcon(
+                image = model?.icon,
+                modifier = Modifier.size(48.dp),
+                text = modelId.substringAfterLast('/').take(1).uppercase(),
+                fallback = if (model == null) Icons.Outlined.Add else null,
+                matchName = modelName,
+                model = true
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    modelName ?: "Select a model",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    if (model == null) "Tap to choose a model" else provider?.name.orEmpty(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
-    }
-    }
     }
 }
 

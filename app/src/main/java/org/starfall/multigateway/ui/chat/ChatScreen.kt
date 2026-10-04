@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.ChatAttachmentSelection
+import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 import org.starfall.multigateway.ui.components.PlatformTextSelection
 
 import android.content.ClipData
@@ -90,13 +92,10 @@ fun ChatScreen(
     }
 
     var editDraft by remember(conversation?.id) { mutableStateOf<ChatInputEditDraft?>(null) }
-    var inputAttachments by remember(conversation?.id) { mutableStateOf<List<String>>(emptyList()) }
-    var chatModeRequest by remember(conversation?.id) { mutableIntStateOf(0) }
-    val toggleChatImage: (String) -> Unit = { reference ->
-        inputAttachments = if (reference in inputAttachments) inputAttachments - reference
-            else (inputAttachments + reference).distinct()
-        chatModeRequest++
-    }
+    val selection = LocalChatAttachmentSelection.current ?: remember(conversation?.id) { ChatAttachmentSelection() }
+    var inputAttachments by selection.attachments
+    val chatModeRequest = selection.requestId
+    val toggleChatImage: (String) -> Unit = selection::toggle
 
     // Dialog state for deleting a message
     var deletingMessageId by remember(conversation?.id) { mutableStateOf<String?>(null) }

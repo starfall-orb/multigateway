@@ -14,6 +14,14 @@ import org.starfall.multigateway.data.service.SpeechSynthesisService
 import java.util.UUID
 import org.starfall.multigateway.data.tools.*
 
+internal fun shouldGenerateConversationTitle(userText: String, messageCount: Int): Boolean =
+    userText.trim().split(Regex("\\s+")).count { it.isNotEmpty() } >= 10 || messageCount >= 5
+
+internal fun Conversation.startedWithDirectMedia(): Boolean =
+    messages.firstOrNull { it.role == ChatRole.MODEL }?.activeVersion?.toolActivity?.any {
+        it.name == "generate_image" || it.name == "generate_video"
+    } == true
+
 class ChatViewModel(
     private val conversationRepo: ConversationRepository,
     private val llmRepo: LlmRepository,
@@ -362,23 +370,28 @@ class ChatViewModel(
     }
 
     private fun generateConversationTitle(
-        conversationId: String,
-        firstUserText: String,
+        conversation: Conversation,
         expectedFallbackTitle: String
     ) {
         val configured = configuredTextModel("title_generation") ?: return
         val (provider, config) = configured
         viewModelScope.launch {
-            val message = StoredMessage(
-                id = "title_source",
-                role = ChatRole.USER,
-                versions = listOf(MessageVersion(content = firstUserText))
-            )
+            val conversationId = conversation.id
+            val titleMessages = conversation.messages
+                .filter { it.role == ChatRole.USER || it.role == ChatRole.MODEL }
+                .map { message ->
+                    StoredMessage(
+                        id = message.id,
+                        role = message.role,
+                        versions = listOf(MessageVersion(content = message.content))
+                    )
+                }
+                .filter { it.content.isNotBlank() }
             val raw = runCatching {
                 toolChat.completeText(
                     provider,
                     config.modelId,
-                    listOf(message),
+                    titleMessages,
                     config.prompt.ifBlank { DEFAULT_TITLE_GENERATION_PROMPT }
                 )
             }.getOrNull().orEmpty()
@@ -389,7 +402,7 @@ class ChatViewModel(
             if (generation.snapshot?.id == conversationId) {
                 generation.updateConversation { current ->
                     if (current.id == conversationId && current.title == expectedFallbackTitle) {
-                        current.copy(title = title)
+                        current.copy(title = title, updatedAt = System.currentTimeMillis())
                     } else {
                         current
                     }
@@ -497,12 +510,15 @@ class ChatViewModel(
             assistant.id,
             toolEvents(provider, modelId, context.messages, context.systemPrompt)
         )
-        if (started && firstMessage) {
-            generateConversationTitle(
-                conv.id,
-                userText.ifBlank { "Conversation started with ${fileAttachments.size} attachment(s)." },
-                fallbackTitle
-            )
+        if (started && !conv.startedWithDirectMedia() && shouldGenerateConversationTitle(
+                userText,
+                conv.messages.count { it.role == ChatRole.USER || it.role == ChatRole.MODEL }
+            )) {
+            val originalUserText = conv.messages.firstOrNull { it.role == ChatRole.USER }?.content
+                .orEmpty().ifBlank { "Attachment" }
+            val expectedFallbackTitle = originalUserText.take(30) +
+                if (originalUserText.length > 30) "..." else ""
+            generateConversationTitle(conv, expectedFallbackTitle)
         }
         return started
     }
@@ -520,10 +536,15 @@ class ChatViewModel(
         val assistant = StoredMessage(UUID.randomUUID().toString(), ChatRole.MODEL,
             listOf(generatedVersion(provider, request.modelId, now.toString())))
         val existing = _currentConversation.value
+        val isFirstMessage = existing == null || existing.messages.isEmpty()
         val conversation = (existing ?: Conversation(
             id = UUID.randomUUID().toString(), title = request.prompt.take(30),
             createdAt = now, updatedAt = now
-        )).copy(messages = existing?.messages.orEmpty() + user + assistant, updatedAt = now)
+        )).copy(
+            title = if (isFirstMessage) request.prompt.take(30) else existing?.title ?: request.prompt.take(30),
+            messages = existing?.messages.orEmpty() + user + assistant,
+            updatedAt = now
+        )
         val name = if (request.kind == ModelType.IMAGE_GENERATION) "generate_image" else "generate_video"
         val config = toolSettings.value.system[name]?.takeIf {
             it.providerId == provider.id && it.modelId == request.modelId

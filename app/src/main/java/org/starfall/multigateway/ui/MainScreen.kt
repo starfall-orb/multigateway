@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui
+import org.starfall.multigateway.ui.components.ChatAttachmentSelection
+import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -56,6 +58,8 @@ fun MainScreen(
     }
     val conversations: List<Conversation> by viewModel.conversations.collectAsStateWithLifecycle()
     val currentConv: Conversation? by viewModel.currentConversation.collectAsStateWithLifecycle()
+    val chatAttachments = remember { ChatAttachmentSelection() }
+    LaunchedEffect(currentConv?.id) { chatAttachments.clear() }
     val isGenerating: Boolean by viewModel.isGenerating.collectAsStateWithLifecycle()
     val generatingConversationId by viewModel.generatingConversationId.collectAsStateWithLifecycle()
     val chatError by viewModel.chatError.collectAsStateWithLifecycle()
@@ -92,7 +96,7 @@ fun MainScreen(
     }
 
 
-    CompositionLocalProvider(LocalToolControls provides ToolControls(
+    CompositionLocalProvider(LocalChatAttachmentSelection provides chatAttachments, LocalToolControls provides ToolControls(
         servers = mcpServers,
         settings = toolSettings,
         providers = providers,

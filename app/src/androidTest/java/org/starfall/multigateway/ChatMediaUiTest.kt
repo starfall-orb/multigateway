@@ -19,12 +19,48 @@ import org.starfall.multigateway.data.tools.ToolFiles
 import org.starfall.multigateway.ui.chat.*
 import org.starfall.multigateway.ui.components.MediaPreviewDialog
 import org.starfall.multigateway.ui.tools.MediaFileCard
+import org.starfall.multigateway.ui.components.ChatFilePreview
+import org.starfall.multigateway.ui.components.InlineVideoPreview
+import androidx.compose.ui.graphics.asImageBitmap
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class ChatMediaUiTest {
+    @Test fun sendFileActivityIsHiddenWhileRunningAndAfterCompletion() {
+        compose.setContent { MaterialTheme {
+            ToolActivityCards(listOf(ToolActivity("running", "send_file"), ToolActivity("done", "send_file", status = "success")))
+        } }
+        compose.onNodeWithText("send_file").assertDoesNotExist()
+        compose.onNodeWithText("send file").assertDoesNotExist()
+    }
+
+    @Test fun genericFilesCanBeDownloadedAndSelectedForNextMessage() {
+        var selected = false
+        compose.setContent { MaterialTheme {
+            var checked by remember { mutableStateOf(false) }
+            ChatFilePreview("/document.pdf", "document.pdf", "application/pdf", null, false,
+                selectedForChat = checked, onToggleAttachment = { checked = !checked; selected = checked }, onOpen = {})
+        } }
+        compose.onNodeWithContentDescription("Download file").assertIsEnabled()
+        compose.onNodeWithContentDescription("Attach file to next message").performClick()
+        compose.runOnIdle { assertTrue(selected) }
+        compose.onNodeWithContentDescription("Remove file from next message").performClick()
+        compose.runOnIdle { assertFalse(selected) }
+    }
+
+    @Test fun portraitMediaIsBoundedAndVideoFullscreenCanBeOpenedAndClosed() {
+        val bitmap = Bitmap.createBitmap(16, 1600, Bitmap.Config.ARGB_8888)
+        compose.setContent { MaterialTheme { InlineVideoPreview("${context.cacheDir}/missing.mp4", bitmap.asImageBitmap()) } }
+        val bounds = compose.onNodeWithContentDescription("Video preview").fetchSemanticsNode().boundsInRoot
+        val maximum = context.resources.configuration.screenHeightDp * context.resources.displayMetrics.density / 2
+        assertTrue(bounds.height <= maximum + 1)
+        compose.onNodeWithContentDescription("Open fullscreen video").performClick()
+        compose.onAllNodes(isDialog()).assertCountEquals(1)
+        compose.onNodeWithContentDescription("Exit fullscreen video").performClick()
+        compose.onAllNodes(isDialog()).assertCountEquals(0)
+    }
     @Test fun returnedVideoHasNoFileLabelsAndPlaybackErrorsStayInline() {
         val store = ToolFiles(context)
         val invalidVideo = ByteArray(32).also { "ftyp".toByteArray().copyInto(it, 4) }

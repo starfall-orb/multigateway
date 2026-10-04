@@ -160,7 +160,7 @@ class ProviderDragBehaviorTest {
         show(grid = true, grouped = true, bothGrouped = true)
         val before = bounds("provider_p2")
         dragTo(before.center) {
-            assertTrue("Folder member must move before release", bounds("provider_p2").left < before.left)
+            assertTrue("Folder member must move before release", bounds("provider_p2").top < before.top)
             assertTrue(memberOrders.isEmpty())
         }
         assertTrue(moves.isEmpty())

@@ -13,7 +13,10 @@ import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
@@ -40,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -79,6 +84,44 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
 private data class DraggedProvider(val provider: LlmProviderInfo, val bounds: Rect)
+
+private class ProviderPlacementAnimationState {
+    val positions = mutableMapOf<String, Offset>()
+    val animations = mutableMapOf<String, Animatable<Offset, AnimationVector2D>>()
+}
+
+private fun Modifier.animateProviderPlacement(
+    providerId: String,
+    state: ProviderPlacementAnimationState
+): Modifier = composed {
+    val scope = rememberCoroutineScope()
+    val animation = remember(state, providerId) {
+        state.animations.getOrPut(providerId) { Animatable(Offset.Zero, Offset.VectorConverter) }
+    }
+
+    onGloballyPositioned { coordinates ->
+        val position = coordinates.positionInRoot()
+        val previous = state.positions.put(providerId, position)
+        if (previous != null) {
+            val delta = previous - position
+            if (delta.getDistance() > 0.5f) {
+                scope.launch {
+                    animation.snapTo(animation.value + delta)
+                    animation.animateTo(
+                        targetValue = Offset.Zero,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+            }
+        }
+    }.graphicsLayer {
+        translationX = animation.value.x
+        translationY = animation.value.y
+    }
+}
 private const val UNGROUPED_SECTION = "__ungrouped__"
 internal fun newProviderId(): String = "custom_${UUID.randomUUID()}"
 private val ProviderListCardHeight = 88.dp
@@ -751,6 +794,7 @@ private fun ProviderGroupExpandedContainer(
     DisposableEffect(group.id) {
         onDispose { onBoundsChanged(null) }
     }
+    val placementAnimationState = remember(group.id, isGrid) { ProviderPlacementAnimationState() }
 
     Surface(
         shape = RoundedCornerShape(20.dp),
@@ -832,6 +876,7 @@ private fun ProviderGroupExpandedContainer(
                                             isGrid = true,
                                             modifier = Modifier
                                                 .weight(1f)
+                                                .animateProviderPlacement(provider.id, placementAnimationState)
                                                 .then(providerDragModifier(provider)),
                                             onEdit = { onEditProvider(provider) },
                                             onMoveToGroup = { onMoveProvider(provider) },
@@ -881,7 +926,10 @@ private fun ProviderGroupExpandedContainer(
                                 ProviderUnifiedCard(
                                     provider = provider,
                                     isGrid = false,
-                                    modifier = Modifier.weight(1f).then(providerDragModifier(provider)),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .animateProviderPlacement(provider.id, placementAnimationState)
+                                        .then(providerDragModifier(provider)),
                                     onEdit = { onEditProvider(provider) },
                                     onMoveToGroup = { onMoveProvider(provider) },
                                     onDelete = { onDeleteProvider(provider) }
@@ -891,7 +939,9 @@ private fun ProviderGroupExpandedContainer(
                     }
                     providers.drop(1).forEach { provider ->
                         ProviderUnifiedCard(provider = provider, isGrid = false,
-                            modifier = providerDragModifier(provider),
+                            modifier = Modifier
+                                .animateProviderPlacement(provider.id, placementAnimationState)
+                                .then(providerDragModifier(provider)),
                             onEdit = { onEditProvider(provider) },
                             onMoveToGroup = { onMoveProvider(provider) },
                             onDelete = { onDeleteProvider(provider) })

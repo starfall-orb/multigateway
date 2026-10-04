@@ -99,7 +99,7 @@ class ToolHttp(val files: ToolFiles? = null) {
     suspend fun post(url: String, data: JsonObject, provider: LlmProviderInfo? = null) =
         json(request(url, provider).post(data.toString().toRequestBody("application/json".toMediaType())).build())
     suspend fun download(url: String, provider: LlmProviderInfo? = null): String = withContext(Dispatchers.IO) {
-        var request = request(url, provider).get().build()
+        var request = request(url, provider).header("Accept", "image/*, video/*, audio/*, application/octet-stream").get().build()
         repeat(5) {
             val downloaded = withResponse(request) { response ->
                 if (response.isRedirect) {
@@ -111,10 +111,10 @@ class ToolHttp(val files: ToolFiles? = null) {
                 } else {
                     requireSuccess(response)
                     val mime = response.header("Content-Type").orEmpty().substringBefore(';').lowercase()
-                    check(mime.isEmpty() || mime.startsWith("image/") || mime.startsWith("video/") || mime == "application/octet-stream") { "Download did not return image/video content" }
+                    check(mime.isEmpty() || mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/") || mime == "application/octet-stream") { "Download did not return media content" }
                     val store = requireFiles()
                     val name = store.save((response.body ?: error("Empty media response (HTTP ${response.code})")).byteStream(), mime)
-                    if (name.endsWith(".bin")) { store.delete(listOf(name)); error("Downloaded content is not a supported image/video") }
+                    if (name.endsWith(".bin")) { store.delete(listOf(name)); error("Downloaded content is not supported media") }
                     name
                 }
             }

@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.settings
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
+import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -19,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,6 +48,7 @@ fun IconSettingsView() {
     var busy by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<StoredIcon?>(null) }
     var patterns by remember { mutableStateOf(emptyList<String>()) }
+    var pickingDark by remember { mutableStateOf(false) }
     fun edit(entry: StoredIcon) {
         editing = entry
         patterns = entry.patterns
@@ -78,6 +82,23 @@ fun IconSettingsView() {
             } finally { busy = false }
         }
     }
+    val variantPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val entry = editing
+        val dark = pickingDark
+        if (uri != null && entry != null) scope.launch {
+            busy = true
+            try {
+                editing = withContext(Dispatchers.IO) {
+                    val replacement = store.importImage(uri, shared = false)
+                    store.setVariant(entry.image, replacement, dark)
+                    store.entries().first { it.image == entry.image }
+                }
+            } catch (error: CancellationException) { throw error
+            } catch (_: Exception) {
+                Toast.makeText(context, R.string.icon_import_failed, Toast.LENGTH_LONG).show()
+            } finally { busy = false }
+        }
+    }
     val visible = entries.filter { entry ->
         entry.filename.contains(query.trim(), ignoreCase = true) ||
             entry.image.contains(query.trim(), ignoreCase = true) ||
@@ -89,7 +110,6 @@ fun IconSettingsView() {
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                 label = { Text(stringResource(R.string.icon_cache_search)) },
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) })
-            Text(stringResource(R.string.icon_cache_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.icon_settings_title), modifier = Modifier.weight(1f),
@@ -145,8 +165,36 @@ fun IconSettingsView() {
                         EntityIcon(entry.image, Modifier.size(48.dp))
                         Text(entry.filename, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(stringResource(R.string.icon_cache_match_help), style = MaterialTheme.typography.bodySmall)
-                    LazyColumn(Modifier.heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf(false, true).forEach { dark ->
+                            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(stringResource(if (dark) R.string.icon_variant_dark else R.string.icon_variant_normal),
+                                    style = MaterialTheme.typography.labelMedium)
+                                EntityIcon(if (dark) entry.darkImage else entry.lightImage, Modifier.size(48.dp),
+                                    useDarkVariant = false,
+                                    backgroundColor = if (dark) Color(0xFF202024) else Color(0xFFF4F4F4))
+                                TextButton(enabled = !busy, onClick = {
+                                    pickingDark = dark
+                                    variantPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }) { Text(stringResource(R.string.choose_icon)) }
+                                if (dark && entry.darkImage != null) IconButton(enabled = !busy, onClick = {
+                                    scope.launch {
+                                        busy = true
+                                        try {
+                                            editing = withContext(Dispatchers.IO) {
+                                                store.setVariant(entry.image, null, true)
+                                                store.entries().first { it.image == entry.image }
+                                            }
+                                        } catch (error: CancellationException) { throw error
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, R.string.icon_cache_save_failed, Toast.LENGTH_LONG).show()
+                                        } finally { busy = false }
+                                    }
+                                }) { Icon(Icons.Outlined.Close, stringResource(R.string.remove_icon)) }
+                            }
+                        }
+                    }
+                    LazyColumn(Modifier.windowHeightIn(maxFraction = 0.4f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(patterns.size) { index ->
                             val pattern = patterns[index]
                             val invalid = pattern.isBlank() || runCatching { Regex(pattern) }.isFailure

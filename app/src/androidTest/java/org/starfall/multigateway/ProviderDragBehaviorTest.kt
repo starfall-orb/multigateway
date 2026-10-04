@@ -16,6 +16,20 @@ import org.starfall.multigateway.data.model.ProviderType
 import org.starfall.multigateway.ui.providers.ProviderScreen
 
 class ProviderDragBehaviorTest {
+    @Test fun onlyFirstProviderInListFolderIsIndentedAndFolderCanToggleRepeatedly() {
+        show(grid = false, grouped = true, bothGrouped = true)
+        val first = bounds("provider_p1")
+        val second = bounds("provider_p2")
+        assertTrue(first.left > second.left)
+        assertTrue(second.width > first.width)
+        repeat(3) {
+            compose.onNodeWithText("Folder").performClick()
+            compose.onNodeWithTag("provider_p1").assertDoesNotExist()
+            compose.onNodeWithText("Folder").performClick()
+            compose.onNodeWithTag("provider_p1").assertExists()
+            compose.onNodeWithTag("provider_p2").assertExists()
+        }
+    }
     @get:Rule val compose = createComposeRule()
     private val providers = mutableStateOf(emptyList<LlmProviderInfo>())
     private val moves = mutableListOf<Pair<String, String?>>()

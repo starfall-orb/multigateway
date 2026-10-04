@@ -77,5 +77,6 @@ data class SpeechServiceEntity(
     val speed: Float,
     val pitch: Float,
     val apiKey: String,
-    val sortOrder: Int
+    val sortOrder: Int,
+    val optionsJson: String? = null
 )

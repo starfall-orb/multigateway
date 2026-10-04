@@ -38,7 +38,9 @@ data class ToolActivity(
     val arguments: String = "",
     val response: String = "",
     val contentOffset: Int = 0,
-    val reasoningOffset: Int? = null
+    val reasoningOffset: Int? = null,
+    val inlineMedia: Boolean = false,
+    val responseFile: String? = null
 )
 
 @Serializable

@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.PlatformTextSelection
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -66,13 +67,14 @@ fun ChatScreen(
     onStartConversationSummary: (ConversationSummaryRequest) -> Boolean,
     onSummaryRoleChange: (SummaryRole) -> Unit,
     onDeleteSummary: () -> Unit,
-    onReadMessage: (String) -> Unit,
+    onReadMessage: (String, String) -> Unit,
     onFetchOllamaModels: (suspend (String) -> List<String>)? = null,
     queuedMessages: List<StoredMessage> = emptyList(),
     onEditQueuedMessage: (String, String, List<String>) -> Boolean = { _, _, _ -> true },
     onDeleteQueuedMessage: (String) -> Unit = {},
     autoScroll: Boolean = false,
     contextWindowStatus: ContextWindowStatus? = null,
+    speakingMessageId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = key(conversation?.id) { rememberLazyListState() }
@@ -82,12 +84,19 @@ fun ChatScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
 
-    val messages = remember(conversation?.messages, queuedMessages) {
-        val base = conversation?.messages ?: emptyList()
-        base + queuedMessages
+    val conversationMessages = conversation?.messages.orEmpty()
+    val messages = remember(conversationMessages, queuedMessages) {
+        conversationMessages + queuedMessages
     }
 
     var editDraft by remember(conversation?.id) { mutableStateOf<ChatInputEditDraft?>(null) }
+    var inputAttachments by remember(conversation?.id) { mutableStateOf<List<String>>(emptyList()) }
+    var chatModeRequest by remember(conversation?.id) { mutableIntStateOf(0) }
+    val toggleChatImage: (String) -> Unit = { reference ->
+        inputAttachments = if (reference in inputAttachments) inputAttachments - reference
+            else (inputAttachments + reference).distinct()
+        chatModeRequest++
+    }
 
     // Dialog state for deleting a message
     var deletingMessageId by remember(conversation?.id) { mutableStateOf<String?>(null) }
@@ -96,7 +105,7 @@ fun ChatScreen(
     var showContextSummarySheet by remember(conversation?.id) { mutableStateOf(false) }
     var showSummaryDialog by remember(conversation?.id) { mutableStateOf(false) }
     val streamingHere = isGenerating && generatingConversationId == conversation?.id
-    val lastMessage = messages.lastOrNull()
+    val lastMessage = conversationMessages.lastOrNull()
     val autoScrollTick = if (!autoScroll) null else if (streamingHere) {
         ((lastMessage?.content?.length ?: 0) + (lastMessage?.reasoningContent?.length ?: 0)) / 48
     } else {
@@ -119,15 +128,19 @@ fun ChatScreen(
         }
     }
     val messageIndexOffset = if (isGenerating && !streamingHere) 1 else 0
-    suspend fun scrollToBottom() {
-        val index = listState.layoutInfo.totalItemsCount - 1
+    suspend fun scrollToBottom(includeQueued: Boolean = true) {
+        val index = if (includeQueued) listState.layoutInfo.totalItemsCount - 1
+            else conversationMessages.lastIndex + messageIndexOffset
         if (index < 0) return
         listState.scrollToItem(index)
         val height = listState.layoutInfo.visibleItemsInfo
             .firstOrNull { it.index == index }?.size ?: 0
-        listState.scrollToItem(index, height + listState.layoutInfo.afterContentPadding)
+        val layout = listState.layoutInfo
+        val offset = if (includeQueued) height + layout.afterContentPadding
+            else height - (layout.viewportEndOffset - layout.viewportStartOffset) + layout.afterContentPadding
+        listState.scrollToItem(index, offset)
     }
-    val messageIds = remember(messages) { messages.map { it.id } }
+    val messageIds = remember(conversationMessages) { conversationMessages.map { it.id } }
     LaunchedEffect(conversation?.id, messageIds, autoScroll) {
         val newMessageIndex = messageIds.indexOfLast { it !in seenMessageIds }
         seenMessageIds.addAll(messageIds)
@@ -137,7 +150,7 @@ fun ChatScreen(
     }
     LaunchedEffect(
         conversation?.id,
-        messages.size,
+        conversationMessages.size,
         autoScroll,
         autoScrollTick,
         followBottom,
@@ -145,7 +158,7 @@ fun ChatScreen(
         if (autoScroll) summaryProgress?.progress else null
     ) {
         if (autoScroll && followBottom && messages.isNotEmpty()) {
-            scrollToBottom()
+            scrollToBottom(includeQueued = !streamingHere)
         }
     }
     LaunchedEffect(chatError) {
@@ -166,6 +179,7 @@ fun ChatScreen(
     val appBarHeight = if (appBarHeightPx > 0) with(density) { appBarHeightPx.toDp() }
         else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
 
+    PlatformTextSelection {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -230,11 +244,13 @@ fun ChatScreen(
                 }
 
                 items(messages, key = { it.id }) { msg ->
-                    val isLast = msg.id == messages.lastOrNull()?.id
+                    val isLast = msg.id == lastMessage?.id
 
                     if (msg.role == ChatRole.USER) {
                         UserMessageCard(
                             message = msg,
+                            selectedImageAttachments = inputAttachments,
+                            onToggleChatImage = toggleChatImage,
                             onEdit = {
                                 if (msg.isQueued) {
                                     editDraft = ChatInputEditDraft(
@@ -249,6 +265,7 @@ fun ChatScreen(
                                             messageId = msg.id,
                                             text = msg.content,
                                             attachments = msg.files,
+                                            isQueued = true,
                                             revision = System.nanoTime()
                                         )
                                     }
@@ -271,6 +288,12 @@ fun ChatScreen(
                     } else {
                         AssistantMessageCard(
                             message = msg,
+                            isReading = speakingMessageId == msg.id,
+                            fallbackModelName = providers.find { it.id == conversation?.providerId }
+                                ?.config?.modelConfigs?.get(conversation?.modelId)?.displayName
+                                ?.ifBlank { conversation?.modelId.orEmpty() } ?: conversation?.modelId.orEmpty(),
+                            selectedImageAttachments = inputAttachments,
+                            onToggleChatImage = toggleChatImage,
                             isStreaming = streamingHere && isLast,
                             onCopy = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -297,7 +320,7 @@ fun ChatScreen(
                                 whenIdle { deletingMessageId = msg.id }
                             },
                             onRead = {
-                                onReadMessage(msg.content)
+                                onReadMessage(msg.id, msg.content)
                             },
                             onSwitchVersion = { newIdx ->
                                 whenIdle { onSwitchVersion(msg.id, newIdx) }
@@ -330,7 +353,7 @@ fun ChatScreen(
                 .fillMaxWidth()
         ) {
             if (messages.isNotEmpty() && !followBottom) {
-                TextButton(
+                FilledTonalIconButton(
                     onClick = {
                         followBottom = true
                         coroutineScope.launch {
@@ -338,16 +361,13 @@ fun ChatScreen(
                         }
                     },
                     modifier = Modifier
-                        .align(Alignment.End)
-                        .padding(end = 12.dp)
+                        .align(Alignment.CenterHorizontally)
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        contentDescription = "Jump to latest",
+                        modifier = Modifier.size(24.dp)
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Jump to latest")
                 }
             }
             if (contextWindowStatus?.shouldSuggestSummary == true && !streamingHere && summaryProgress == null) {
@@ -366,18 +386,21 @@ fun ChatScreen(
                 }
             }
             UserInputArea(
+                attachments = inputAttachments,
+                onAttachmentsChange = { inputAttachments = it },
+                chatModeRequest = chatModeRequest,
                 modifier = Modifier.onSizeChanged { inputAreaHeightPx = it.height },
                 isGenerating = isGenerating,
                 onSendMedia = { request ->
                     onSendMedia(request).also { if (it) followBottom = true }
                 },
                 onSendMessage = { text, files ->
-                    onSendMessage(text, files).also { if (it) followBottom = true }
+                    onSendMessage(text, files).also { if (it && !isGenerating) followBottom = true }
                 },
                 onEditMessage = { id, text, files ->
-                    val isQueued = queuedMessages.any { it.id == id }
+                    val isQueued = editDraft?.isQueued == true
                     if (isQueued) {
-                        onEditQueuedMessage(id, text, files).also { if (it) followBottom = true }
+                        onEditQueuedMessage(id, text, files)
                     } else {
                         onEditMessage(id, text, files).also { if (it) followBottom = true }
                     }
@@ -409,6 +432,8 @@ fun ChatScreen(
             modifier = Modifier.align(Alignment.TopCenter)
                 .onSizeChanged { appBarHeightPx = it.height }
         )
+    }
+
     }
 
     if (showContextSummarySheet) {

@@ -21,6 +21,93 @@ import java.nio.file.Files
 class ToolChatIntegrationTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
+    @Test fun contentApiDownloadsVideoAndModelSendsItWithoutExposingMediaUrl() = contentApiScenario(true)
+    @Test fun contentApiDoesNotDisplayFilesUnlessModelCallsSendFile() = contentApiScenario(false)
+
+    private fun contentApiScenario(deliver: Boolean) = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val root = Files.createTempDirectory("content-api-loop").toFile()
+        val url = server.url("/cdn/video?signature=private").toString()
+        val video = ByteArray(32).also { "ftyp".toByteArray().copyInto(it, 4) }
+        var rounds = 0
+        var followup = ""
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                fun json(value: JsonElement) = MockResponse().setHeader("Content-Type", "application/json").setBody(value.toString())
+                if (request.method == "DELETE") return MockResponse().setResponseCode(204)
+                if (request.path?.startsWith("/cdn/video") == true) {
+                    assertNull(request.getHeader("Authorization"))
+                    return MockResponse().setHeader("Content-Type", "video/mp4").setBody(okio.Buffer().write(video))
+                }
+                val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+                if (request.path == "/mcp") {
+                    val result = when (body.text("method")) {
+                        "notifications/initialized" -> return MockResponse().setResponseCode(202)
+                        "initialize" -> obj("protocolVersion" to str("2025-06-18"))
+                        "tools/list" -> obj("tools" to JsonArray(listOf(obj("name" to str("extract"), "inputSchema" to obj("type" to str("object"))))))
+                        "tools/call" -> obj("content" to JsonArray(listOf(obj("type" to str("text"), "text" to str(obj(
+                            "success" to JsonPrimitive(true), "title" to str("Video title"),
+                            "original_url" to str("https://v.douyin.com/example/"),
+                            "media" to JsonArray(listOf(obj("url" to str(url), "type" to str("video"))))
+                        ).toString())))))
+                        else -> error("Unexpected method")
+                    }
+                    return json(obj("jsonrpc" to str("2.0"), "id" to body.getValue("id"), "result" to result))
+                }
+                rounds++
+                val message = if (rounds == 1) {
+                    val name = body["tools"]!!.jsonArray.first().jsonObject["function"]!!.jsonObject.text("name")
+                    obj("role" to str("assistant"), "content" to str("Fetching video."),
+                        "tool_calls" to JsonArray(listOf(obj("id" to str("call1"), "type" to str("function"),
+                            "function" to obj("name" to str(name), "arguments" to str("{}"))))))
+                } else if (rounds == 2) {
+                    followup = body.toString()
+                    assertTrue(body["tools"]!!.jsonArray.any { it.jsonObject["function"]!!.jsonObject.text("name") == "send_file" })
+                    if (deliver) {
+                        val response = Json.parseToJsonElement(body["messages"]!!.jsonArray.last().jsonObject.text("content")).jsonObject
+                        val uri = response["app_files"]!!.jsonArray.first().jsonObject.text("uri")
+                        obj("role" to str("assistant"), "content" to str(""), "tool_calls" to JsonArray(listOf(
+                            obj("id" to str("call2"), "type" to str("function"), "function" to obj("name" to str("send_file"),
+                                "arguments" to str(obj("type" to str("video"), "uri" to str(uri)).toString())))
+                        )))
+                    } else obj("role" to str("assistant"), "content" to str("I found a video."))
+                } else {
+                    obj("role" to str("assistant"), "content" to str("The video is displayed above."))
+                }
+                return json(obj("choices" to JsonArray(listOf(obj("message" to message)))))
+            }
+        }
+        try {
+            val provider = LlmProviderInfo("p", "Chat", ProviderType.OPENAI, baseUrl = server.url("/v1").toString(),
+                config = ProviderConfiguration(supportStream = false))
+            val preset = McpInfo("content-api", "Content API", url = server.url("/mcp").toString())
+            val store = ToolFiles(root)
+            val http = ToolHttp(store)
+            val events = ToolChat(http, McpService(http), LlmService(context)).generate(provider, "chat",
+                listOf(StoredMessage("u", ChatRole.USER, listOf(MessageVersion("Get this video")))),
+                "", listOf(preset), listOf(provider), { ToolSettings() }).toList()
+            assertEquals(if (deliver) 3 else 2, rounds)
+            assertFalse(followup.contains(url))
+            assertFalse(followup.contains("signature=private"))
+            assertTrue(followup.contains("v.douyin.com/example"))
+            assertTrue(followup.contains("Video title"))
+            val activity = events.filterIsInstance<GenerationEvent.Tool>().last().activity
+            assertEquals("success", activity.status)
+            if (deliver) {
+                assertEquals("send_file", activity.name)
+                assertTrue(activity.inlineMedia)
+                assertTrue(activity.files.any { it.endsWith(".mp4") })
+                assertArrayEquals(video, store.resolve(activity.files.first { it.endsWith(".mp4") })!!.readBytes())
+            } else {
+                assertFalse(activity.inlineMedia)
+                assertFalse(activity.files.any { it.endsWith(".mp4") })
+                assertTrue(store.list().any { it.extension == "mp4" })
+            }
+            assertFalse(activity.response.contains(url))
+        } finally { server.shutdown(); root.deleteRecursively() }
+    }
+
     @Test fun directImageGenerationSendsOriginalPromptWithoutCallingTextModel() = runBlocking {
         val server = MockWebServer()
         server.start()
@@ -75,6 +162,7 @@ class ToolChatIntegrationTest {
                     else {
                         val body=request.body.readUtf8()
                         assertTrue(body.contains("tool_call_id"));assertFalse(body.contains(b64))
+                        assertFalse(body.contains("\"name\":\"send_file\""))
                         MockResponse().addHeader("Content-Type","text/event-stream").setBody("data: {\"choices\":[{\"delta\":{\"content\":\"Image ready.\"}}]}\n\ndata: [DONE]\n\n")
                     }
                 } else MockResponse().setResponseCode(404)

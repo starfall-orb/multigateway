@@ -16,13 +16,19 @@ class TtsHelper(context: Context) {
     private var tts: TextToSpeech? = null
     private var ready = false
     private var closed = false
-    private data class Request(val text: String, val speed: Float, val pitch: Float, val voice: String)
+    private data class Request(val text: String, val speed: Float, val pitch: Float, val voice: String, val onFinished: () -> Unit)
     private var pending: Request? = null
+    private var defaultVoice: android.speech.tts.Voice? = null
+    private var requestNumber = 0L
+    private var activePrefix: String? = null
+    private var lastUtteranceId: String? = null
+    private var onFinished: (() -> Unit)? = null
 
-    fun speak(text: String, speed: Float = 1.0f, pitch: Float = 1.0f, voice: String = "Default") {
+    fun speak(text: String, speed: Float = 1.0f, pitch: Float = 1.0f, voice: String = "Default", onFinished: () -> Unit = {}) {
         handler.post {
-            if (closed || text.isBlank()) return@post
-            pending = Request(text, speed, pitch, voice)
+            if (closed || text.isBlank()) { onFinished(); return@post }
+            pending?.onFinished?.invoke()
+            pending = Request(text, speed, pitch, voice, onFinished)
             if (ready) playPending() else if (tts == null) {
                 tts = TextToSpeech(appContext) { status ->
                     // Posting also handles engines that invoke their listener inside the constructor.
@@ -36,6 +42,7 @@ class TtsHelper(context: Context) {
         if (closed) return
         val engine = tts ?: return
         if (status != TextToSpeech.SUCCESS) {
+            pending?.onFinished?.invoke()
             pending = null
             engine.shutdown()
             tts = null
@@ -44,14 +51,24 @@ class TtsHelper(context: Context) {
         }
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) = Unit
-            override fun onDone(utteranceId: String?) = Unit
-            override fun onError(utteranceId: String?) { handler.post { notifyError() } }
+            override fun onDone(utteranceId: String?) { handler.post {
+                if (utteranceId == lastUtteranceId && utteranceId != null) finishActive()
+            } }
+            override fun onError(utteranceId: String?) { handler.post {
+                if (activePrefix?.let { utteranceId?.startsWith(it) } == true) {
+                    notifyError(); tts?.stop(); finishActive()
+                }
+            } }
+            override fun onStop(utteranceId: String?, interrupted: Boolean) { handler.post {
+                if (activePrefix?.let { utteranceId?.startsWith(it) } == true) finishActive()
+            } }
         })
         // Retain the engine's installed voice if the app/device locale has no speech data.
         if (engine.isLanguageAvailable(Locale.getDefault()) >= TextToSpeech.LANG_AVAILABLE) {
             engine.language = Locale.getDefault()
         }
         ready = true
+        defaultVoice = engine.voice
         playPending()
     }
 
@@ -59,39 +76,65 @@ class TtsHelper(context: Context) {
         val request = pending ?: return
         val engine = tts ?: return
         pending = null
+        finishActive()
+        onFinished = request.onFinished
         engine.setSpeechRate(request.speed.coerceIn(0.1f, 4f))
         engine.setPitch(request.pitch.coerceIn(0.1f, 4f))
-        if (!request.voice.equals("Default", true)) {
-            engine.voices?.firstOrNull { it.name == request.voice }?.let { engine.voice = it }
+        val selectedVoice = if (request.voice.equals("Default", true)) defaultVoice
+            else engine.voices?.firstOrNull { it.name == request.voice }
+        if (selectedVoice == null && !request.voice.equals("Default", true)) {
+            reportError("Android TTS voice '${request.voice}' is not installed.")
+            finishActive()
+            return
         }
+        selectedVoice?.let { engine.voice = it }
         // Android rejects a single utterance larger than its input limit.
-        request.text.chunked(TextToSpeech.getMaxSpeechInputLength()).forEachIndexed { index, part ->
+        val chunks = request.text.chunked(TextToSpeech.getMaxSpeechInputLength())
+        val prefix = "MultiGatewayTTS-${++requestNumber}-"
+        activePrefix = prefix
+        lastUtteranceId = "$prefix${chunks.lastIndex}"
+        chunks.forEachIndexed { index, part ->
             val result = engine.speak(part, if (index == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
-                null, "MultiGatewayTTS-$index")
+                null, "$prefix$index")
             if (result == TextToSpeech.ERROR) {
                 engine.stop()
                 notifyError()
+                finishActive()
                 return
             }
         }
+    }
+
+    private fun finishActive() {
+        val callback = onFinished
+        onFinished = null
+        activePrefix = null
+        lastUtteranceId = null
+        callback?.invoke()
     }
 
     private fun notifyError() {
         Toast.makeText(appContext, R.string.tts_unavailable, Toast.LENGTH_LONG).show()
     }
 
+    fun reportError(message: String) {
+        handler.post { Toast.makeText(appContext, message, Toast.LENGTH_LONG).show() }
+    }
+
     fun stop() {
-        handler.post { pending = null; tts?.stop() }
+        handler.post { pending?.onFinished?.invoke(); pending = null; tts?.stop(); finishActive() }
     }
 
     fun shutdown() {
         handler.post {
             closed = true
+            pending?.onFinished?.invoke()
             pending = null
             ready = false
             tts?.stop()
             tts?.shutdown()
             tts = null
+            finishActive()
         }
     }
 }

@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.InsertDriveFile
 import androidx.compose.material.icons.outlined.Audiotrack
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +38,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import org.starfall.multigateway.data.service.AttachmentResolver
 import org.starfall.multigateway.ui.components.MediaPreviewDialog
+import org.starfall.multigateway.ui.components.ChatFilePreview
 import org.starfall.multigateway.ui.components.isPreviewableMedia
 import org.starfall.multigateway.ui.components.mediaThumbnail
 
@@ -52,9 +55,19 @@ fun AttachmentStrip(
     removable: Boolean,
     onRemove: (String) -> Unit = {},
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    selectedImageAttachments: List<String> = emptyList(),
+    onToggleChatImage: ((String) -> Unit)? = null
 ) {
     if (references.isEmpty()) return
+    if (!removable) {
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            references.forEach { reference -> key(reference) {
+                AttachmentTile(reference, false, {}, false, reference in selectedImageAttachments, onToggleChatImage)
+            } }
+        }
+        return
+    }
     LazyRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -65,7 +78,9 @@ fun AttachmentStrip(
                 reference = reference,
                 removable = removable,
                 onRemove = { onRemove(reference) },
-                compact = compact
+                compact = compact,
+                selectedForChat = reference in selectedImageAttachments,
+                onToggleChatImage = onToggleChatImage
             )
         }
     }
@@ -76,7 +91,9 @@ private fun AttachmentTile(
     reference: String,
     removable: Boolean,
     onRemove: () -> Unit,
-    compact: Boolean
+    compact: Boolean,
+    selectedForChat: Boolean,
+    onToggleChatImage: ((String) -> Unit)?
 ) {
     val context = LocalContext.current
     var showPreview by remember(reference) { mutableStateOf(false) }
@@ -86,6 +103,13 @@ private fun AttachmentTile(
     val width = if (compact) 116.dp else 132.dp
     val height = if (compact) 72.dp else 92.dp
     val shape = RoundedCornerShape(if (compact) 26.dp else 18.dp)
+    if (!removable && data != null) {
+        val preview = data!!
+        ChatFilePreview(reference, preview.name, preview.mimeType, preview.bitmap, false,
+            selectedForChat = selectedForChat, onToggleAttachment = onToggleChatImage, onOpen = { showPreview = true })
+        if (showPreview) MediaPreviewDialog(reference, preview.name, preview.mimeType) { showPreview = false }
+        return
+    }
 
     Box(
         modifier = Modifier
@@ -160,6 +184,18 @@ private fun AttachmentTile(
                 Box(contentAlignment = Alignment.Center) {
                     Text("×", style = MaterialTheme.typography.titleLarge)
                 }
+            }
+        } else if (data?.mimeType?.startsWith("image/") == true && onToggleChatImage != null) {
+            FilledTonalIconToggleButton(
+                checked = selectedForChat,
+                onCheckedChange = { onToggleChatImage(reference) },
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)
+                )
+            ) {
+                Icon(if (selectedForChat) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    if (selectedForChat) "Remove image from next message" else "Attach image to next message")
             }
         }
     }

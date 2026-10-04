@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.*
@@ -31,25 +33,27 @@ fun UserMessageCard(
     onEdit: (String) -> Unit,
     onDelete: (String) -> Unit,
     onSwitchVersion: (Int) -> Unit,
+    selectedImageAttachments: List<String> = emptyList(),
+    onToggleChatImage: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
 
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.End
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier
-                .widthIn(max = 320.dp)
+                .align(Alignment.CenterEnd)
+                .widthIn(max = maxWidth * 0.85f)
                 .clip(RoundedCornerShape(24.dp))
                 .combinedClickable(
-                    onClick = { /* normal click */ },
+                    onClick = { if (message.isQueued) showMenu = true },
                     onLongClick = { showMenu = true }
                 )
         ) {
@@ -59,21 +63,24 @@ fun UserMessageCard(
                         references = message.files,
                         removable = false,
                         modifier = Modifier.padding(bottom = 8.dp),
-                        compact = true
+                        compact = true,
+                        selectedImageAttachments = selectedImageAttachments,
+                        onToggleChatImage = onToggleChatImage
                     )
                 }
 
                 // Text Content
-                SelectionContainer {
+                val messageText: @Composable () -> Unit = {
                     Text(
                         text = message.content,
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
+                if (message.isQueued) messageText() else SelectionContainer { messageText() }
 
                 // Version switcher if multiple versions exist
-                if (message.versions.size > 1) {
+                if (!message.isQueued && message.versions.size > 1) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -116,7 +123,7 @@ fun UserMessageCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    DropdownMenuItem(
+                    if (!message.isQueued) DropdownMenuItem(
                         text = { Text("Copy") },
                         leadingIcon = { Icon(Icons.Outlined.ContentCopy, contentDescription = null) },
                         onClick = {
@@ -135,8 +142,8 @@ fun UserMessageCard(
                         }
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete") },
-                        leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                        text = { Text(if (message.isQueued) "Cancel" else "Delete") },
+                        leadingIcon = { Icon(if (message.isQueued) Icons.Outlined.Close else Icons.Outlined.Delete, contentDescription = null) },
                         onClick = {
                             showMenu = false
                             onDelete(message.id)

@@ -5,6 +5,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 
 private val DefaultLight = lightColorScheme(
@@ -196,8 +200,8 @@ private fun completeScheme(source: ColorScheme, dark: Boolean): ColorScheme = so
     surfaceBright = if (dark) source.surfaceVariant else source.surface,
     surfaceContainerLowest = if (dark) Color(0xFF090909) else Color.White,
     surfaceContainerLow = if (dark) source.surface.copy(alpha = 1f) else source.surface,
-    surfaceContainer = source.surfaceVariant.copy(alpha = if (dark) 0.45f else 0.55f),
-    surfaceContainerHigh = source.surfaceVariant.copy(alpha = if (dark) 0.7f else 0.8f),
+    surfaceContainer = source.surfaceVariant.copy(alpha = if (dark) 0.45f else 0.55f).compositeOver(source.surface.copy(alpha = 1f)),
+    surfaceContainerHigh = source.surfaceVariant.copy(alpha = if (dark) 0.7f else 0.8f).compositeOver(source.surface.copy(alpha = 1f)),
     surfaceContainerHighest = source.surfaceVariant
 )
 
@@ -244,6 +248,7 @@ fun MultiGatewayTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography(),
+        shapes = Shapes(extraSmall = RoundedCornerShape(16.dp)),
         content = content
     )
 }

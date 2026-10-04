@@ -214,12 +214,13 @@ internal fun updateResponse(
 }
 
 /** Regeneration keeps earlier versions and uses only the context before the selected answer. */
-internal fun prepareRegeneration(conversation: Conversation, messageId: String): Conversation? {
+internal fun prepareRegeneration(conversation: Conversation, messageId: String,
+    version: MessageVersion = MessageVersion(timestamp = System.currentTimeMillis().toString())): Conversation? {
     val index = conversation.messages.indexOfFirst { it.id == messageId && it.role == ChatRole.MODEL }
     if (index < 1 || conversation.messages.take(index).none { it.role == ChatRole.USER }) return null
     val message = conversation.messages[index]
     return conversation.copy(messages = conversation.messages.take(index) + message.copy(
-        versions = message.versions + MessageVersion(timestamp = System.currentTimeMillis().toString()),
+        versions = message.versions + version,
         activeVersionIndex = message.versions.size
     ))
 }

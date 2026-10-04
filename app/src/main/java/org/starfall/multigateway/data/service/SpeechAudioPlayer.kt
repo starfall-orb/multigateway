@@ -8,7 +8,7 @@ class SpeechAudioPlayer(private val context: Context) {
     private var player: MediaPlayer? = null
     private var currentFile: File? = null
 
-    fun play(audio: ByteArray) {
+    fun play(audio: ByteArray, onFinished: () -> Unit = {}, onError: () -> Unit = {}) {
         stop()
         val file = File.createTempFile("multigateway_tts_", ".mp3", context.cacheDir)
         file.writeBytes(audio)
@@ -20,14 +20,17 @@ class SpeechAudioPlayer(private val context: Context) {
             setOnCompletionListener {
                 it.release()
                 if (player === it) player = null
-                currentFile?.delete()
-                currentFile = null
+                file.delete()
+                if (currentFile === file) currentFile = null
+                onFinished()
             }
             setOnErrorListener { mediaPlayer, _, _ ->
                 mediaPlayer.release()
                 if (player === mediaPlayer) player = null
-                currentFile?.delete()
-                currentFile = null
+                file.delete()
+                if (currentFile === file) currentFile = null
+                onError()
+                onFinished()
                 true
             }
             prepareAsync()

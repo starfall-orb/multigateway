@@ -20,7 +20,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Videocam
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +60,7 @@ data class ChatInputEditDraft(
     val messageId: String,
     val text: String,
     val attachments: List<String>,
+    val isQueued: Boolean = false,
     val revision: Long
 )
 
@@ -81,11 +86,31 @@ fun UserInputArea(
     onSetReasoningEffort: (String?) -> Unit,
     onStartConversationSummary: (ConversationSummaryRequest) -> Boolean,
     onFetchOllamaModels: (suspend (String) -> List<String>)? = null,
+    attachments: List<String> = emptyList(),
+    onAttachmentsChange: (List<String>) -> Unit = {},
+    chatModeRequest: Int = 0,
     modifier: Modifier = Modifier
 ) {
     var textState by remember { mutableStateOf("") }
-    var attachments by remember { mutableStateOf<List<String>>(emptyList()) }
+    var inputRowWidthPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val inputTextStyle = MaterialTheme.typography.bodyLarge.copy(
+        color = MaterialTheme.colorScheme.onSurface, fontSize = 17.sp, lineHeight = 22.sp
+    )
+    // Measure against the horizontal layout so switching to wider text does not toggle back.
+    val horizontalTextWidthPx = inputRowWidthPx - with(density) { (48.dp + 50.dp + 48.dp + 16.dp).roundToPx() }
+    val inputLineCount = if (horizontalTextWidthPx > 0) textMeasurer.measure(
+        text = textState,
+        style = inputTextStyle,
+        constraints = Constraints(maxWidth = horizontalTextWidthPx),
+        maxLines = 6
+    ).lineCount else 1
+    val stackInputActions = attachments.isNotEmpty() || inputLineCount >= 3
     var mediaKind by rememberSaveable { mutableStateOf<ModelType?>(null) }
+    LaunchedEffect(chatModeRequest) {
+        if (chatModeRequest > 0) mediaKind = null
+    }
     var mediaProviderId by rememberSaveable { mutableStateOf("") }
     var mediaModelId by rememberSaveable { mutableStateOf("") }
     val mediaProviders = providers.mapNotNull { provider ->
@@ -113,7 +138,6 @@ fun UserInputArea(
 
     val focusManager = LocalFocusManager.current
     var showModelPicker by remember { mutableStateOf(false) }
-    var showMediaMenu by remember { mutableStateOf(false) }
     var showQuickActions by remember { mutableStateOf(false) }
     var showConversationSummary by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
@@ -138,7 +162,7 @@ fun UserInputArea(
         editDraft?.let {
             mediaKind = null
             textState = it.text
-            attachments = it.attachments
+            onAttachmentsChange(it.attachments)
         }
     }
 
@@ -155,7 +179,7 @@ fun UserInputArea(
         ActivityResultContracts.PickMultipleVisualMedia(maxItems = 20)
     ) { uris ->
         uris.forEach(::retainReadPermission)
-        attachments = (attachments + uris.map(Uri::toString)).distinct()
+        onAttachmentsChange((attachments + uris.map(Uri::toString)).distinct())
     }
 
     val documentPicker = rememberLauncherForActivityResult(
@@ -169,7 +193,7 @@ fun UserInputArea(
             }
         }.distinct()
         picked.forEach(::retainReadPermission)
-        attachments = (attachments + picked.map(Uri::toString)).distinct()
+        onAttachmentsChange((attachments + picked.map(Uri::toString)).distinct())
     }
 
     val canSend = if (mediaKind == null) textState.isNotBlank() || attachments.isNotEmpty()
@@ -179,7 +203,7 @@ fun UserInputArea(
         attachments.isNotEmpty() -> "Remove attachments to generate"
         textState.length > 32000 -> "Prompt exceeds 32,000 characters"
         mediaModel == null -> "Choose a $mediaLabel model"
-        else -> "$mediaLabel · Direct to ${mediaModel.displayName.ifBlank { mediaModelId }}"
+        else -> "Direct to ${mediaModel.displayName.ifBlank { mediaModelId }}"
     }
 
     Box(
@@ -190,6 +214,43 @@ fun UserInputArea(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
+        Column(
+            modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+        if (mediaKind != null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+            ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image else Icons.Outlined.Videocam,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    "$mediaLabel generation mode · $mediaHint",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (attachments.isNotEmpty() || textState.length > 32000)
+                        MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { mediaKind = null }) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Exit $mediaLabel generation mode")
+                }
+            }
+            }
+        }
         Surface(
             modifier = Modifier
                 .widthIn(max = 720.dp)
@@ -220,7 +281,7 @@ fun UserInputArea(
                             onClick = {
                                 onCancelEdit()
                                 textState = ""
-                                attachments = emptyList()
+                                onAttachmentsChange(emptyList())
                             }
                         ) { Text("Cancel") }
                     }
@@ -229,7 +290,7 @@ fun UserInputArea(
                     AttachmentStrip(
                         references = attachments,
                         removable = true,
-                        onRemove = { ref -> attachments = attachments.filterNot { it == ref } },
+                        onRemove = { ref -> onAttachmentsChange(attachments.filterNot { it == ref }) },
                         modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp),
                         compact = false
                     )
@@ -237,7 +298,8 @@ fun UserInputArea(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 6.dp),
+                        .padding(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)
+                        .onSizeChanged { inputRowWidthPx = it.width },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
@@ -258,32 +320,14 @@ fun UserInputArea(
                     BasicTextField(
                         value = textState,
                         onValueChange = { textState = it },
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 17.sp,
-                            lineHeight = 22.sp
-                        ),
+                        textStyle = inputTextStyle,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
-                            .padding(horizontal = 8.dp, vertical = if (mediaKind != null) 4.dp else 10.dp),
+                             .padding(horizontal = 8.dp, vertical = 10.dp),
                         maxLines = 6,
                         decorationBox = { innerTextField ->
                             Column {
-                                if (mediaKind != null) {
-                                    Text(
-                                        mediaHint,
-                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp),
-                                        color = if (attachments.isNotEmpty() || textState.length > 32000)
-                                            MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.clickable {
-                                            if (mediaModel == null) showModelPicker = true
-                                            else Toast.makeText(context, mediaHint, Toast.LENGTH_SHORT).show()
-                                        }
-                                    )
-                                }
                                 Box(contentAlignment = Alignment.CenterStart) {
                                 if (textState.isEmpty()) {
                                     Text(
@@ -304,20 +348,27 @@ fun UserInputArea(
                         }
                     )
 
+                    val actionButtons: @Composable () -> Unit = {
                     Box(
                         modifier = Modifier
-                            .padding(end = 6.dp)
+                            .padding(end = if (stackInputActions) 0.dp else 6.dp)
                             .size(44.dp)
                             .clip(CircleShape)
                             .background(if (mediaKind != null) MaterialTheme.colorScheme.primaryContainer
                                 else MaterialTheme.colorScheme.surfaceContainerHigh)
-                            .semantics { contentDescription = if (mediaKind != null) "$mediaLabel mode options" else "Select model" }
-                            .clickable { if (mediaKind != null) showMediaMenu = true else showModelPicker = true },
+                            .semantics { contentDescription = if (mediaKind != null) "Select $mediaLabel model" else "Select model" }
+                            .clickable { showModelPicker = true },
                         contentAlignment = Alignment.Center
                     ) {
                         if (mediaKind != null) {
-                            Icon(if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image else Icons.Outlined.Videocam,
-                                contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            EntityIcon(
+                                mediaModel?.icon, Modifier.fillMaxSize(),
+                                text = modelInitial(mediaModelId),
+                                fallback = if (mediaModel == null) {
+                                    if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image else Icons.Outlined.Videocam
+                                } else null,
+                                matchName = mediaModel?.displayName?.ifBlank { mediaModelId }, model = true
+                            )
                         } else {
                         val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
                         val selectedConfig = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
@@ -327,19 +378,6 @@ fun UserInputArea(
                         EntityIcon(selectedConfig?.icon, Modifier.fillMaxSize(),
                             text = modelInitial(selectedModelName),
                              matchName = selectedConfig?.displayName?.ifBlank { selectedModelName } ?: selectedModelName, model = true)
-                        }
-                        DropdownMenu(expanded = showMediaMenu, onDismissRequest = { showMediaMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Change $mediaLabel model") },
-                                leadingIcon = { Icon(if (mediaKind == ModelType.IMAGE_GENERATION) Icons.Outlined.Image
-                                    else Icons.Outlined.Videocam, null) },
-                                onClick = { showMediaMenu = false; showModelPicker = true }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Back to Chat") },
-                                leadingIcon = { Icon(Icons.Outlined.ChatBubbleOutline, null) },
-                                onClick = { showMediaMenu = false; mediaKind = null }
-                            )
                         }
                     }
 
@@ -368,7 +406,7 @@ fun UserInputArea(
                                         if (submitted) {
                                             focusManager.clearFocus(force = true)
                                             textState = ""
-                                            attachments = emptyList()
+                                            onAttachmentsChange(emptyList())
                                             if (editDraft != null) onCancelEdit()
                                         } else {
                                             Toast.makeText(
@@ -406,8 +444,18 @@ fun UserInputArea(
                             )
                         }
                     }
+                    }
+                    if (stackInputActions) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) { actionButtons() }
+                    } else {
+                        Row(verticalAlignment = Alignment.CenterVertically) { actionButtons() }
+                    }
                 }
             }
+        }
         }
     }
 
@@ -453,6 +501,7 @@ fun UserInputArea(
                 else onSelectModel(provider, model)
             },
             onSetReasoningEffort = { if (mediaKind == null) onSetReasoningEffort(it) },
+            showReasoningEffort = mediaKind == null,
             dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap,
             onDismiss = { showModelPicker = false }
         )

@@ -60,8 +60,10 @@ class ChatViewModel(
     private val _currentConversation = MutableStateFlow<Conversation?>(null)
     val currentConversation: StateFlow<Conversation?> = _currentConversation.asStateFlow()
 
-    private val _summaryProgress = MutableStateFlow<ConversationSummaryProgress?>(null)
-    val summaryProgress: StateFlow<ConversationSummaryProgress?> = _summaryProgress.asStateFlow()
+    private val summaries = ConversationSummaryCoordinator(conversationRepo, toolChat, { _currentConversation.value }) { updated ->
+        if (_currentConversation.value?.id == updated.id) _currentConversation.value = updated
+    }
+    val summaryProgress = summaries.progress
     private var summaryJob: Job? = null
 
     private fun providerWithReasoning(
@@ -109,7 +111,7 @@ class ChatViewModel(
     val contextWindowStatus = combine(_currentConversation, appPreferences, providers) { conversation, prefs, available ->
         val config = available.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId)
         if (conversation == null || config == null || config.modelType != ModelType.TEXT_GENERATION) null
-        else contextWindowStatus(conversation, prefs.defaultSystemPrompt, config)
+        else contextWindowStatus(conversation, prefs.effectiveSystemPrompt, config, prefs.promptRoleMessages())
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var lastAutomaticSummaryAttempt: String? = null
@@ -128,7 +130,7 @@ class ChatViewModel(
         val current = _currentConversation.value ?: return false
         val prefs = appPreferences.value
         val model = providers.value.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId) ?: return false
-        val status = contextWindowStatus(current, prefs.defaultSystemPrompt, model)
+        val status = contextWindowStatus(current, prefs.effectiveSystemPrompt, model, prefs.promptRoleMessages())
         val projected = status.copy(estimatedTokens = status.estimatedTokens + (incoming?.let { estimateMessageTokens(it, false) } ?: 0))
         if (model.modelType != ModelType.TEXT_GENERATION || !projected.shouldAutoSummarize) return false
         val boundary = current.messages.lastOrNull()?.id ?: return false
@@ -166,6 +168,7 @@ class ChatViewModel(
     }
 
     fun editQueuedMessage(id: String, newContent: String, files: List<String>): Boolean {
+        if ((newContent.isBlank() && files.isEmpty()) || _queuedMessages.value.none { it.id == id }) return false
         _queuedMessages.value = _queuedMessages.value.map { msg ->
             if (msg.id == id) {
                 msg.copy(
@@ -287,6 +290,7 @@ class ChatViewModel(
             prefsRepo.setDefaultSystemPrompt(prompt)
         }
     }
+    fun setPromptLibrary(library: PromptLibrary) { viewModelScope.launch { prefsRepo.setPromptLibrary(library) } }
 
     fun selectModel(providerId: String, modelId: String) {
         viewModelScope.launch {
@@ -305,42 +309,13 @@ class ChatViewModel(
         viewModelScope.launch { prefsRepo.setSelectedSpeechServiceId(serviceId) }
     }
 
-    private fun speakWithService(service: SpeechService, text: String) {
-        if (text.isBlank()) return
-        if (service.provider.equals("system", ignoreCase = true)) {
-            speechAudioPlayer.stop()
-            ttsHelper.speak(text, service.speed, service.pitch, service.voice)
-            return
-        }
-
-        viewModelScope.launch {
-            val provider = providers.value.find { it.id == service.provider }
-                ?: return@launch
-            val modelId = service.modelId ?: return@launch
-            val modelConfig = provider.config.modelConfigs[modelId] ?: return@launch
-            if (modelConfig.modelType != ModelType.TEXT_TO_SPEECH) return@launch
-            ttsHelper.stop()
-            runCatching { speechSynthesis.synthesize(provider, service, text) }
-                .onSuccess { speechAudioPlayer.play(it) }
-        }
-    }
-
-    fun speakText(text: String) {
-        val services = speechServices.value
-        val selectedId = appPreferences.value.selectedSpeechServiceId
-        val service = selectedId?.let { id -> services.find { it.id == id } }
-            ?: services.find { it.provider.equals("system", ignoreCase = true) }
-            ?: services.firstOrNull()
-            ?: return
-        speakWithService(service, text)
-    }
-
-    fun testVoice(service: SpeechService, text: String) = speakWithService(service, text)
-
-    fun stopSpeaking() {
-        ttsHelper.stop()
-        speechAudioPlayer.stop()
-    }
+    private val speech = ChatSpeechCoordinator(viewModelScope, appPreferences, providers, speechServices,
+        ttsHelper, speechSynthesis, speechAudioPlayer)
+    val speakingMessageId = speech.speakingMessageId
+    val activeTestSpeechServiceId = speech.activeTestServiceId
+    fun speakText(text: String, messageId: String? = null) = speech.speak(text, messageId)
+    fun testVoice(service: SpeechService, text: String) = speech.speakWithService(service, text, isTest = true)
+    fun stopSpeaking() = speech.stop()
 
     fun setConversationReasoningEffort(effort: String?) {
         val current = _currentConversation.value ?: return
@@ -369,126 +344,16 @@ class ChatViewModel(
         writeConversation { conversationRepo.saveConversation(updated) }
     }
 
-    private fun estimateTokens(message: StoredMessage): Int =
-        estimateMessageTokens(message, includeReasoning = true).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-
-    private fun chunkMessages(messages: List<StoredMessage>, tokenLimit: Int): List<List<StoredMessage>> =
-        chunkSummaryMessages(messages, tokenLimit)
-
     fun startConversationSummary(request: ConversationSummaryRequest): Boolean {
         if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
         val conversation = _currentConversation.value ?: return false
         if (conversation.messages.isEmpty()) return false
         val configured = summaryTextModel() ?: return false
         val (provider, config) = configured
-        val targetTokens = request.targetTokens.coerceAtLeast(1)
-        val cutoff = conversation.messages.last().id
-        val basePrompt = config.prompt.ifBlank { DEFAULT_CHAT_SUMMARY_PROMPT } +
-            "\n\nTarget summary length: approximately $targetTokens tokens. Return only the summary."
-        val effective = effectiveContext(conversation, conversation.messages, basePrompt)
-        val modelId = config.modelId
-
         summaryJob = viewModelScope.launch {
-            _summaryProgress.value = ConversationSummaryProgress(
-                conversation.id, cutoff, "Preparing summary…", 0f
-            )
             try {
-                val text = if (!request.chunked) {
-                    _summaryProgress.value = ConversationSummaryProgress(
-                        conversation.id, cutoff, "Summarizing conversation…", 0.35f
-                    )
-                    toolChat.completeText(
-                        provider,
-                        modelId,
-                        effective.messages,
-                        effective.systemPrompt,
-                        maxOutputTokens = targetTokens
-                    )
-                } else {
-                    val chunks = chunkMessages(
-                        effective.messages,
-                        request.tokensPerChunk.coerceAtLeast(1)
-                    )
-                    val partials = mutableListOf<String>()
-                    chunks.forEachIndexed { index, chunk ->
-                        _summaryProgress.value = ConversationSummaryProgress(
-                            conversation.id,
-                            cutoff,
-                            "Summarizing part ${index + 1}/${chunks.size}…",
-                            ((index + 1).toFloat() / (chunks.size + 1).coerceAtLeast(1))
-                        )
-                        partials += toolChat.completeText(
-                            provider,
-                            modelId,
-                            chunk,
-                            config.prompt.ifBlank { DEFAULT_CHAT_SUMMARY_PROMPT } +
-                                "\n\nThis is part ${index + 1} of ${chunks.size}. Produce a compact partial summary for later merging.",
-                            maxOutputTokens = targetTokens
-                        ).trim()
-                    }
-                    _summaryProgress.value = ConversationSummaryProgress(
-                        conversation.id, cutoff, "Merging summaries…", 0.9f
-                    )
-                    val helperWindow = provider.config.modelConfigs[modelId]?.contextWindowTokens?.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS
-                    val mergeBudget = (helperWindow * 0.6).toInt().coerceAtLeast(16)
-                    var merging = partials.toList()
-                    while (merging.sumOf { estimateTextTokens(it) + 4 } > mergeBudget && merging.size > 1) {
-                        val batches = chunkMessages(merging.mapIndexed { index, part ->
-                            StoredMessage("merge_$index", ChatRole.USER, listOf(MessageVersion(content = part)))
-                        }, mergeBudget)
-                        val reduced = batches.map { batch ->
-                            toolChat.completeText(provider, modelId, batch, basePrompt, maxOutputTokens = targetTokens).trim()
-                        }
-                        check(reduced.sumOf { estimateTextTokens(it) } < merging.sumOf { estimateTextTokens(it) }) {
-                            "Summary could not be compressed to fit the summary model's context window"
-                        }
-                        merging = reduced
-                    }
-                    val mergeMessages = merging.mapIndexed { index, part ->
-                        StoredMessage(
-                            id = "summary_part_$index",
-                            role = ChatRole.USER,
-                            versions = listOf(MessageVersion(content = "Part ${index + 1}:\n$part"))
-                        )
-                    }
-                    toolChat.completeText(
-                        provider,
-                        modelId,
-                        mergeMessages,
-                        basePrompt,
-                        maxOutputTokens = targetTokens
-                    )
-                }.trim()
-
-                check(text.isNotBlank()) { "Summary returned no content" }
-                if (text.isNotBlank()) {
-                    val latest = conversationRepo.getById(conversation.id)
-                        ?: _currentConversation.value?.takeIf { it.id == conversation.id }
-                        ?: conversation
-                    val updated = latest.copy(
-                        summary = ConversationSummary(
-                            id = UUID.randomUUID().toString(),
-                            content = text,
-                            throughMessageId = cutoff,
-                            role = SummaryRole.SYSTEM
-                        ),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    conversationRepo.saveConversation(updated)
-                    if (_currentConversation.value?.id == updated.id) _currentConversation.value = updated
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _summaryProgress.value = ConversationSummaryProgress(
-                    conversation.id,
-                    cutoff,
-                    "Summary failed: ${e.localizedMessage ?: "Unknown error"}",
-                    0f
-                )
-                delay(2500)
+                summaries.summarize(conversation, provider, config, request)
             } finally {
-                _summaryProgress.value = null
                 summaryJob = null
                 drainQueuedMessages()
             }
@@ -541,6 +406,13 @@ class ChatViewModel(
         }
     }
 
+    private fun generatedVersion(provider: LlmProviderInfo?, modelId: String, timestamp: String) = MessageVersion(
+        timestamp = timestamp,
+        providerId = provider?.id.orEmpty(),
+        modelId = modelId,
+        modelDisplayName = provider?.config?.modelConfigs?.get(modelId)?.displayName?.ifBlank { modelId } ?: modelId
+    )
+
     fun sendMessage(userText: String, fileAttachments: List<String> = emptyList()): Boolean {
         if (userText.isBlank() && fileAttachments.isEmpty()) return false
 
@@ -587,7 +459,7 @@ class ChatViewModel(
         val assistant = StoredMessage(
             UUID.randomUUID().toString(),
             ChatRole.MODEL,
-            listOf(MessageVersion(timestamp = now.toString()))
+            listOf(generatedVersion(baseProvider, modelId, now.toString()))
         )
         val existing = _currentConversation.value
         val firstMessage = existing == null || existing.messages.isEmpty()
@@ -618,8 +490,8 @@ class ChatViewModel(
         val context = effectiveContext(
             conv,
             conv.messages.dropLast(1),
-            prefs.defaultSystemPrompt
-        )
+            prefs.effectiveSystemPrompt
+        ).let { it.copy(messages = prefs.promptRoleMessages() + it.messages) }
         val started = generation.startEvents(
             conv,
             assistant.id,
@@ -646,7 +518,7 @@ class ChatViewModel(
         val user = StoredMessage(UUID.randomUUID().toString(), ChatRole.USER,
             listOf(MessageVersion(content = request.prompt, timestamp = now.toString())))
         val assistant = StoredMessage(UUID.randomUUID().toString(), ChatRole.MODEL,
-            listOf(MessageVersion(timestamp = now.toString())))
+            listOf(generatedVersion(provider, request.modelId, now.toString())))
         val existing = _currentConversation.value
         val conversation = (existing ?: Conversation(
             id = UUID.randomUUID().toString(), title = request.prompt.take(30),
@@ -682,7 +554,10 @@ class ChatViewModel(
             MessageVersion(
                 content = newContent,
                 timestamp = System.currentTimeMillis().toString(),
-                files = files
+                files = files,
+                providerId = oldMsg.activeVersion.providerId,
+                modelId = oldMsg.activeVersion.modelId,
+                modelDisplayName = oldMsg.activeVersion.modelDisplayName
             )
         )
         currentMsgs[idx] = oldMsg.copy(
@@ -769,7 +644,8 @@ class ChatViewModel(
         val prefs = appPreferences.value
         val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return
         val model = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return
-        var conv = prepareRegeneration(current, messageId)?.copy(
+        var conv = prepareRegeneration(current, messageId,
+            generatedVersion(baseProvider, model, System.currentTimeMillis().toString()))?.copy(
             providerId = baseProvider.id,
             modelId = model,
             profileId = null
@@ -783,8 +659,8 @@ class ChatViewModel(
         val context = effectiveContext(
             conv,
             conv.messages.dropLast(1),
-            prefs.defaultSystemPrompt
-        )
+            prefs.effectiveSystemPrompt
+        ).let { it.copy(messages = prefs.promptRoleMessages() + it.messages) }
         generation.startEvents(
             conv,
             messageId,
@@ -794,7 +670,6 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        ttsHelper.shutdown()
-        speechAudioPlayer.shutdown()
+        speech.shutdown()
     }
 }

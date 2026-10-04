@@ -26,6 +26,32 @@ class EntityIconTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun logoVariantsPersistStayGroupedAndFallBackToNormal() {
+        val source = File.createTempFile("variant-icon", ".png", context.cacheDir)
+        val bitmap = Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888)
+        source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        try {
+            val store = IconStore(context)
+            val base = store.importImage(Uri.fromFile(source))
+            val light = store.importImage(Uri.fromFile(source), shared = false)
+            val dark = store.importImage(Uri.fromFile(source), shared = false)
+            store.setVariant(base, light, false)
+            store.setVariant(base, dark, true)
+            val reloaded = IconStore(context)
+            assertEquals(light, reloaded.themedImage(base, false))
+            assertEquals(dark, reloaded.themedImage(base, true))
+            assertEquals(dark, reloaded.entries().first { it.image == base }.darkImage)
+            assertFalse(reloaded.entries().any { it.image == light || it.image == dark })
+            reloaded.prune(emptySet())
+            assertNotNull(reloaded.load(light))
+            assertNotNull(reloaded.load(dark))
+            reloaded.setVariant(base, null, true)
+            assertEquals(light, reloaded.themedImage(base, true))
+        } finally { source.delete() }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun importedImageRemainsAvailableWithoutOriginalAndIsBounded() {
         val source = File.createTempFile("source-icon", ".png", context.cacheDir)
         val original = Bitmap.createBitmap(1024, 512, Bitmap.Config.ARGB_8888)
@@ -76,7 +102,7 @@ class EntityIconTest {
         } finally { db.close() }
     }
 
-    @Test fun namedIconsApplyToFutureEntitiesAcrossProvidersAndRestarts() = runBlocking {
+    @Test fun entityIconsDoNotCreateSharedMatchingRules() = runBlocking {
         installTestAndroidKeyStore()
         context.getSharedPreferences("named-entity-icons", Context.MODE_PRIVATE).edit().clear().commit()
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
@@ -92,20 +118,23 @@ class EntityIconTest {
             repository.saveProvider(future)
             val restored = repository.getProviderById("later")!!
             assertNull(restored.icon)
-            assertEquals("icon-a.png", IconStore(context).find(restored.name))
+            assertNull(IconStore(context).find(restored.name))
             assertNull(restored.config.modelConfigs.getValue("another-id").icon)
-            assertEquals("icon-b.png", IconStore(context).find("my model", model = true))
-            assertEquals("icon-a.png", IconStore(context).find("my provider"))
+            assertNull(IconStore(context).find("my model", model = true))
+            assertNull(IconStore(context).find("my provider"))
             val mcp = McpRepository(db, McpService(), IconStore(context))
             mcp.saveServer(McpInfo("s", "Tool Server", icon = "icon-c.png"))
             mcp.deleteServer("s")
             McpRepository(db, McpService(), IconStore(context)).saveServer(McpInfo("s2", " tool server "))
             assertNull(mcp.getById("s2")!!.icon)
-            assertEquals("icon-c.png", IconStore(context).find(mcp.getById("s2")!!.name))
+            assertNull(IconStore(context).find(mcp.getById("s2")!!.name))
             mcp.saveServer(mcp.getById("s2")!!.copy(icon = null))
             mcp.saveServer(McpInfo("s3", "tool server"))
             assertNull(mcp.getById("s3")!!.icon)
-            assertEquals("icon-c.png", IconStore(context).find("tool server"))
+            assertNull(IconStore(context).find("tool server"))
+            repository.saveGroup(ProviderGroup("g", "Folder", icon = "icon-d.png"))
+            assertNull(IconStore(context).find("Folder"))
+            assertTrue(IconStore(context).rules().isEmpty())
         } finally { db.close() }
     }
 
@@ -151,6 +180,28 @@ class EntityIconTest {
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun privateUploadsStayOutOfSharedCacheAndSurvivePruningWhileAssigned() {
+        val store = IconStore(context)
+        val source = File.createTempFile("private-icon", ".png", context.cacheDir)
+        val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        source.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        try {
+            val privateIcon = store.importImage(Uri.fromFile(source), shared = false)
+            val sharedIcon = store.importImage(Uri.fromFile(source), shared = true)
+            assertFalse(store.entries().any { it.image == privateIcon })
+            assertTrue(store.entries().any { it.image == sharedIcon })
+            store.cache("Private model", privateIcon)
+            assertNull(store.find("Private model"))
+            store.prune(listOf(privateIcon))
+            store.load(privateIcon)!!.recycle()
+            store.prune(emptyList())
+            assertNull(store.load(privateIcon))
+            store.load(sharedIcon)!!.recycle()
+        } finally { source.delete() }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun remoteIconsDownloadLazilyReuseFilesAndRespectCustomRules() = runBlocking {
         listOf("named-entity-icons", "icon-assets", "automatic-entity-icons").forEach {
             context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
@@ -169,13 +220,16 @@ class EntityIconTest {
             val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
             bitmap.recycle()
             server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(bytes)))
+            val lookupRevision = IconStore.lookupRevision.value
             val id = store.resolve("vendor/claude-sonnet-4", true, source)!!
+            assertEquals(lookupRevision, IconStore.lookupRevision.value)
             assertEquals("lobe-claude-color.png", id)
             assertEquals(2, server.requestCount)
             assertEquals("/index", server.takeRequest().path)
             assertEquals("/images/claude-color.png", server.takeRequest().path)
             assertEquals(listOf("claude-color.png"), store.entries().map { it.filename })
             assertNotNull(store.load(id))
+            assertSame(store.load(id), store.load(id))
             assertEquals(id, IconStore(context).resolve("claude-haiku", true, source))
             assertEquals(2, server.requestCount)
             store.editMatches(id, listOf("my-model", "special"))

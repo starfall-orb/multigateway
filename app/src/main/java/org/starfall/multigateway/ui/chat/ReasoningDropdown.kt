@@ -105,10 +105,16 @@ internal fun ProcessingDropdown(
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val runningTools = items.filterIsInstance<ProcessingDropdownItem.Tool>()
+        .map { it.activity }.filter { it.status == "running" && !it.name.endsWith(": connect") && it.name != "send_file" }
     val visibleItems = items.filterNot {
-        it is ProcessingDropdownItem.Tool && it.activity.name.endsWith(": connect")
+        it is ProcessingDropdownItem.Tool &&
+            (it.activity.name.endsWith(": connect") || it.activity.status == "running" || it.activity.name == "send_file")
     }
-    if (visibleItems.isEmpty()) return
+    if (visibleItems.isEmpty()) {
+        Box(modifier) { ToolActivityCards(runningTools) }
+        return
+    }
 
     val onlyThinking = visibleItems.all { it is ProcessingDropdownItem.Thinking }
     val onlyTools = visibleItems.all { it is ProcessingDropdownItem.Tool }
@@ -193,6 +199,7 @@ internal fun ProcessingDropdown(
                 }
             }
         }
+        ToolActivityCards(runningTools)
     }
 }
 @Composable

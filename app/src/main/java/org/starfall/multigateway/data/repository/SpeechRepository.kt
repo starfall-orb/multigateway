@@ -3,6 +3,7 @@ package org.starfall.multigateway.data.repository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.local.db.AppDatabase
 import org.starfall.multigateway.data.local.db.SecretCipher
 import org.starfall.multigateway.data.local.db.entities.*
@@ -33,6 +34,7 @@ class SpeechRepository(private val db: AppDatabase) {
     }
 
     private fun entityToModel(entity: SpeechServiceEntity): SpeechService {
+        val options = entity.optionsJson?.let { Json.parseToJsonElement(SecretCipher.decrypt(it)).jsonObject }
         return SpeechService(
             id = entity.id,
             name = entity.name,
@@ -42,7 +44,11 @@ class SpeechRepository(private val db: AppDatabase) {
             speed = entity.speed,
             pitch = entity.pitch,
             apiKey = SecretCipher.decrypt(entity.apiKey),
-            sortOrder = entity.sortOrder
+            sortOrder = entity.sortOrder,
+            instructions = options?.get("instructions")?.jsonPrimitive?.content.orEmpty(),
+            responseFormat = options?.get("responseFormat")?.jsonPrimitive?.content ?: "mp3",
+            languageCode = options?.get("languageCode")?.jsonPrimitive?.content.orEmpty(),
+            extraBody = options?.get("extraBody")?.jsonObject ?: JsonObject(emptyMap())
         )
     }
 
@@ -56,7 +62,13 @@ class SpeechRepository(private val db: AppDatabase) {
             speed = service.speed,
             pitch = service.pitch,
             apiKey = SecretCipher.encrypt(service.apiKey),
-            sortOrder = service.sortOrder
+            sortOrder = service.sortOrder,
+            optionsJson = SecretCipher.encrypt(buildJsonObject {
+                put("instructions", service.instructions)
+                put("responseFormat", service.responseFormat)
+                put("languageCode", service.languageCode)
+                put("extraBody", service.extraBody)
+            }.toString())
         )
     }
 }

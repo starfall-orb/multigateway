@@ -23,9 +23,11 @@ data class AppPreferences(
     val useDynamicColor: Boolean = true,
     val colorSchemeName: String = "DEFAULT", // DEFAULT, EMERALD, SUNSET, CRIMSON, VIOLET
     val defaultSystemPrompt: String = "",
+    val promptLibrary: org.starfall.multigateway.data.model.PromptLibrary? = null,
     val continueLastConversation: Boolean = false,
     val persistChatSelection: Boolean = false,
     val autoScroll: Boolean = false,
+    val ttsReadCodeBlocks: Boolean = false,
     val enableVibration: Boolean = false,
     val hideStatusBar: Boolean = false,
     val hideNavigationBar: Boolean = false,
@@ -41,7 +43,10 @@ data class AppPreferences(
     val mcpPresetsInitialized: Boolean = false,
     val contentApiPresetInitialized: Boolean = false,
     val latexMode: String = "AUTO" // ON, OFF, AUTO
-)
+) {
+    val effectiveSystemPrompt: String get() = promptLibrary?.systemPrompt() ?: defaultSystemPrompt
+    fun promptRoleMessages() = promptLibrary?.roleMessages().orEmpty()
+}
 
 class AppPreferencesRepository(private val context: Context) {
 
@@ -56,9 +61,11 @@ class AppPreferencesRepository(private val context: Context) {
         val USE_DYNAMIC_COLOR = booleanPreferencesKey("use_dynamic_color")
         val COLOR_SCHEME_NAME = stringPreferencesKey("color_scheme_name")
         val DEFAULT_SYSTEM_PROMPT = stringPreferencesKey("default_system_prompt")
+        val PROMPT_LIBRARY = stringPreferencesKey("prompt_library")
         val CONTINUE_LAST_CONVERSATION = booleanPreferencesKey("continue_last_conversation")
         val PERSIST_CHAT_SELECTION = booleanPreferencesKey("persist_chat_selection")
         val AUTO_SCROLL = booleanPreferencesKey("auto_scroll")
+        val TTS_READ_CODE_BLOCKS = booleanPreferencesKey("tts_read_code_blocks")
         val ENABLE_VIBRATION = booleanPreferencesKey("enable_vibration")
         val HIDE_STATUS_BAR = booleanPreferencesKey("hide_status_bar")
         val HIDE_NAVIGATION_BAR = booleanPreferencesKey("hide_navigation_bar")
@@ -92,9 +99,13 @@ class AppPreferencesRepository(private val context: Context) {
                 useDynamicColor = preferences[PreferenceKeys.USE_DYNAMIC_COLOR] ?: true,
                 colorSchemeName = preferences[PreferenceKeys.COLOR_SCHEME_NAME] ?: "DEFAULT",
                 defaultSystemPrompt = preferences[PreferenceKeys.DEFAULT_SYSTEM_PROMPT] ?: "",
+                promptLibrary = preferences[PreferenceKeys.PROMPT_LIBRARY]?.let {
+                    runCatching { Json.decodeFromString<org.starfall.multigateway.data.model.PromptLibrary>(it) }.getOrNull()
+                },
                 continueLastConversation = preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] ?: false,
                 persistChatSelection = preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] ?: false,
                 autoScroll = preferences[PreferenceKeys.AUTO_SCROLL] ?: false,
+                ttsReadCodeBlocks = preferences[PreferenceKeys.TTS_READ_CODE_BLOCKS] ?: false,
                 enableVibration = preferences[PreferenceKeys.ENABLE_VIBRATION] ?: false,
                 hideStatusBar = preferences[PreferenceKeys.HIDE_STATUS_BAR] ?: false,
                 hideNavigationBar = preferences[PreferenceKeys.HIDE_NAVIGATION_BAR] ?: false,
@@ -192,6 +203,16 @@ class AppPreferencesRepository(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] = enable
         }
+    }
+
+    suspend fun setPromptLibrary(library: org.starfall.multigateway.data.model.PromptLibrary) {
+        val prompts = library.prompts.distinctBy { it.id }
+        val cleaned = library.copy(prompts = prompts, selectedIds = library.selectedIds.intersect(prompts.map { it.id }.toSet()))
+        context.dataStore.edit { it[PreferenceKeys.PROMPT_LIBRARY] = Json.encodeToString(cleaned) }
+    }
+
+    suspend fun setTtsReadCodeBlocks(enable: Boolean) {
+        context.dataStore.edit { it[PreferenceKeys.TTS_READ_CODE_BLOCKS] = enable }
     }
 
     suspend fun setAutoScroll(enable: Boolean) {

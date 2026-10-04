@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -28,6 +29,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.data.model.MessageVersion
@@ -35,6 +39,7 @@ import org.starfall.multigateway.data.model.StoredMessage
 import org.starfall.multigateway.data.model.ToolActivity
 import org.starfall.multigateway.data.tools.ToolFiles
 import org.starfall.multigateway.ui.tools.MediaFileCard
+import org.starfall.multigateway.ui.components.mediaMimeType
 
 @Composable
 fun AssistantMessageCard(
@@ -46,11 +51,16 @@ fun AssistantMessageCard(
     onDelete: () -> Unit,
     onRead: () -> Unit,
     onSwitchVersion: (Int) -> Unit,
+    selectedImageAttachments: List<String> = emptyList(),
+    onToggleChatImage: ((String) -> Unit)? = null,
+    isReading: Boolean = false,
+    fallbackModelName: String = "",
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var showMoreMenu by remember { mutableStateOf(false) }
     val activeVersion = message.activeVersion
+    val generatedModelName = activeVersion.modelDisplayName.ifBlank { activeVersion.modelId.ifBlank { fallbackModelName } }
     val processingDurationMillis = activeVersion.processingFinishedAt?.let { finishedAt ->
         activeVersion.timestamp.toLongOrNull()?.let { startedAt -> (finishedAt - startedAt).coerceAtLeast(0L) }
     }
@@ -60,26 +70,20 @@ fun AssistantMessageCard(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        if (isStreaming && message.content.isBlank()) {
+        if (isStreaming && message.content.isBlank() && activeVersion.toolActivity.none { it.files.isNotEmpty() }) {
             StreamingProcessingPreview(activeVersion)
         } else {
             CompletedAssistantContent(
                 version = activeVersion,
                 processingDurationMillis = processingDurationMillis.takeUnless { isStreaming },
-                animateStreamingContent = isStreaming
+                animateStreamingContent = isStreaming,
+                selectedImageAttachments = selectedImageAttachments,
+                onToggleChatImage = onToggleChatImage
             )
         }
-
-        val generatedFiles = activeVersion.toolActivity.flatMap { it.files }
-            .map { it.removePrefix("tool-file:") }.distinct()
-        if (generatedFiles.isNotEmpty()) {
-            val store = remember(context) { ToolFiles(context) }
-            Column(Modifier.fillMaxWidth().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                generatedFiles.forEach { name -> key(name) { MediaFileCard(store, name) } }
-            }
-        }
         if (activeVersion.files.isNotEmpty()) {
-            AttachmentStrip(activeVersion.files, removable = false, modifier = Modifier.padding(top = 8.dp))
+            AttachmentStrip(activeVersion.files, removable = false, modifier = Modifier.padding(top = 8.dp),
+                selectedImageAttachments = selectedImageAttachments, onToggleChatImage = onToggleChatImage)
         }
 
         if (isStreaming) {
@@ -201,10 +205,18 @@ fun AssistantMessageCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                if (generatedModelName.isNotBlank()) {
+                    Text(generatedModelName,
+                        modifier = Modifier.weight(1f).padding(start = 6.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                } else Spacer(modifier = Modifier.weight(1f))
 
-                MessageActionButton(onClick = onRead, contentDescription = "Read aloud") {
-                    Icon(Icons.Outlined.VolumeUp, contentDescription = null, modifier = Modifier.size(18.dp))
+                MessageActionButton(onClick = onRead, contentDescription = if (isReading) "Stop reading" else "Read aloud") {
+                    Icon(if (isReading) Icons.Outlined.StopCircle else Icons.Outlined.VolumeUp,
+                        contentDescription = null, modifier = Modifier.size(18.dp),
+                        tint = if (isReading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
@@ -223,11 +235,6 @@ private sealed interface ProcessingTimelineItem {
         override val contentOffset: Int get() = activity.contentOffset
     }
 }
-
-private data class NumberedProcessingItem(
-    val number: Int,
-    val item: ProcessingTimelineItem
-)
 
 private fun buildProcessingTimeline(version: MessageVersion): List<ProcessingTimelineItem> {
     val activities = version.toolActivity.filterNot { it.name.endsWith(": connect") }
@@ -268,8 +275,11 @@ private fun StreamingProcessingPreview(version: MessageVersion) {
     val timeline = remember(version.reasoningContent, version.toolActivity, version.content.length) {
         buildProcessingTimeline(version)
     }
-    val visibleItems = timeline.takeLast(2).mapIndexed { index, item ->
-        NumberedProcessingItem(timeline.size - 1 + index, item)
+    val visibleItems = timeline.mapIndexedNotNull { index, item ->
+        if (index >= timeline.size - 2 ||
+            (item is ProcessingTimelineItem.Tool && item.activity.status == "running")) {
+            index to item
+        } else null
     }
     val lastItem = timeline.lastOrNull()
 
@@ -277,24 +287,19 @@ private fun StreamingProcessingPreview(version: MessageVersion) {
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        visibleItems.forEach { numbered ->
-            val item = numbered.item
+        visibleItems.forEach { (index, item) ->
             key(
                 when (item) {
-                    is ProcessingTimelineItem.Thinking -> "thinking_${numbered.number}_${item.contentOffset}"
+                    is ProcessingTimelineItem.Thinking -> "thinking_${index}_${item.contentOffset}"
                     is ProcessingTimelineItem.Tool -> item.activity.id
                 }
             ) {
                 when (item) {
                     is ProcessingTimelineItem.Thinking -> LiveThinkingBlock(
                         reasoning = item.reasoning,
-                        blockNumber = numbered.number,
                         active = item === lastItem
                     )
-                    is ProcessingTimelineItem.Tool -> LiveToolBlock(
-                        activity = item.activity,
-                        blockNumber = numbered.number
-                    )
+                    is ProcessingTimelineItem.Tool -> ToolActivityCards(listOf(item.activity))
                 }
             }
         }
@@ -304,7 +309,6 @@ private fun StreamingProcessingPreview(version: MessageVersion) {
 @Composable
 private fun LiveThinkingBlock(
     reasoning: String,
-    blockNumber: Int,
     active: Boolean
 ) {
     val scrollState = rememberScrollState()
@@ -322,7 +326,7 @@ private fun LiveThinkingBlock(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "$blockNumber. ${if (active) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.thinking_streaming) else androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.processed)}",
+                text = if (active) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.thinking_streaming) else androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.processed),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
             )
@@ -355,24 +359,6 @@ private fun LiveThinkingBlock(
 }
 
 @Composable
-private fun LiveToolBlock(activity: ToolActivity, blockNumber: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "$blockNumber.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.outline,
-            modifier = Modifier.padding(start = 8.dp, end = 2.dp)
-        )
-        Box(Modifier.weight(1f)) {
-            ToolActivityCards(listOf(activity))
-        }
-    }
-}
-
-@Composable
 private fun SmoothStreamingMarkdownMessage(content: String, isStreaming: Boolean) {
     StreamingMarkdownRenderer(content = content, isStreaming = isStreaming)
 }
@@ -386,12 +372,17 @@ private data class ProcessingBlock(
 private fun CompletedAssistantContent(
     version: MessageVersion,
     processingDurationMillis: Long?,
-    animateStreamingContent: Boolean
+    animateStreamingContent: Boolean,
+    selectedImageAttachments: List<String>,
+    onToggleChatImage: ((String) -> Unit)?
 ) {
+    val context = LocalContext.current
+    val store = remember(context) { ToolFiles(context) }
     val blocks = remember(version.content, version.reasoningContent, version.toolActivity) {
         buildProcessingBlocks(version)
     }
     val content = version.content
+    val shownFiles = mutableSetOf<String>()
 
     SelectionContainer {
         Column {
@@ -412,13 +403,43 @@ private fun CompletedAssistantContent(
                         }
                     }
 
+                    val visibleProcessingItems = block.items.filterNot { item ->
+                        item is ProcessingDropdownItem.Tool && item.activity.name in listOf("generate_image", "generate_video") &&
+                            item.activity.status == "success" && item.activity.files.any {
+                                mediaMimeType(it.removePrefix("tool-file:")).startsWith(
+                                    if (item.activity.name == "generate_video") "video/" else "image/"
+                                )
+                            }
+                    }
                     ProcessingDropdown(
-                        items = block.items,
+                        items = visibleProcessingItems,
                         durationMillis = processingDurationMillis.takeIf { blocks.size == 1 },
                         startNumber = nextItemNumber,
                         modifier = Modifier.padding(top = 4.dp, bottom = 6.dp)
                     )
-                    nextItemNumber += block.items.size
+                    val files = block.items.filterIsInstance<ProcessingDropdownItem.Tool>()
+                        .flatMap { item ->
+                            val activity = item.activity
+                            if (activity.name == "send_file" && activity.inlineMedia) {
+                                activity.files
+                            } else if (activity.inlineMedia || activity.name in listOf("generate_image", "generate_video")) {
+                                activity.files.filter { file ->
+                                    val mime = mediaMimeType(file.removePrefix("tool-file:"))
+                                    mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")
+                                }
+                            } else activity.files.filterNot { it.endsWith(".json", ignoreCase = true) }
+                        }.map { it.removePrefix("tool-file:") }
+                        .filter { shownFiles.add(it) }
+                    if (files.isNotEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            files.forEach { name -> key(name) {
+                                MediaFileCard(store, name, imageOnly = true,
+                                    selectedForChat = store.resolve(name)?.path in selectedImageAttachments,
+                                    onToggleChatImage = onToggleChatImage)
+                            } }
+                        }
+                    }
+                    nextItemNumber += block.items.count { it !is ProcessingDropdownItem.Tool || it.activity.name != "send_file" }
                     cursor = offset
                 }
 
@@ -481,7 +502,7 @@ private fun MessageActionButton(
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(32.dp),
+        modifier = Modifier.size(32.dp).semantics { this.contentDescription = contentDescription },
         colors = IconButtonDefaults.iconButtonColors(
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant
         )

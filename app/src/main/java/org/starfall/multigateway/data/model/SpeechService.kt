@@ -12,5 +12,9 @@ data class SpeechService(
     val speed: Float = 1.0f,
     val pitch: Float = 1.0f,
     val apiKey: String = "",
-    val sortOrder: Int = Int.MAX_VALUE
+    val sortOrder: Int = Int.MAX_VALUE,
+    val instructions: String = "",
+    val responseFormat: String = "mp3",
+    val languageCode: String = "",
+    val extraBody: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
 )

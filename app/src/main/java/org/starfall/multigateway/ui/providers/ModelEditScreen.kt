@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
+import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import org.starfall.multigateway.R
@@ -33,6 +36,8 @@ fun ModelEditScreen(
     onSave: (String, ModelConfiguration) -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val modelMemory = remember(context) { ModelConfigurationMemory(context) }
     var modelId by remember { mutableStateOf(initialModelId) }
     var config by remember { mutableStateOf(provider.config.modelConfigs[initialModelId] ?: ModelConfiguration()) }
     var contextWindowText by remember { mutableStateOf(config.contextWindowTokens.toString()) }
@@ -41,6 +46,12 @@ fun ModelEditScreen(
     var typeExpanded by remember { mutableStateOf(false) }
     var showSampling by remember { mutableStateOf(false) }
     val trimmedId = modelId.trim()
+    LaunchedEffect(trimmedId) {
+        if (initialModelId.isBlank()) modelMemory.get(trimmedId)?.let { remembered ->
+            config = remembered.copy(displayName = config.displayName, icon = config.icon)
+            contextWindowText = remembered.contextWindowTokens.toString()
+        }
+    }
     val idRequired = stringResource(R.string.model_id_required)
     val idWhitespace = stringResource(R.string.model_id_no_whitespace)
     val idDuplicate = stringResource(R.string.model_id_duplicate)
@@ -54,6 +65,7 @@ fun ModelEditScreen(
 
     fun saveAndBack() {
         if (idError == null && contextWindow != null) {
+            modelMemory.remember(trimmedId, config.copy(contextWindowTokens = contextWindow!!))
             onSave(
                 trimmedId,
                 config.copy(
@@ -100,19 +112,19 @@ fun ModelEditScreen(
                 model = true
             )
             OutlinedTextField(
-                value = config.displayName,
-                onValueChange = { config = config.copy(displayName = it) },
-                label = { Text(stringResource(R.string.display_name)) },
-                supportingText = { Text(stringResource(R.string.model_display_name_hint)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
                 value = modelId,
                 onValueChange = { modelId = it },
                 label = { Text(stringResource(R.string.model_id)) },
                 supportingText = { Text(idError ?: idApiHint) },
                 isError = idError != null,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            OutlinedTextField(
+                value = config.displayName,
+                onValueChange = { config = config.copy(displayName = it) },
+                label = { Text(stringResource(R.string.display_name)) },
+                supportingText = { Text(stringResource(R.string.model_display_name_hint)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -142,7 +154,7 @@ fun ModelEditScreen(
                     value = contextWindowText,
                     onValueChange = { if (it.all(Char::isDigit)) contextWindowText = it },
                     label = { Text(stringResource(R.string.context_window)) },
-                    supportingText = { Text(stringResource(if (contextWindow == null) R.string.context_window_invalid else R.string.context_window_help)) },
+                    supportingText = if (contextWindow == null) ({ Text(stringResource(R.string.context_window_invalid)) }) else null,
                     isError = contextWindow == null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true, modifier = Modifier.fillMaxWidth()

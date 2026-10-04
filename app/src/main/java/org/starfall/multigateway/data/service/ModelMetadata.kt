@@ -14,5 +14,5 @@ internal fun discoveredModel(id: String, item: JsonObject): DiscoveredModel {
         }
     }
     val name = ((item["display_name"] ?: item["displayName"]) as? JsonPrimitive)?.contentOrNull.orEmpty()
-    return DiscoveredModel(id, limit, name)
+    return DiscoveredModel(id, limit, name, metadata = item)
 }

@@ -17,6 +17,32 @@ import org.starfall.multigateway.data.repository.ConversationRepository
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class SidebarStorageTest {
+    @Test fun ttsCodeBlockPreferenceDefaultsOffAndPersists() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val repository = AppPreferencesRepository(context)
+        assertFalse(repository.appPreferencesFlow.first().ttsReadCodeBlocks)
+        try {
+            repository.setTtsReadCodeBlocks(true)
+            assertTrue(AppPreferencesRepository(context).appPreferencesFlow.first().ttsReadCodeBlocks)
+        } finally { repository.setTtsReadCodeBlocks(false) }
+    }
+
+    @Test fun modelProvenanceSurvivesRepositoryReloadAndVersionSwitch() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java).build()
+        try {
+            val versions = listOf(
+                MessageVersion(content = "First answer", providerId = "p1", modelId = "m1", modelDisplayName = "First model"),
+                MessageVersion(content = "Second answer", providerId = "p2", modelId = "m2", modelDisplayName = "Second model")
+            )
+            val conversation = Conversation("c", "Chat", 1, 1,
+                messages = listOf(StoredMessage("a", ChatRole.MODEL, versions, activeVersionIndex = 1)))
+            ConversationRepository(db).saveConversation(conversation)
+            val restored = ConversationRepository(db).getById("c")!!.messages.single()
+            assertEquals("Second model", restored.activeVersion.modelDisplayName)
+            assertEquals("p2", restored.activeVersion.providerId)
+            assertEquals("First model", restored.copy(activeVersionIndex = 0).activeVersion.modelDisplayName)
+        } finally { db.close() }
+    }
     @Test fun bulkDeleteKeepsUnselectedConversationAndItsMessages() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), AppDatabase::class.java).build()
         try {

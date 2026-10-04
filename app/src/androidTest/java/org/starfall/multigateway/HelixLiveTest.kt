@@ -51,7 +51,7 @@ class HelixLiveTest {
             compose.onNodeWithContentDescription(text(R.string.add_provider)).performClick()
             compose.onNode(hasSetTextAction() and hasText(text(R.string.common_name))).performScrollTo().performTextReplacement("Helix Test")
             compose.onNode(hasSetTextAction() and hasText(text(R.string.provider_base_url))).performScrollTo().performTextReplacement(credentials.getValue("base").jsonPrimitive.content)
-            compose.onNode(hasSetTextAction() and hasText("API Key (Optional)")).performScrollTo().performTextReplacement(credentials.getValue("key").jsonPrimitive.content)
+            compose.onNode(hasSetTextAction() and hasText("Platform Default")).performScrollTo().performTextReplacement(credentials.getValue("key").jsonPrimitive.content)
             compose.onNodeWithText(text(R.string.common_save)).performClick()
         } else compose.onNodeWithText(existing.name).performClick()
         compose.waitUntil(20_000) { chat.providers.value.any { it.baseUrl.trimEnd('/') == "https://helixmind.online/v1" } }

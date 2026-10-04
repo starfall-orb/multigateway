@@ -5,11 +5,11 @@ import kotlinx.serialization.Serializable
 
 enum class ProviderType(val displayName: String, val defaultName: String, val defaultBaseUrl: String) {
     @SerialName("openai")
-    OPENAI("OpenAI Chat Completions", "", ""),
+    OPENAI("Chat Completions", "", ""),
     @SerialName("openai_responses")
-    OPENAI_RESPONSES("OpenAI Responses API", "OpenAI Responses", "https://api.openai.com/v1"),
+    OPENAI_RESPONSES("OpenAI Responses", "OpenAI Responses", "https://api.openai.com/v1"),
     @SerialName("anthropic")
-    ANTHROPIC("Anthropic Messages API", "Anthropic", "https://api.anthropic.com/v1"),
+    ANTHROPIC("Anthropic Messages", "Anthropic", "https://api.anthropic.com/v1"),
     @SerialName("google")
     GOOGLE("Google Gemini", "Google Gemini", "https://generativelanguage.googleapis.com/v1beta"),
     @SerialName("ollama")
@@ -250,7 +250,12 @@ fun ModelConfiguration.googleThinkingConfig(): kotlinx.serialization.json.JsonOb
 
 const val DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000
 
-data class DiscoveredModel(val id: String, val contextWindowTokens: Int? = null, val displayName: String = "") {
+data class DiscoveredModel(
+    val id: String,
+    val contextWindowTokens: Int? = null,
+    val displayName: String = "",
+    val metadata: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
+) {
     fun configuration() = ModelConfiguration(displayName = displayName,
         contextWindowTokens = contextWindowTokens ?: DEFAULT_CONTEXT_WINDOW_TOKENS)
 }

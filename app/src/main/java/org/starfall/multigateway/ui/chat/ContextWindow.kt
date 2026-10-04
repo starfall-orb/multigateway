@@ -25,10 +25,11 @@ internal fun estimateMessageTokens(message: StoredMessage, includeReasoning: Boo
         message.activeVersion.toolActivity.sumOf { estimateTextTokens(it.arguments) + estimateTextTokens(it.response) } +
         message.files.size * 1024L
 
-internal fun contextWindowStatus(conversation: Conversation, prompt: String, config: ModelConfiguration): ContextWindowStatus {
+internal fun contextWindowStatus(conversation: Conversation, prompt: String, config: ModelConfiguration,
+    prefixMessages: List<StoredMessage> = emptyList()): ContextWindowStatus {
     val effective = effectiveContext(conversation, conversation.messages, prompt)
     val count = estimateTextTokens(effective.systemPrompt) +
-        effective.messages.sumOf { estimateMessageTokens(it, config.sendThinkingContent) }
+        (prefixMessages + effective.messages).sumOf { estimateMessageTokens(it, config.sendThinkingContent) }
     return ContextWindowStatus(count, config.contextWindowTokens.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS)
 }
 

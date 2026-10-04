@@ -1,6 +1,9 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 
 package org.starfall.multigateway.ui.drawer
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
+import org.starfall.multigateway.ui.components.windowHeightIn
+import org.starfall.multigateway.ui.components.windowWidth
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -42,6 +45,8 @@ fun ConversationsDrawer(
     onUpdateDefaultSystemPrompt: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onCloseDrawer: () -> Unit,
+    promptLibrary: PromptLibrary? = null,
+    onPromptLibraryChange: (PromptLibrary) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var search by remember { mutableStateOf("") }
@@ -73,7 +78,7 @@ fun ConversationsDrawer(
     LaunchedEffect(isOpen) { if (!isOpen) stopSelecting() }
     BackHandler(enabled = selecting && isOpen) { stopSelecting() }
 
-    ModalDrawerSheet(modifier = modifier.width(320.dp), drawerContainerColor = MaterialTheme.colorScheme.surface) {
+    ModalDrawerSheet(modifier = modifier.windowWidth(0.85f), drawerContainerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize()) {
             OutlinedTextField(
                 value = search, onValueChange = { search = it }, singleLine = true,
@@ -165,7 +170,7 @@ fun ConversationsDrawer(
     if (grouping) AlertDialog(
         onDismissRequest = { grouping = false }, title = { Text("Move to folder") },
         text = {
-            LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.windowHeightIn(maxFraction = 0.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(organization.folders, key = { it.id }) { folder -> TextButton(onClick = { moveToFolder(folder.id) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Folder, null); Spacer(Modifier.width(8.dp)); Text(folder.name) } }
                 item { TextButton(onClick = { moveToFolder(null) }) { Text("Move to History") } }
                 item { OutlinedTextField(folderName, { folderName = it }, label = { Text("New folder name") }, singleLine = true) }
@@ -190,10 +195,8 @@ fun ConversationsDrawer(
     if (deletingFolder != null) AlertDialog(onDismissRequest = { deletingFolder = null }, title = { Text("Remove folder?") }, text = { Text("Its chats will return to History.") },
         confirmButton = { TextButton(onClick = { val id = deletingFolder!!.id; onUpdateOrganization { it.removeFolder(id) }; deletingFolder = null }) { Text("Remove") } }, dismissButton = { TextButton(onClick = { deletingFolder = null }) { Text("Cancel") } })
     if (promptDialog) {
-        var prompt by remember(defaultSystemPrompt) { mutableStateOf(defaultSystemPrompt) }
-        AlertDialog(onDismissRequest = { promptDialog = false }, title = { Text("Default system prompt") },
-            text = { OutlinedTextField(prompt, { prompt = it }, modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 220.dp), label = { Text("System prompt") }) },
-            confirmButton = { TextButton(onClick = { onUpdateDefaultSystemPrompt(prompt.trim()); promptDialog = false }) { Text("Save") } }, dismissButton = { TextButton(onClick = { promptDialog = false }) { Text("Cancel") } })
+        PromptLibraryDialog(promptLibrary ?: PromptLibrary.fromLegacy(defaultSystemPrompt),
+            onChange = onPromptLibraryChange, onDismiss = { promptDialog = false })
     }
 }
 

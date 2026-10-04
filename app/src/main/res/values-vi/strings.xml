@@ -28,6 +28,9 @@
     <string name="oauth_account_connected">Đã kết nối tài khoản</string>
     <string name="oauth_removing_account">Đang xóa thông tin đăng nhập…</string>
     <string name="tts_unavailable">Không thể phát giọng nói. Hãy kiểm tra công cụ chuyển văn bản thành giọng nói và dữ liệu giọng đọc đã cài.</string>
+    <string name="speech_test_voice">Phát thử giọng đọc</string>
+    <string name="speech_stop">Dừng phát</string>
+    <string name="speech_playing">Đang phát thử giọng đọc</string>
     <string name="entity_icon">Biểu tượng</string>
     <string name="choose_icon">Chọn ảnh</string>
     <string name="remove_icon">Xóa biểu tượng</string>
@@ -233,4 +236,25 @@
     <string name="context_window_badge">Context %1$s</string>
     <string name="context_summary_suggestion">Context ước lượng đã đạt %1$d%%. Nên tóm tắt để tạo thêm chỗ.</string>
     <string name="summarize_now">Tóm tắt</string>
+    <string name="icon_variant_normal">Thường</string>
+    <string name="icon_variant_dark">Tối (tuỳ chọn)</string>
+    <string name="tool_generating_image">Đang tạo ảnh</string>
+    <string name="tool_generating_video">Đang tạo video</string>
+    <string name="tool_generate_image">Tạo ảnh</string>
+    <string name="tool_generate_video">Tạo video</string>
+    <string name="provider_restore_default_url">Khôi phục URL mặc định</string>
+    <string name="provider_select_auth_type">Chọn kiểu xác thực</string>
+    <string name="provider_api_key_label">API Key (%1$s)</string>
+    <string name="provider_auth_bearer_type">Bearer</string>
+    <string name="provider_auth_bearer">Bearer Token</string>
+    <string name="provider_auth_custom_header">Custom Header</string>
+    <string name="provider_show_api_key">Hiện API key</string>
+    <string name="provider_hide_api_key">Ẩn API key</string>
+    <string name="file_download">Tải file xuống</string>
+    <string name="file_download_saved">Đã lưu file</string>
+    <string name="file_download_failed">Không thể lưu file</string>
+    <string name="file_attach_next_message">Gửi lại file trong tin nhắn tiếp theo</string>
+    <string name="file_remove_next_message">Bỏ file khỏi tin nhắn tiếp theo</string>
+    <string name="video_fullscreen">Mở video toàn màn hình</string>
+    <string name="video_exit_fullscreen">Thoát video toàn màn hình</string>
 </resources>

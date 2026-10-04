@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.speech
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -7,6 +8,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -25,18 +28,26 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.ModelType
 import org.starfall.multigateway.data.model.SpeechService
+import org.starfall.multigateway.data.model.ProviderType
+import org.starfall.multigateway.data.service.supportsSpeechProvider
+import org.starfall.multigateway.R
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
@@ -58,12 +69,17 @@ fun SpeechScreen(
     onDeleteService: (String) -> Unit,
     onReorderServices: (List<String>) -> Unit,
     onTestVoice: (SpeechService, String) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    activeTestServiceId: String? = null,
+    onStopPlayback: () -> Unit = {}
 ) {
     var editor by remember { mutableStateOf<SpeechEditor?>(null) }
     var deletingServiceId by remember { mutableStateOf<String?>(null) }
     var orderedServices by remember(speechServices) { mutableStateOf(speechServices) }
     val providersById = remember(providers) { providers.associateBy { it.id } }
+    val effectiveSelectedId = speechServices.find { it.id == selectedSpeechServiceId }?.id
+        ?: speechServices.firstOrNull { it.provider.equals("system", true) }?.id
+        ?: speechServices.firstOrNull()?.id
 
     Scaffold(
         topBar = {
@@ -146,14 +162,12 @@ fun SpeechScreen(
                             onDrop = { onReorderServices(orderedServices.map { it.id }) }
                         ),
                     providerName = providerName,
-                    selected = service.id == selectedSpeechServiceId ||
-                        (selectedSpeechServiceId == null && service.provider.equals("system", true)),
+                    selected = service.id == effectiveSelectedId,
+                    isPlaying = service.id == activeTestServiceId,
                     onSelect = { onSelectService(service.id) },
                     onTest = {
-                        onTestVoice(
-                            service,
-                            "Hello! This is a preview of the ${service.name} voice."
-                        )
+                        if (service.id == activeTestServiceId) onStopPlayback()
+                        else onTestVoice(service, "Hello! This is a preview of the ${service.name} voice.")
                     },
                     onEdit = { editor = SpeechEditor(service, false) },
                     onDelete = { deletingServiceId = service.id }
@@ -167,7 +181,11 @@ fun SpeechScreen(
             initialService = page.service,
             isNew = page.isNew,
             providers = providers,
-            onTest = onTestVoice,
+            isPlaying = page.service.id == activeTestServiceId,
+            onTest = { service, text ->
+                if (service.id == activeTestServiceId) onStopPlayback()
+                else onTestVoice(service, text)
+            },
             onDismiss = {
                 editor = null
             },
@@ -216,6 +234,7 @@ private fun SpeechServiceUnifiedCard(
     modifier: Modifier = Modifier,
     providerName: String,
     selected: Boolean,
+    isPlaying: Boolean,
     onSelect: () -> Unit,
     onTest: () -> Unit,
     onEdit: () -> Unit,
@@ -269,11 +288,15 @@ private fun SpeechServiceUnifiedCard(
             },
             actions = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onTest, modifier = Modifier.size(36.dp)) {
+                    IconButton(
+                        onClick = onTest,
+                        modifier = Modifier.size(36.dp),
+                        colors = if (isPlaying) IconButtonDefaults.filledIconButtonColors() else IconButtonDefaults.iconButtonColors()
+                    ) {
                         Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = "Test voice",
-                            tint = MaterialTheme.colorScheme.primary,
+                            if (isPlaying) Icons.Outlined.StopCircle else Icons.Default.PlayArrow,
+                            contentDescription = stringResource(if (isPlaying) R.string.speech_stop else R.string.speech_test_voice),
+                            tint = if (isPlaying) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -326,6 +349,13 @@ private fun SpeechServiceUnifiedCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (isPlaying) {
+                        Text(
+                            stringResource(R.string.speech_playing),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         )
@@ -337,14 +367,15 @@ private fun AddOrEditSpeechDialog(
     initialService: SpeechService,
     isNew: Boolean,
     providers: List<LlmProviderInfo>,
+    isPlaying: Boolean,
     onTest: (SpeechService, String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (SpeechService) -> Unit
 ) {
     val ttsModelsByProvider = remember(providers) {
-        providers.associate { provider ->
+        providers.filter(::supportsSpeechProvider).associate { provider ->
             provider.id to provider.config.modelConfigs
-                .filterValues { it.modelType == ModelType.TEXT_TO_SPEECH }
+                .filter { (id, config) -> config.modelType == ModelType.TEXT_TO_SPEECH && provider.config.modelIds?.contains(id) != false }
                 .keys
                 .toList()
         }.filterValues { it.isNotEmpty() }
@@ -353,9 +384,7 @@ private fun AddOrEditSpeechDialog(
     var name by remember(initialService.id) { mutableStateOf(initialService.name) }
     var providerId by remember(initialService.id) {
         mutableStateOf(
-            initialService.provider.takeIf {
-                it.equals("system", true) || it in ttsModelsByProvider
-            } ?: "system"
+            initialService.provider
         )
     }
     var modelId by remember(initialService.id) {
@@ -364,15 +393,28 @@ private fun AddOrEditSpeechDialog(
     var voice by remember(initialService.id) { mutableStateOf(initialService.voice) }
     var speed by remember(initialService.id) { mutableFloatStateOf(initialService.speed) }
     var pitch by remember(initialService.id) { mutableFloatStateOf(initialService.pitch) }
+    var instructions by remember(initialService.id) { mutableStateOf(initialService.instructions) }
+    var responseFormat by remember(initialService.id) { mutableStateOf(initialService.responseFormat) }
+    var languageCode by remember(initialService.id) { mutableStateOf(initialService.languageCode) }
+    var extraBodyText by remember(initialService.id) { mutableStateOf(initialService.extraBody.toString()) }
+    var apiKey by remember(initialService.id) { mutableStateOf(initialService.apiKey) }
     var providerExpanded by remember { mutableStateOf(false) }
     var modelExpanded by remember { mutableStateOf(false) }
 
     val availableModels = ttsModelsByProvider[providerId].orEmpty()
+    val system = providerId.equals("system", true)
+    val google = providers.find { it.id == providerId }?.type == ProviderType.GOOGLE
+    val supportsInstructions = google || modelId !in listOf("tts-1", "tts-1-hd")
+    val extraBody = remember(extraBodyText) { runCatching { Json.parseToJsonElement(extraBodyText.ifBlank { "{}" }) as? JsonObject }.getOrNull() }
     LaunchedEffect(providerId) {
         if (!providerId.equals("system", true) && modelId !in availableModels) {
             modelId = availableModels.firstOrNull()
         }
         if (providerId.equals("system", true)) modelId = null
+    }
+    LaunchedEffect(providerId, modelId) {
+        if (!system && voice.equals("Default", true)) voice = if (google) "Kore" else "alloy"
+        if (system && voice in listOf("alloy", "Kore")) voice = "Default"
     }
 
     fun currentService() = initialService.copy(
@@ -380,14 +422,19 @@ private fun AddOrEditSpeechDialog(
         provider = providerId,
         modelId = modelId,
         voice = voice.trim().ifEmpty {
-            if (providerId.equals("system", true)) "Default" else "alloy"
+            if (system) "Default" else if (google) "Kore" else "alloy"
         },
         speed = speed,
-        pitch = pitch
+        pitch = pitch,
+        instructions = if (supportsInstructions) instructions else "",
+        responseFormat = responseFormat,
+        languageCode = languageCode.trim(),
+        apiKey = apiKey.trim(),
+        extraBody = extraBody ?: JsonObject(emptyMap())
     )
 
     val canSave = name.isNotBlank() &&
-        (providerId.equals("system", true) || !modelId.isNullOrBlank())
+        (system || (modelId in availableModels && extraBody != null))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -395,7 +442,7 @@ private fun AddOrEditSpeechDialog(
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             ) {
                 OutlinedTextField(
                     value = name,
@@ -435,7 +482,8 @@ private fun AddOrEditSpeechDialog(
                             DropdownMenuItem(
                                 text = { Text(provider.name) },
                                 onClick = {
-                                    providerId = provider.id
+                                     providerId = provider.id
+                                    voice = if (provider.type == ProviderType.GOOGLE) "Kore" else "alloy"
                                     providerExpanded = false
                                 }
                             )
@@ -490,7 +538,7 @@ private fun AddOrEditSpeechDialog(
                             if (providerId.equals("system", true)) {
                                 "Voice"
                             } else {
-                                "Voice ID (for example: alloy)"
+                                 if (google) "Gemini voice (for example: Kore)" else "Voice ID (for example: alloy)"
                             }
                         )
                     },
@@ -498,12 +546,61 @@ private fun AddOrEditSpeechDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                if (!google) {
                 Text("Speed: ${String.format("%.1f", speed)}x")
                 Slider(
                     value = speed,
                     onValueChange = { speed = it },
-                    valueRange = 0.5f..2.0f
+                    valueRange = if (system) 0.5f..2.0f else 0.25f..4f
                 )
+                }
+
+                if (!system) {
+                    if (supportsInstructions) {
+                        OutlinedTextField(
+                            value = instructions, onValueChange = { instructions = it },
+                            label = { Text("Voice instructions") },
+                            supportingText = { Text("Tone, accent, emotion${if (google) " and speaking speed" else ""}.") },
+                            modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 4
+                        )
+                    }
+                    if (google) {
+                        OutlinedTextField(
+                            value = languageCode, onValueChange = { languageCode = it },
+                            label = { Text("Language code (optional)") },
+                            placeholder = { Text("vi-VN") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text("Gemini returns PCM audio, converted to WAV for playback.", style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        var formatExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            OutlinedButton(onClick = { formatExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Audio format: $responseFormat", Modifier.weight(1f))
+                                Icon(Icons.Default.KeyboardArrowDown, null)
+                            }
+                            DropdownMenu(expanded = formatExpanded, onDismissRequest = { formatExpanded = false }) {
+                                listOf("mp3", "wav", "aac", "flac", "opus", "pcm").forEach { format ->
+                                    DropdownMenuItem(text = { Text(format) }, onClick = { responseFormat = format; formatExpanded = false })
+                                }
+                            }
+                        }
+                    }
+                    OutlinedTextField(
+                        value = extraBodyText, onValueChange = { extraBodyText = it },
+                        label = { Text("Additional API parameters (JSON)") },
+                        isError = extraBody == null,
+                        supportingText = { Text(if (extraBody == null) "Enter a valid JSON object." else "Provider-specific parameters; model, text and voice use the fields above.") },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5
+                    )
+                    OutlinedTextField(
+                        value = apiKey, onValueChange = { apiKey = it },
+                        label = { Text("API key override (optional)") },
+                        supportingText = { Text("Leave empty to use the provider's authentication.") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 if (providerId.equals("system", true)) {
                     Text("Pitch: ${String.format("%.1f", pitch)}x")
@@ -521,9 +618,12 @@ private fun AddOrEditSpeechDialog(
                     enabled = canSave,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Icon(
+                        if (isPlaying) Icons.Outlined.StopCircle else Icons.Default.PlayArrow,
+                        contentDescription = null
+                    )
                     Spacer(Modifier.width(6.dp))
-                    Text("Test Voice")
+                    Text(stringResource(if (isPlaying) R.string.speech_stop else R.string.speech_test_voice))
                 }
             }
         },

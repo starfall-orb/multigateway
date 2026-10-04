@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -34,16 +36,19 @@ fun EntityIcon(
     text: String? = null,
     fallback: ImageVector? = null,
     matchName: String? = null,
-    model: Boolean = false
+    model: Boolean = false,
+    useDarkVariant: Boolean? = null,
+    backgroundColor: Color? = null
 ) {
     val context = LocalContext.current
-    val revision by IconStore.revision.collectAsState()
-    val bitmap by produceState<android.graphics.Bitmap?>(null, image, matchName, model, revision, context) {
-        value = null
-        value = withContext(Dispatchers.IO) { IconStore(context).let { it.loadIcon(image) ?: it.loadIcon(matchName?.let { name -> it.resolve(name, model) }) } }
+    val revision by IconStore.lookupRevision.collectAsState()
+    val dark = useDarkVariant ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f)
+    var bitmap by remember(context, image, matchName, model, dark) { mutableStateOf<android.graphics.Bitmap?>(null) }
+    LaunchedEffect(image, matchName, model, revision, context, dark) {
+        bitmap = withContext(Dispatchers.IO) { IconStore(context).let { it.loadIcon(image, dark) ?: it.loadIcon(matchName?.let { name -> it.resolve(name, model) }, dark) } }
     }
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        color = backgroundColor ?: MaterialTheme.colorScheme.surfaceContainerHighest) {
         Box(contentAlignment = Alignment.Center) {
             val loaded = bitmap
             if (loaded != null) Image(loaded.asImageBitmap(), contentDescription = null,
@@ -69,7 +74,7 @@ fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = n
             importing = true
             currentOnBusy(true)
             try {
-                val id = withContext(Dispatchers.IO) { IconStore(context).importImage(uri) }
+                val id = withContext(Dispatchers.IO) { IconStore(context).importImage(uri, shared = false) }
                 currentOnChange(id)
             } catch (error: CancellationException) {
                 throw error

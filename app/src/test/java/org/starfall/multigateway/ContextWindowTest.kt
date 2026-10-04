@@ -8,6 +8,14 @@ import org.starfall.multigateway.data.service.discoveredModel
 import org.starfall.multigateway.ui.chat.*
 
 class ContextWindowTest {
+    @Test fun discoveryKeepsApiMetadataForCatalogDisplay() {
+        val metadata = Json.parseToJsonElement("""{"id":"m","display_name":"Model","owned_by":"vendor","created":1700000000,"description":"A model description","limits":{"context_window":32000},"supported_endpoints":["chat","speech"]}""").jsonObject
+        val discovered = discoveredModel("m", metadata)
+        assertEquals(metadata, discovered.metadata)
+        assertEquals("Model", discovered.displayName)
+        assertEquals(32000, discovered.contextWindowTokens)
+        assertEquals(listOf("chat", "speech"), discovered.metadata["supported_endpoints"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
     private fun message(id: String, text: String) = StoredMessage(id, ChatRole.USER, listOf(MessageVersion(content = text)))
 
     @Test fun discoveryReadsHelixAndGoogleLimitsAndRejectsInvalidValues() {

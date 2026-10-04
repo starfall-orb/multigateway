@@ -77,7 +77,7 @@ class ChatInputBehaviorTest {
                     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
                         @Suppress("UNCHECKED_CAST")
                         return ChatViewModel(
-                            repository, ProfileRepository(database), LlmRepository(database, llm),
+                            repository, LlmRepository(database, llm),
                             McpRepository(database, mcp), AppPreferencesRepository(context),
                             ToolChat(http, mcp, llm), ToolSettingsStore(context),
                             SpeechRepository(database), tts, SpeechSynthesisService(),

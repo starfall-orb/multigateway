@@ -15,7 +15,7 @@ internal class ToolBudget {
         if (systemTool == "generate_video") videos++
     }
 }
-internal data class ToolSummary(val content: JsonObject, val preview: String, val files: List<String>)
+internal data class ToolSummary(val content: JsonObject, val preview: String, val files: List<String>, val responseFile: String)
 internal suspend fun summarizeToolResult(result: JsonObject, files: ToolFiles): ToolSummary {
     val full = result.toString()
     val media = Regex("tool-file:([a-zA-Z0-9._-]+)").findAll(full).map { it.groupValues[1] }.distinct().take(32).toList()
@@ -26,5 +26,5 @@ internal suspend fun summarizeToolResult(result: JsonObject, files: ToolFiles): 
         "preview" to str(full.take(2000)),
         "files" to JsonArray((media + details).map { str("tool-file:$it") }),
         "isError" to (result["isError"] ?: JsonPrimitive(false)))
-    return ToolSummary(content, if ((result["isError"] as? JsonPrimitive)?.booleanOrNull == true) "Tool reported an error. Open the saved result for details." else if (media.isEmpty()) "Tool completed. Open the saved result for details." else "Saved ${media.size} file(s). Open Storage for details.", media + details)
+    return ToolSummary(content, if ((result["isError"] as? JsonPrimitive)?.booleanOrNull == true) "Tool reported an error. Open the saved result for details." else if (media.isEmpty()) "Tool completed. Open the saved result for details." else "Saved ${media.size} file(s). Open Storage for details.", media + details, details)
 }

@@ -52,10 +52,6 @@ class McpRepository(
     }
 
     suspend fun saveServer(server: McpInfo) {
-        val previous = getById(server.id)
-        server.icon?.takeIf { it != previous?.icon || server.name != previous?.name }?.let {
-            icons?.cache(server.name, it)
-        }
         dao.insertOrUpdate(modelToEntity(server))
     }
 

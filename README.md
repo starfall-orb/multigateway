@@ -8,6 +8,20 @@
 
 # MultiGateway
 
+<p align="center">
+  <img src="docs/screenshot1.png" width="200" alt="Light mode"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot_dark.png" width="200" alt="Dark mode"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot_light_sidebar.png" width="200" alt="Sidebar light"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot_dark_sidebar.png" width="200" alt="Sidebar dark"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot_modelpicker_light.png" width="200" alt="Model picker light"/>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/screenshot_modelpicker_dark.png" width="200" alt="Model picker dark"/>
+</p>
+
 MultiGateway is a native Android client for chatting with multiple AI providers from one app. It is built with Kotlin and Jetpack Compose and supports provider-specific configuration, per-model settings, MCP tools, media generation tools, profiles, local conversation storage, and speech features.
 
 > **Status:** MultiGateway is under active development. APIs, database schemas, and UI behavior may still change between revisions.

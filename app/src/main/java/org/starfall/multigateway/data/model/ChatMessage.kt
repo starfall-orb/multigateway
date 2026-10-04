@@ -17,7 +17,10 @@ data class MessageVersion(
     val toolActivity: List<ToolActivity> = emptyList(),
     @SerialName("reasoning_content") val reasoningContent: String? = null,
     @SerialName("reasoning_signature") val reasoningSignature: String? = null,
-    @SerialName("processing_finished_at") val processingFinishedAt: Long? = null
+    @SerialName("processing_finished_at") val processingFinishedAt: Long? = null,
+    @SerialName("provider_id") val providerId: String = "",
+    @SerialName("model_id") val modelId: String = "",
+    @SerialName("model_display_name") val modelDisplayName: String = ""
 )
 
 @Serializable

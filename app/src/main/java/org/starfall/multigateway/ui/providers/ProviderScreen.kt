@@ -1,4 +1,22 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.state.ToggleableState
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
+import org.starfall.multigateway.data.model.ModelType
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.outlined.DeleteSweep
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -175,6 +193,20 @@ fun ProviderScreen(
     }
     val validGroupIds = remember(providerGroups) { providerGroups.mapTo(hashSetOf()) { it.id } }
 
+    fun createProvider(groupId: String? = null) {
+        editor = ProviderEditor(
+            LlmProviderInfo(
+                id = newProviderId(),
+                name = "",
+                type = ProviderType.OPENAI,
+                baseUrl = "",
+                auth = ProviderType.OPENAI.defaultAuthorization(),
+                groupId = groupId
+            ),
+            true
+        )
+    }
+
     fun setCollapsedSections(value: Set<String>) {
         collapsedSections = value
         onCollapsedSectionsChange(value)
@@ -307,18 +339,7 @@ fun ProviderScreen(
                                     )
                                 )
                             }
-                            IconButton(onClick = {
-                                editor = ProviderEditor(
-                                    LlmProviderInfo(
-                                        id = newProviderId(),
-                                        name = "",
-                                        type = ProviderType.OPENAI,
-                                        baseUrl = "",
-                                        auth = ProviderType.OPENAI.defaultAuthorization()
-                                    ),
-                                    true
-                                )
-                            }) {
+                            IconButton(onClick = { createProvider() }) {
                                 Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_provider))
                             }
                         }
@@ -366,6 +387,7 @@ fun ProviderScreen(
                                             key = "group_${group.id}",
                                             span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
                                         ) {
+                                            Box(Modifier.animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
                                             if (expanded) {
                                                 ProviderGroupExpandedContainer(
                                                     group = group,
@@ -391,6 +413,7 @@ fun ProviderScreen(
                                                         else groupCardBounds[group.id] = bounds
                                                     },
                                                     onCollapse = { toggleSection(group.id) },
+                                                    onAddProvider = { createProvider(group.id) },
                                                     onEditGroup = { groupToRename = group },
                                                     onDeleteGroup = { deletingGroup = group },
                                                     onEditProvider = { provider -> editor = ProviderEditor(provider, false) },
@@ -425,6 +448,7 @@ fun ProviderScreen(
                                                     },
                                                     onOpen = { toggleSection(group.id) }
                                                 )
+                                            }
                                             }
                                         }
                                     }
@@ -660,6 +684,7 @@ private fun ProviderGroupExpandedContainer(
     headerDragModifier: Modifier = Modifier,
     onBoundsChanged: (Rect?) -> Unit,
     onCollapse: () -> Unit,
+    onAddProvider: () -> Unit,
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
     onEditProvider: (LlmProviderInfo) -> Unit,
@@ -705,6 +730,16 @@ private fun ProviderGroupExpandedContainer(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
+                IconButton(
+                    onClick = onAddProvider,
+                    modifier = Modifier.size(36.dp).testTag("add_provider_to_group_${group.id}")
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = stringResource(R.string.add_provider),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
             }
 
@@ -765,40 +800,45 @@ private fun ProviderGroupExpandedContainer(
                     }
                 }
             } else {
-                Row(
+                Column(
                     Modifier.fillMaxWidth().padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top) {
                     ProviderGroupIconTile(
                         group = group,
                         modifier = Modifier.width(ProviderListCardHeight),
                         tileHeight = ProviderListCardHeight,
+                        fillFrame = false,
                         onClick = onCollapse
                     )
-                    Column(
-                        Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
                         if (providers.isEmpty()) {
                             Text(
                                 stringResource(R.string.empty_provider_group),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(8.dp)
+                                modifier = Modifier.weight(1f).padding(8.dp)
                             )
                         } else {
-                            providers.forEachIndexed { childIndex, provider ->
+                            providers.firstOrNull()?.let { provider ->
                                 ProviderUnifiedCard(
                                     provider = provider,
                                     isGrid = false,
-                                    modifier = providerDragModifier(provider),
+                                    modifier = Modifier.weight(1f).then(providerDragModifier(provider)),
                                     onEdit = { onEditProvider(provider) },
                                     onMoveToGroup = { onMoveProvider(provider) },
                                     onDelete = { onDeleteProvider(provider) }
                                 )
                             }
                         }
+                    }
+                    providers.drop(1).forEach { provider ->
+                        ProviderUnifiedCard(provider = provider, isGrid = false,
+                            modifier = providerDragModifier(provider),
+                            onEdit = { onEditProvider(provider) },
+                            onMoveToGroup = { onMoveProvider(provider) },
+                            onDelete = { onDeleteProvider(provider) })
                     }
                 }
             }
@@ -811,6 +851,7 @@ private fun ProviderGroupIconTile(
     group: ProviderGroup,
     modifier: Modifier = Modifier,
     tileHeight: Dp = ProviderGridCardHeight,
+    fillFrame: Boolean = true,
     onClick: () -> Unit
 ) {
     Surface(
@@ -824,7 +865,7 @@ private fun ProviderGroupIconTile(
         Box(contentAlignment = Alignment.Center) {
             EntityIcon(
                 image = group.icon,
-                modifier = Modifier.size(72.dp),
+                modifier = if (fillFrame) Modifier.fillMaxSize() else Modifier.size(72.dp),
                 fallback = Icons.Outlined.Folder,
                 matchName = group.name
             )
@@ -931,7 +972,7 @@ private fun ProviderGroupPickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.move_to_group)) },
         text = {
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+            LazyColumn(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.6f)) {
                 item(key = UNGROUPED_SECTION) {
                     ListItem(
                         headlineContent = { Text(stringResource(R.string.ungrouped)) },
@@ -978,7 +1019,7 @@ fun ProviderUnifiedCard(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .fillMaxWidth()
-            .height(if (isGrid) ProviderGridCardHeight else ProviderListCardHeight)
+            .heightIn(min = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight)
             .clickable { onEdit() }
     ) {
         MorphingCardLayout(
@@ -995,30 +1036,19 @@ fun ProviderUnifiedCard(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
                         Text(
                             text = provider.name,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
-                        ) {
                             Text(
                                 text = provider.type.displayName,
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
-                        }
-                    }
                     if (provider.auth.method == AuthMethod.OAUTH) {
                         val signedIn = !provider.auth.value.isNullOrBlank()
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1077,16 +1107,6 @@ private fun ProviderOverflowMenu(
             )
         }
     }
-}
-
-fun AuthMethod.displayName(): String = when (this) {
-    AuthMethod.PLATFORM_DEFAULT -> "Platform Default"
-    AuthMethod.NONE -> "None"
-    AuthMethod.BEARER_TOKEN -> "Bearer Token"
-    AuthMethod.QUERY_PARAM -> "URL Query"
-    AuthMethod.CUSTOM_HEADER -> "Bearer Token"
-    AuthMethod.OAUTH -> "OAuth Flow"
-    AuthMethod.OTHER -> "None"
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -1150,9 +1170,14 @@ fun ProviderEditScreen(
     }
     var showTestDialog by remember { mutableStateOf(false) }
     val testingModels = remember { mutableStateMapOf<String, Boolean>() }
+    val modelMemoryContext = LocalContext.current
+    val modelMemory = remember(modelMemoryContext) { ModelConfigurationMemory(modelMemoryContext) }
+    val modelTestSemaphore = remember { Semaphore(4) }
+    LaunchedEffect(initialProvider.id) {
+        initialProvider.config.modelConfigs.forEach { (id, config) -> modelMemory.remember(id, config, onlyIfMissing = true) }
+    }
     val modelTestResults = remember { mutableStateMapOf<String, Result<String>>() }
     var typeExpanded by remember { mutableStateOf(false) }
-    var authExpanded by remember { mutableStateOf(false) }
     var supportStream by remember { mutableStateOf(initialProvider.config.supportStream) }
     val headerRows = remember {
         mutableStateListOf<Pair<String, String>>().apply {
@@ -1161,6 +1186,15 @@ fun ProviderEditScreen(
     }
     val pagerState = rememberPagerState(pageCount = { 2 })
     val selectedTab = pagerState.currentPage
+    // Hoisted outside SlideScreenContent so returning from ModelEditScreen
+    // reuses the same scroll position instead of resetting to the top.
+    // Keyed by provider so switching providers still starts at the top.
+    val modelListState = androidx.compose.runtime.saveable.rememberSaveable(
+        initialProvider.id,
+        saver = androidx.compose.foundation.lazy.LazyListState.Saver
+    ) {
+        androidx.compose.foundation.lazy.LazyListState()
+    }
     var modelConfigs by remember {
         mutableStateOf(initialProvider.config.modelIds?.associateWith {
             initialProvider.config.modelConfigs[it] ?: ModelConfiguration()
@@ -1205,6 +1239,7 @@ fun ProviderEditScreen(
                 initialModelId = editingModelId,
                 existingModelIds = modelConfigs.keys,
                 onSave = { newId, config ->
+                    modelMemory.remember(newId, config)
                     updateModels((modelConfigs - editingModelId) + (newId to config))
                     configuringModel = null
                 },
@@ -1333,81 +1368,30 @@ fun ProviderEditScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    OutlinedTextField(
-                        value = baseUrl,
-                        onValueChange = { baseUrl = it },
-                        label = { Text(stringResource(R.string.provider_base_url)) },
-                        isError = !urlValid,
-                        supportingText = { if (!urlValid) Text(stringResource(R.string.provider_invalid_base_url)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    // Default URL suggestions for each provider type
-                    when (type) {
-                        ProviderType.OLLAMA -> {
-                            SuggestionChip(
-                                onClick = { baseUrl = "https://ollama.com/api" },
-                                label = { Text(stringResource(R.string.provider_default_url, "https://ollama.com/api"), fontSize = 11.sp) },
-                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            )
-                        }
-                        ProviderType.OPENAI_CODEX, ProviderType.CLAUDE_CODE, ProviderType.ANTIGRAVITY, ProviderType.GITHUB_COPILOT -> {
-                            SuggestionChip(
-                                onClick = { baseUrl = type.defaultBaseUrl },
-                                label = { Text(stringResource(R.string.provider_default_url, type.defaultBaseUrl), fontSize = 11.sp) },
-                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            )
-                        }
-                        ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> {
-                            SuggestionChip(
-                                onClick = { baseUrl = "https://api.openai.com/v1" },
-                                label = { Text(stringResource(R.string.provider_default_url, "https://api.openai.com/v1"), fontSize = 11.sp) },
-                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            )
-                        }
-                        ProviderType.GOOGLE -> {
-                            SuggestionChip(
-                                onClick = { baseUrl = "https://generativelanguage.googleapis.com/v1beta" },
-                                label = { Text(stringResource(R.string.provider_default_url, "https://generativelanguage.googleapis.com/v1beta"), fontSize = 11.sp) },
-                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            )
-                        }
-                        ProviderType.ANTHROPIC -> {
-                            SuggestionChip(
-                                onClick = { baseUrl = "https://api.anthropic.com/v1" },
-                                label = { Text(stringResource(R.string.provider_default_url, "https://api.anthropic.com/v1"), fontSize = 11.sp) },
-                                icon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                            )
-                        }
-                    }
+                    ProviderBaseUrlField(type, baseUrl, urlValid) { baseUrl = it }
 
                     if (baseUrl.trim().startsWith("http://", true)) {
                         Text(stringResource(R.string.http_unencrypted_provider_warning), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
 
-                    Text(stringResource(R.string.authorization), style = MaterialTheme.typography.titleMedium)
-                    if (!type.isAccountProvider) Box {
-                        OutlinedButton(onClick = { authExpanded = true }) {
-                            Text(authMethod.displayName())
-                            Spacer(Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                        }
-                        DropdownMenu(expanded = authExpanded, onDismissRequest = { authExpanded = false }) {
-                            listOf(AuthMethod.PLATFORM_DEFAULT, AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM, AuthMethod.OAUTH, AuthMethod.NONE)
-                                .forEach { method ->
-                                    DropdownMenuItem(
-                                        text = { Text(method.displayName()) },
-                                        onClick = {
-                                            authMethod = method
-                                            authName = if (method == AuthMethod.QUERY_PARAM) "key" else "Authorization"
-                                            oauthAuthError = null
-                                            authExpanded = false
-                                        }
-                                    )
-                                }
-                        }
+                    if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) {
+                        OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
+                            isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
                     }
+                    if (!type.isAccountProvider || authMethod != AuthMethod.OAUTH) ProviderAuthField(
+                        method = authMethod, value = apiKey, canSelect = !type.isAccountProvider,
+                        onMethodChange = { method ->
+                            authMethod = method
+                            authName = if (method == AuthMethod.QUERY_PARAM) "key" else "Authorization"
+                            oauthAuthError = null
+                        },
+                        onValueChange = { apiKey = it },
+                        onFocusLost = {
+                            if (authMethod == AuthMethod.BEARER_TOKEN) {
+                                apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey)
+                            }
+                        }
+                    )
 
                     if (authMethod == AuthMethod.OAUTH) {
                         OAuthAccountCard(
@@ -1475,23 +1459,6 @@ fun ProviderEditScreen(
                                 }
                             }
                         )
-                    } else if (authMethod != AuthMethod.NONE) {
-                        if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) {
-                            OutlinedTextField(authName, { authName = it }, label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
-                                isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        }
-                        OutlinedTextField(
-                            value = apiKey,
-                            onValueChange = { apiKey = it },
-                            label = { Text(if (authMethod == AuthMethod.PLATFORM_DEFAULT) "API Key (Optional)" else "Value (Optional)") },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth().onFocusChanged {
-                                if (!it.isFocused && authMethod == AuthMethod.BEARER_TOKEN) {
-                                    apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey)
-                                }
-                            }
-                        )
                     }
 
                     HorizontalDivider()
@@ -1550,7 +1517,6 @@ fun ProviderEditScreen(
                 fun persistModelOrder() {
                     if (providerPersisted) onReorderModels(initialProvider.id, modelOrder)
                 }
-                val modelListState = rememberLazyListState()
                 val reorderState = rememberLazyListReorderState(
                     listState = modelListState,
                     onMove = ::moveModel,
@@ -1580,14 +1546,18 @@ fun ProviderEditScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     OutlinedButton(onClick = { configuringModel = "" }) {
-                                        Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(stringResource(R.string.add_manually))
+                                        Icon(
+                                            Icons.Outlined.Edit,
+                                            contentDescription = stringResource(R.string.add_manually),
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                     Button(onClick = { showModelCatalog = true }) {
-                                        Icon(Icons.Outlined.FormatListBulleted, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.width(6.dp))
-                                        Text(stringResource(R.string.open_model_catalog))
+                                        Icon(
+                                            Icons.Outlined.FormatListBulleted,
+                                            contentDescription = stringResource(R.string.open_model_catalog),
+                                            modifier = Modifier.size(18.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1641,22 +1611,53 @@ fun ProviderEditScreen(
             auth = authorization(),
             config = requestConfig()
         )
+        val textModels = modelOrder.filter { modelConfigs[it]?.modelType == ModelType.TEXT_GENERATION }
+        val testingAny = textModels.any { testingModels[it] == true }
+        val unavailableModels = textModels.filter { modelTestResults[it]?.isFailure == true && testingModels[it] != true }
+        fun testModel(modelId: String) {
+            if (testingModels[modelId] == true) return
+            testingModels[modelId] = true
+            modelTestResults.remove(modelId)
+            coroutineScope.launch {
+                try {
+                    val tested = modelTestSemaphore.withPermit {
+                        try {
+                            onTestConnection?.invoke(testTarget, modelId)
+                                ?: Result.failure(IllegalStateException("Connection testing is unavailable."))
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Result.failure(e)
+                        }
+                    }
+                    modelTestResults[modelId] = tested
+                } finally { testingModels[modelId] = false }
+            }
+        }
         AlertDialog(
             onDismissRequest = { showTestDialog = false },
-            title = { Text(stringResource(R.string.test_connection)) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.test_connection), Modifier.weight(1f))
+                    IconButton(onClick = { textModels.forEach(::testModel) },
+                        enabled = textModels.isNotEmpty() && !testingAny && onTestConnection != null) {
+                        Icon(Icons.Outlined.NetworkCheck, "Test all text models")
+                    }
+                    IconButton(onClick = {
+                        updateModels(modelConfigs - unavailableModels.toSet())
+                        unavailableModels.forEach { testingModels.remove(it); modelTestResults.remove(it) }
+                    }, enabled = unavailableModels.isNotEmpty() && !testingAny) {
+                        Icon(Icons.Outlined.DeleteSweep, "Remove unavailable models", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
             text = {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                    modifier = Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.75f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    item {
-                        Text(
-                            "Use the Test button for a model to start testing. Results appear directly below that model.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    items(modelOrder, key = { it }) { modelId ->
+                    if (textModels.isEmpty()) item { Text("No text generation models") }
+                    items(textModels, key = { it }) { modelId ->
                         val testing = testingModels[modelId] == true
                         val result = modelTestResults[modelId]
                         Surface(
@@ -1674,23 +1675,8 @@ fun ProviderEditScreen(
                                         }
                                     }
                                     IconButton(
-                                        enabled = !testing,
-                                        onClick = {
-                                            testingModels[modelId] = true
-                                            modelTestResults.remove(modelId)
-                                            coroutineScope.launch {
-                                                val tested = try {
-                                                    onTestConnection?.invoke(testTarget, modelId)
-                                                        ?: Result.failure(IllegalStateException("Connection testing is unavailable."))
-                                                } catch (e: CancellationException) {
-                                                    throw e
-                                                } catch (e: Exception) {
-                                                    Result.failure(e)
-                                                }
-                                                modelTestResults[modelId] = tested
-                                                testingModels[modelId] = false
-                                            }
-                                        }
+                                        enabled = !testing && onTestConnection != null,
+                                        onClick = { testModel(modelId) }
                                     ) {
                                         if (testing) {
                                             CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
@@ -1757,11 +1743,13 @@ fun ProviderEditScreen(
                 })
             },
             onToggle = { id ->
-                updateModels(if (id in modelConfigs) modelConfigs - id else modelConfigs + (id to (catalog[id]?.configuration() ?: ModelConfiguration())))
+                updateModels(if (id in modelConfigs) modelConfigs - id else modelConfigs +
+                    (id to modelMemory.configurationFor(catalog[id] ?: DiscoveredModel(id))))
             },
             onSetSelection = { ids, selected ->
                 updateModels(if (selected) {
-                    modelConfigs + ids.associateWith { modelConfigs[it] ?: catalog[it]?.configuration() ?: ModelConfiguration() }
+                    modelConfigs + ids.associateWith { modelConfigs[it] ?:
+                        modelMemory.configurationFor(catalog[it] ?: DiscoveredModel(it)) }
                 } else {
                     modelConfigs - ids.toSet()
                 })
@@ -1771,94 +1759,5 @@ fun ProviderEditScreen(
     }
 
     }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProviderModelCatalogSheet(
-    provider: LlmProviderInfo,
-    selectedModels: Set<String>,
-    onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)?,
-    onCatalogLoaded: (List<DiscoveredModel>) -> Unit,
-    onToggle: (String) -> Unit,
-    onSetSelection: (List<String>, Boolean) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var models by remember { mutableStateOf<List<String>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var loadError by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableStateOf(0) }
-    var query by remember { mutableStateOf("") }
-    LaunchedEffect(refresh) {
-        loading = true
-        loadError = null
-        try {
-            val discovered = (onFetchModels ?: error("Model discovery is unavailable"))(provider).distinctBy { it.id }
-            models = discovered.map { it.id }
-            onCatalogLoaded(discovered)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            loadError = e.localizedMessage ?: "Unable to load models"
-        } finally {
-            loading = false
-        }
-    }
-    // The list and bulk action use exactly the same filtered IDs.
-    val visibleModels = (models + selectedModels).distinct().filter { it.contains(query, ignoreCase = true) }
-    val allVisibleSelected = visibleModels.isNotEmpty() && visibleModels.all { it in selectedModels }
-    AppBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding().padding(horizontal = 16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                IconButton(onClick = { refresh++ }, enabled = !loading) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.refresh_models))
-                }
-                OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.search_models)) },
-                    singleLine = true, modifier = Modifier.weight(1f))
-                IconButton(
-                    onClick = { onSetSelection(visibleModels, !allVisibleSelected) },
-                    enabled = visibleModels.isNotEmpty()
-                ) {
-                    Icon(
-                        imageVector = if (allVisibleSelected) Icons.Outlined.Close else Icons.Outlined.SelectAll,
-                        contentDescription = stringResource(if (allVisibleSelected) R.string.remove_all_visible_models else R.string.select_all_visible_models),
-                        tint = when {
-                            visibleModels.isEmpty() -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            allVisibleSelected -> MaterialTheme.colorScheme.error
-                            else -> MaterialTheme.colorScheme.primary
-                        }
-                    )
-                }
-            }
-            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            loadError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = { refresh++ }, enabled = !loading) { Text(stringResource(R.string.common_retry)) }
-            }
-            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
-                if (visibleModels.isEmpty() && !loading && loadError == null) {
-                    item { Text(stringResource(if (query.isBlank()) R.string.no_models_returned else R.string.no_matching_models), modifier = Modifier.padding(16.dp)) }
-                }
-                items(visibleModels, key = { it }) { id ->
-                    val added = id in selectedModels
-                    ListItem(
-                        headlineContent = { Text(id, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = { Text(stringResource(if (added) R.string.model_added else R.string.model_not_added)) },
-                        trailingContent = {
-                            IconButton(onClick = { onToggle(id) }) {
-                                Icon(if (added) Icons.Outlined.Close else Icons.Default.Add,
-                                    contentDescription = stringResource(if (added) R.string.remove_model else R.string.add_model, id),
-                                    tint = if (added) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    )
-                }
-            }
-        }
     }
 }

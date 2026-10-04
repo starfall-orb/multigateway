@@ -59,6 +59,8 @@ fun MainScreen(
     val isGenerating: Boolean by viewModel.isGenerating.collectAsStateWithLifecycle()
     val generatingConversationId by viewModel.generatingConversationId.collectAsStateWithLifecycle()
     val chatError by viewModel.chatError.collectAsStateWithLifecycle()
+    val speakingMessageId by viewModel.speakingMessageId.collectAsStateWithLifecycle()
+    val activeTestSpeechServiceId by viewModel.activeTestSpeechServiceId.collectAsStateWithLifecycle()
     val summaryProgress by viewModel.summaryProgress.collectAsStateWithLifecycle()
     val contextWindowStatus by viewModel.contextWindowStatus.collectAsStateWithLifecycle()
     val appPrefs: AppPreferences by settingsViewModel.preferences.collectAsStateWithLifecycle()
@@ -109,6 +111,8 @@ fun MainScreen(
                     onUpdateOrganization = settingsViewModel::updateSidebar,
                     onDeleteConversations = viewModel::deleteConversations,
                     defaultSystemPrompt = appPrefs.defaultSystemPrompt,
+                    promptLibrary = appPrefs.promptLibrary,
+                    onPromptLibraryChange = viewModel::setPromptLibrary,
                     onSelectConversation = {
                         viewModel.selectConversation(it)
                         navigate(AppDestination.CHAT)
@@ -212,8 +216,9 @@ fun MainScreen(
                                 onStartConversationSummary = viewModel::startConversationSummary,
                                 onSummaryRoleChange = viewModel::setSummaryRole,
                                 onDeleteSummary = viewModel::deleteConversationSummary,
-                                onReadMessage = { text ->
-                                    viewModel.speakText(text)
+                                speakingMessageId = speakingMessageId,
+                                onReadMessage = { messageId, text ->
+                                    viewModel.speakText(text, messageId)
                                 },
                                 onFetchOllamaModels = { url ->
                                     configurationViewModel.fetchOllamaModels(url)
@@ -311,7 +316,9 @@ fun MainScreen(
                             onDeleteService = { configurationViewModel.deleteSpeechService(it) },
                             onReorderServices = configurationViewModel::reorderSpeechServices,
                             onTestVoice = viewModel::testVoice,
-                            onBack = { navController.popBackStack() }
+                            onBack = { navController.popBackStack() },
+                            activeTestServiceId = activeTestSpeechServiceId,
+                            onStopPlayback = viewModel::stopSpeaking
                         )
                     }
 
@@ -353,6 +360,7 @@ fun MainScreen(
                                 settingsViewModel.setPersistChatSelection(value)
                             },
                             onAutoScrollChange = settingsViewModel::setAutoScroll,
+                            onTtsReadCodeBlocksChange = settingsViewModel::setTtsReadCodeBlocks,
                             onEnableVibrationChange = { value ->
                                 settingsViewModel.setEnableVibration(value)
                             },

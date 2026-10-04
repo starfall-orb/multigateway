@@ -28,6 +28,9 @@
     <string name="oauth_account_connected">Account connected</string>
     <string name="oauth_removing_account">Removing saved credentials…</string>
     <string name="tts_unavailable">Speech playback failed. Check the system text-to-speech engine and installed voice data.</string>
+    <string name="speech_test_voice">Test voice</string>
+    <string name="speech_stop">Stop playback</string>
+    <string name="speech_playing">Playing voice preview</string>
     <string name="entity_icon">Icon</string>
     <string name="choose_icon">Choose image</string>
     <string name="remove_icon">Remove icon</string>
@@ -233,4 +236,25 @@
     <string name="context_window_badge">Context %1$s</string>
     <string name="context_summary_suggestion">Estimated context usage: %1$d%%. Summarize to make room.</string>
     <string name="summarize_now">Summarize</string>
+    <string name="icon_variant_normal">Normal</string>
+    <string name="icon_variant_dark">Dark (optional)</string>
+    <string name="tool_generating_image">Generating image</string>
+    <string name="tool_generating_video">Generating video</string>
+    <string name="tool_generate_image">Create image</string>
+    <string name="tool_generate_video">Create video</string>
+    <string name="provider_restore_default_url">Restore default URL</string>
+    <string name="provider_select_auth_type">Select authentication type</string>
+    <string name="provider_api_key_label">API Key (%1$s)</string>
+    <string name="provider_auth_bearer_type">Bearer</string>
+    <string name="provider_auth_bearer">Bearer Token</string>
+    <string name="provider_auth_custom_header">Custom Header</string>
+    <string name="provider_show_api_key">Show API key</string>
+    <string name="provider_hide_api_key">Hide API key</string>
+    <string name="file_download">Download file</string>
+    <string name="file_download_saved">File saved</string>
+    <string name="file_download_failed">Could not save file</string>
+    <string name="file_attach_next_message">Attach file to next message</string>
+    <string name="file_remove_next_message">Remove file from next message</string>
+    <string name="video_fullscreen">Open fullscreen video</string>
+    <string name="video_exit_fullscreen">Exit fullscreen video</string>
 </resources>

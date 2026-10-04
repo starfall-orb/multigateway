@@ -12,30 +12,34 @@ import java.util.concurrent.TimeUnit
 internal class LobeIconSource(
     private val indexUrl: String = "https://data.jsdelivr.com/v1/package/npm/@lobehub/icons-static-png@1.97.1/flat",
     private val imageBase: String = "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@1.97.1/light/",
+    private val darkImageBase: String = imageBase.removeSuffix("light/") + "dark/",
 ) {
     private val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
     private var catalog: Set<String>? = null
+    private var darkCatalog: Set<String> = emptySet()
     private var retryAfter = 0L
 
-    fun find(candidate: String): String? {
+    fun find(candidate: String, dark: Boolean = false): String? {
         if (catalog == null) {
             if (System.currentTimeMillis() < retryAfter) return null
             try {
                 val json = Json.parseToJsonElement(download(indexUrl, 2 * 1024 * 1024).decodeToString())
-                catalog = json.jsonObject.getValue("files").jsonArray.mapNotNull { item ->
+                val filenames = json.jsonObject.getValue("files").jsonArray.mapNotNull { item ->
                     item.jsonObject["name"]?.jsonPrimitive?.content
-                        ?.takeIf { Regex("^/light/[a-z0-9-]+\\.png$").matches(it) }
-                        ?.removePrefix("/light/")
-                }.toSet()
+                        ?.takeIf { Regex("^/(light|dark)/[a-z0-9-]+\\.png$").matches(it) }
+                }
+                catalog = filenames.filter { it.startsWith("/light/") }.map { it.removePrefix("/light/") }.toSet()
+                darkCatalog = filenames.filter { it.startsWith("/dark/") }.map { it.removePrefix("/dark/") }.toSet()
             } catch (error: Exception) {
                 retryAfter = System.currentTimeMillis() + 60_000
                 throw error
             }
         }
-        return match(candidate, catalog.orEmpty())
+        return match(candidate, if (dark) darkCatalog else catalog.orEmpty())
     }
 
-    fun image(filename: String): ByteArray = download(imageBase + filename, 2 * 1024 * 1024)
+    fun image(filename: String, dark: Boolean = false): ByteArray =
+        download((if (dark) darkImageBase else imageBase) + filename, 2 * 1024 * 1024)
 
     private fun download(url: String, limit: Int): ByteArray =
         client.newCall(Request.Builder().url(url).build()).execute().use { response ->

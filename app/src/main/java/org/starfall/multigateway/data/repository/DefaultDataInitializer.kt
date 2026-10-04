@@ -15,6 +15,7 @@ class DefaultDataInitializer(
 ) {
     suspend fun initialize() {
         llmRepo.allProviders.first().let { currentProviders ->
+            llmRepo.rememberExistingModelConfigurations(currentProviders)
             if (currentProviders.isEmpty()) {
                 initDefaultProviders()
             } else {

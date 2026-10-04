@@ -1,4 +1,5 @@
 package org.starfall.multigateway.data.service
+import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
 
 import android.content.Context
 import io.ktor.client.*
@@ -16,6 +17,7 @@ import org.starfall.multigateway.data.model.*
 import java.util.Base64
 
 class LlmService(context: Context) {
+    internal val modelConfigurationMemory = ModelConfigurationMemory(context)
     private val appContext = context.applicationContext
 
     internal suspend fun <T> withOAuthSession(block: suspend () -> T): T =

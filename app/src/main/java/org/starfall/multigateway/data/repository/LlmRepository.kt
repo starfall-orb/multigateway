@@ -17,6 +17,11 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     suspend fun fetchProviderModelCatalog(provider: LlmProviderInfo) = service.fetchProviderModelCatalog(provider)
     suspend fun fetchProviderModels(provider: LlmProviderInfo) = service.fetchProviderModels(provider)
     suspend fun fetchOllamaModels(baseUrl: String) = service.fetchOllamaModels(baseUrl)
+    internal fun rememberExistingModelConfigurations(providers: List<LlmProviderInfo>) {
+        providers.flatMap { it.config.modelConfigs.entries }
+            .sortedBy { if (it.value.modelType == ModelType.TEXT_GENERATION) 1 else 0 }
+            .forEach { (id, config) -> service.modelConfigurationMemory.remember(id, config, onlyIfMissing = true) }
+    }
 
     private val providerDao = db.llmProviderDao()
     private val groupDao = db.providerGroupDao()
@@ -36,7 +41,6 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     }
 
     suspend fun saveGroup(group: ProviderGroup) {
-        group.icon?.let { icons?.cache(group.name, it) }
         groupDao.insertOrUpdate(ProviderGroupEntity(group.id, group.name.trim(), group.sortOrder, group.icon))
     }
 
@@ -86,8 +90,8 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             val authorized = service.authorizeProvider(provider).getOrThrow()
             val persisted = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
             providerDao.insertOrUpdate(providerModelToEntity(
-                withSavedIcons(persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
-                    ?: authorized, persisted)
+                persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
+                    ?: authorized
             ))
             authorized
         }
@@ -111,20 +115,10 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         ) {
             service.clearAccountCredentials(previous.type, previous.id)
         }
-        providerDao.insertOrUpdate(providerModelToEntity(withSavedIcons(provider, previous)))
-    }
-
-    private fun withSavedIcons(provider: LlmProviderInfo, previous: LlmProviderInfo?): LlmProviderInfo {
-        provider.icon?.takeIf { it != previous?.icon || provider.name != previous?.name }?.let {
-            icons?.cache(provider.name, it)
-        }
+        providerDao.insertOrUpdate(providerModelToEntity(provider))
         provider.config.modelConfigs.forEach { (id, config) ->
-            val old = previous?.config?.modelConfigs?.get(id)
-            config.icon?.takeIf { it != old?.icon || config.displayName != old?.displayName }?.let {
-                icons?.cache(config.displayName.ifBlank { id }, it, model = true)
-            }
+            if (previous?.config?.modelConfigs?.get(id) != config) service.modelConfigurationMemory.remember(id, config)
         }
-        return provider
     }
 
     suspend fun reorderProviderModels(providerId: String, modelIds: List<String>) {

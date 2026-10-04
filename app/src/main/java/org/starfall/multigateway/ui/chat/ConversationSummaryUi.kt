@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.windowHeightIn
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -78,7 +79,7 @@ fun ConversationSummaryDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 520.dp)
+                    .windowHeightIn(maxFraction = 0.75f)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {

@@ -1,4 +1,7 @@
 package org.starfall.multigateway.ui.settings
+import org.starfall.multigateway.data.service.GitHubReleaseInfo
+import org.starfall.multigateway.data.service.fetchLatestGitHubRelease
+import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.content.Intent
 import android.net.Uri
@@ -73,7 +76,8 @@ fun SettingsScreen(
     onNavigateToMcp: () -> Unit = {},
     onNavigateToSpeech: () -> Unit = {},
     onNavigateToSystemTools: () -> Unit = {},
-    onNavigateToStorage: () -> Unit = {}
+    onNavigateToStorage: () -> Unit = {},
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     BackHandler(enabled = selectedCategory != null) {
@@ -149,7 +153,8 @@ fun SettingsScreen(
                             onThemeChange = onThemeChange,
                             onAmoledChange = onAmoledChange,
                             onDynamicColorChange = onDynamicColorChange,
-                            onColorSchemeChange = onColorSchemeChange
+                            onColorSchemeChange = onColorSchemeChange,
+                            onTtsReadCodeBlocksChange = onTtsReadCodeBlocksChange
                         )
                     }
 
@@ -200,7 +205,8 @@ fun AppearanceSettingsView(
     onThemeChange: (String) -> Unit,
     onAmoledChange: (Boolean) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
-    onColorSchemeChange: (String) -> Unit
+    onColorSchemeChange: (String) -> Unit,
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -247,6 +253,12 @@ fun AppearanceSettingsView(
                         }
                     }
                 }
+            }
+        }
+        item {
+            SettingsSection("Text-to-speech") {
+                PreferenceToggle("Read code blocks", "Include fenced and indented code blocks when reading messages aloud",
+                    appPreferences.ttsReadCodeBlocks, onTtsReadCodeBlocksChange)
             }
         }
     }
@@ -413,55 +425,6 @@ fun DataStatItem(label: String, count: String) {
     }
 }
 
-private data class ApkAsset(
-    val name: String,
-    val sizeBytes: Long,
-    val downloadUrl: String
-)
-
-private data class GitHubReleaseInfo(
-    val tagName: String,
-    val title: String,
-    val body: String,
-    val pageUrl: String,
-    val apkAssets: List<ApkAsset>
-)
-
-private suspend fun fetchLatestGitHubRelease(): GitHubReleaseInfo = withContext(Dispatchers.IO) {
-    val connection = (URL("https://api.github.com/repos/starfall-orb/multigateway/releases/latest").openConnection() as HttpURLConnection).apply {
-        requestMethod = "GET"
-        connectTimeout = 10_000
-        readTimeout = 15_000
-        setRequestProperty("Accept", "application/vnd.github+json")
-        setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
-        setRequestProperty("User-Agent", "MultiGateway-Android")
-    }
-    try {
-        val code = connection.responseCode
-        if (code !in 200..299) error("GitHub returned HTTP $code")
-        val root = Json.parseToJsonElement(connection.inputStream.bufferedReader().use { it.readText() }).jsonObject
-        val tag = root["tag_name"]?.jsonPrimitive?.content.orEmpty()
-        val title = root["name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: tag
-        val body = root["body"]?.jsonPrimitive?.content.orEmpty()
-        val page = root["html_url"]?.jsonPrimitive?.content.orEmpty()
-        val assetsArray = root["assets"]?.jsonArray.orEmpty()
-
-        val apkAssets = assetsArray
-            .mapNotNull { it.jsonObject }
-            .filter { it["name"]?.jsonPrimitive?.content?.endsWith(".apk", ignoreCase = true) == true }
-            .map { asset ->
-                val name = asset["name"]?.jsonPrimitive?.content.orEmpty()
-                val size = asset["size"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0L
-                val url = asset["browser_download_url"]?.jsonPrimitive?.content.orEmpty()
-                ApkAsset(name, size, url)
-            }
-
-        GitHubReleaseInfo(tag, title, body, page, apkAssets)
-    } finally {
-        connection.disconnect()
-    }
-}
-
 private fun formatFileSize(bytes: Long): String {
     if (bytes <= 0) return ""
     val mb = bytes / (1024.0 * 1024.0)
@@ -574,7 +537,7 @@ fun UpdateSettingsView() {
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 220.dp)
+                                    .windowHeightIn(maxFraction = 0.3f)
                             ) {
                                 Box(
                                     modifier = Modifier

@@ -47,6 +47,8 @@ const val CONTENT_API_MCP_ENDPOINT = "https://serverweb.serv00.net/mcp"
 fun String.isContentApiName(): Boolean =
     trim().lowercase().replace("-", "").replace(" ", "") == "contentapi"
 
+fun McpInfo.isContentApiPreset(): Boolean = id == "content-api" || name.isContentApiName()
+
 /** Returns the effective endpoint while allowing the built-in Content API URL to stay hidden. */
 fun McpInfo.resolvedUrl(): String? = url?.trim()?.takeIf(String::isNotEmpty)
     ?: CONTENT_API_MCP_ENDPOINT.takeIf { name.isContentApiName() }

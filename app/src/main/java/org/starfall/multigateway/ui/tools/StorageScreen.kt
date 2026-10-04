@@ -1,4 +1,8 @@
 package org.starfall.multigateway.ui.tools
+import org.starfall.multigateway.ui.components.ChatFilePreview
+import org.starfall.multigateway.ui.components.MediaViewerToolbar
+import org.starfall.multigateway.ui.components.windowHeight
+import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -40,6 +44,8 @@ import org.starfall.multigateway.ui.components.mediaThumbnail
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.ui.layout.ContentScale
 import java.io.File
 
@@ -175,7 +181,13 @@ fun StorageScreen(store: ToolFiles, onBack: () -> Unit) {
 }
 
 @Composable
-fun MediaFileCard(store: ToolFiles, name: String) {
+fun MediaFileCard(
+    store: ToolFiles,
+    name: String,
+    imageOnly: Boolean = false,
+    selectedForChat: Boolean = false,
+    onToggleChatImage: ((String) -> Unit)? = null
+) {
     val context = LocalContext.current
     val revision by ToolFiles.revision.collectAsStateWithLifecycle()
     val file = remember(name, revision) { store.resolve(name) }
@@ -187,47 +199,13 @@ fun MediaFileCard(store: ToolFiles, name: String) {
         bitmap = file?.let { mediaThumbnail(context, it.path, it.mime(), 720) }
         loaded = true
     }
-    Card(modifier = Modifier.fillMaxWidth().clickable(enabled = file != null) { view = true }) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (file == null) {
-                Text("File deleted", style = MaterialTheme.typography.bodySmall)
-            } else {
-                if (file.mime().startsWith("image/") || file.mime().startsWith("video/")) {
-                    Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                        bitmap?.let { Image(it, if (file.mime().startsWith("image/")) "Generated image" else "Video preview",
-                            Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
-                        if (!loaded) CircularProgressIndicator(Modifier.size(24.dp))
-                        else if (bitmap == null && file.mime().startsWith("image/")) {
-                            Icon(Icons.Outlined.BrokenImage, "Image preview unavailable")
-                        }
-                        if (file.mime().startsWith("video/")) {
-                            Surface(shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.primaryContainer) {
-                                Icon(Icons.Default.PlayArrow, "Play video", Modifier.padding(12.dp))
-                            }
-                        }
-                    }
-                }
-                if (file.mime().startsWith("audio/")) {
-                    Icon(Icons.Outlined.Audiotrack, "Audio", Modifier.size(32.dp))
-                }
-                Text(
-                    if (file.mime().startsWith("video/")) "▶ View video"
-                    else if (file.mime().startsWith("audio/")) "▶ Play audio"
-                    else if (file.mime().startsWith("image/")) "View image"
-                    else if (file.extension == "txt") "View tool details"
-                    else "View ${file.extension.uppercase()} file",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Text(
-                    name,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
+    if (file != null) Column {
+        ChatFilePreview(file.path, name, file.mime(), bitmap, !loaded,
+            selectedForChat = selectedForChat, onToggleAttachment = onToggleChatImage, onOpen = { view = true })
+        if (!imageOnly) Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else Text("File deleted", style = MaterialTheme.typography.bodySmall)
     if (view && file != null) MediaViewer(store, file) { view = false }
 }
 
@@ -248,7 +226,7 @@ private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
     }
     Dialog(onDismissRequest=onDismiss) {
         Surface(shape=MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxWidth().heightIn(max=620.dp).padding(12.dp)) {
+            Column(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.85f).padding(12.dp)) {
                 LazyColumn(Modifier.weight(1f,fill=false)) {
                     item {
                         if (isPreviewableMedia(file.mime())) MediaContent(file.path, file.mime())
@@ -256,17 +234,17 @@ private fun MediaViewer(store:ToolFiles,file:File,onDismiss:()->Unit) {
                         if(details.isNotEmpty()) Text(details,style=MaterialTheme.typography.bodySmall)
                     }
                 }
-                Row {
-                    TextButton(onClick={save.launch(file.name)}){Text("Save")}
-                    TextButton(onClick={
+                MediaViewerToolbar(
+                    onSave = { save.launch(file.name) },
+                    onShare = {
                         runCatching {
                             val uri=FileProvider.getUriForFile(context,"${context.packageName}.tool-files",file)
                             context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(file.mime()).putExtra(Intent.EXTRA_STREAM,uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),"Share file"))
                         }.onFailure{Toast.makeText(context,"Could not share file",Toast.LENGTH_SHORT).show()}
-                    }){Text("Share")}
-                    TextButton(onClick={confirmDelete=true}){Text("Delete")}
-                }
-                TextButton(onClick=onDismiss){Text("Close")}
+                    },
+                    onDelete = { confirmDelete = true },
+                    onClose = onDismiss
+                )
             }
         }
     }

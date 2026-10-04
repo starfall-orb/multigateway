@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -27,8 +28,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import org.starfall.multigateway.R
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.Json
@@ -37,13 +43,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.starfall.multigateway.data.model.ToolActivity
+import org.starfall.multigateway.data.tools.ToolFiles
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.sin
 
 private val toolJson = Json { prettyPrint = true }
 
 @Composable
 fun ToolActivityCards(activities: List<ToolActivity>) {
     var selectedActivityId by remember { mutableStateOf<String?>(null) }
-    val visibleActivities = activities.filterNot { it.name.endsWith(": connect") }
+    val visibleActivities = activities.filterNot { it.name.endsWith(": connect") || it.name == "send_file" }
     val selectedActivity = selectedActivityId?.let { id -> visibleActivities.find { it.id == id } }
 
     if (visibleActivities.isNotEmpty()) {
@@ -75,30 +85,42 @@ private fun ToolActivityLabel(
     activity: ToolActivity,
     onClick: () -> Unit
 ) {
-    val pulse = if (activity.status == "running") {
+    val running = activity.status == "running"
+    val phase = if (running) {
         val transition = rememberInfiniteTransition(label = "tool-running")
-        val pulseAlpha by transition.animateFloat(
-            initialValue = 0.58f,
-            targetValue = 1f,
+        val wavePhase by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = (Math.PI * 2).toFloat(),
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 900),
-                repeatMode = RepeatMode.Reverse
+                animation = tween(durationMillis = 1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
             ),
             label = "tool-alpha"
         )
-        pulseAlpha
+        wavePhase
     } else {
-        1f
+        0f
+    }
+    val color = if (running) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+    val displayName = when (activity.name) {
+        "generate_image" -> stringResource(if (running) R.string.tool_generating_image else R.string.tool_generate_image)
+        "generate_video" -> stringResource(if (running) R.string.tool_generating_video else R.string.tool_generate_video)
+        else -> activity.name.replace('_', ' ')
+    }
+    val label = buildAnnotatedString {
+        displayName.forEachIndexed { index, character ->
+            val alpha = if (running) 0.4f + 0.6f * ((sin(phase - index * 0.5f) + 1f) / 2f) else 1f
+            withStyle(SpanStyle(color = color.copy(alpha = alpha))) { append(character) }
+        }
     }
 
     Text(
-        text = activity.name,
-        style = MaterialTheme.typography.bodyLarge,
+        text = label,
+        style = if (running) MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp) else MaterialTheme.typography.bodyLarge,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.onSurface,
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer { this.alpha = pulse }
             .clickable(onClick = onClick)
             .padding(start = 16.dp, top = 7.dp, bottom = 7.dp)
     )
@@ -111,7 +133,27 @@ private fun ToolDetailsSheet(
     onDismiss: () -> Unit
 ) {
     var argsTab by remember(activity.id) { mutableStateOf(0) }
-    val response = activity.response.ifBlank { activity.summary }
+    val context = LocalContext.current
+    val revision by ToolFiles.revision.collectAsState()
+    val jsonFile = (activity.responseFile ?: activity.files.firstOrNull { it.endsWith(".json", ignoreCase = true) })?.removePrefix("tool-file:")
+    val savedJson by produceState<String?>(null, jsonFile, revision) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                jsonFile?.let { ToolFiles(context).resolve(it) }?.reader()?.use { reader ->
+                    val buffer = CharArray(64_001)
+                    var count = 0
+                    while (count < buffer.size) {
+                        val read = reader.read(buffer, count, buffer.size - count)
+                        if (read < 0) break
+                        count += read
+                    }
+                    String(buffer, 0, minOf(count, 64_000)) +
+                        if (count > 64_000) "\n\n[JSON preview truncated]" else ""
+                }
+            }.getOrNull()
+        }
+    }
+    val response = savedJson ?: activity.response.ifBlank { activity.summary }
 
     AppBottomSheet(
         onDismissRequest = onDismiss,
@@ -170,6 +212,11 @@ private fun ToolDetailsSheet(
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(10.dp))
+            if (jsonFile != null) {
+                Text(jsonFile, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+            }
             RawValueBlock(
                 value = response.ifBlank {
                     if (activity.status == "running") "Waiting for tool response…" else "No response"

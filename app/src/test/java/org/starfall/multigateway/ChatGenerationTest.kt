@@ -8,6 +8,19 @@ import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.chat.*
 
 class ChatGenerationTest {
+    @Test fun regenerationAndStreamingPreserveOriginalAndNewModelNames() {
+        val original = conversation().copy(messages = conversation().messages.map { message ->
+            if (message.role != ChatRole.MODEL) message else message.copy(versions = listOf(
+                message.activeVersion.copy(modelId = "old", modelDisplayName = "Old model")
+            ))
+        })
+        val regenerated = prepareRegeneration(original, "a1", MessageVersion(
+            providerId = "new-provider", modelId = "new", modelDisplayName = "New model"))!!
+        val streamed = updateResponse(regenerated, "a1", "A new answer")
+        assertEquals("Old model", streamed.messages.last().versions.first().modelDisplayName)
+        assertEquals("New model", streamed.messages.last().activeVersion.modelDisplayName)
+        assertEquals("new-provider", streamed.messages.last().activeVersion.providerId)
+    }
     private fun message(id: String, role: ChatRole, content: String) =
         StoredMessage(id, role, listOf(MessageVersion(content = content)))
     private fun conversation() = Conversation("a", "Chat A", 1, 1, messages = listOf(

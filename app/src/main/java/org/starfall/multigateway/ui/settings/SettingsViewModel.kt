@@ -38,6 +38,9 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     fun setAutoScroll(value: Boolean) {
         viewModelScope.launch { repository.setAutoScroll(value) }
     }
+    fun setTtsReadCodeBlocks(value: Boolean) {
+        viewModelScope.launch { repository.setTtsReadCodeBlocks(value) }
+    }
     fun setProvidersCollapsedSections(value: Set<String>) {
         viewModelScope.launch { repository.setProvidersCollapsedSections(value) }
     }

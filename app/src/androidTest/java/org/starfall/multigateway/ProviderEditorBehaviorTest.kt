@@ -1,6 +1,8 @@
 package org.starfall.multigateway
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import org.junit.Assert.*
@@ -13,6 +15,53 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class ProviderEditorBehaviorTest {
+    @Test fun streamingSegmentsAndPassbackFollowReasoning() {
+        var saved: ModelConfiguration? = null
+        compose.setContent { MaterialTheme {
+            ModelEditScreen(provider, "custom-model", setOf("custom-model"),
+                onSave = { _, config -> saved = config }, onBack = {})
+        } }
+        compose.onNodeWithText("Passback Thinking").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Off") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
+        compose.onNodeWithText("Passback Thinking").assertDoesNotExist()
+        compose.onNode(hasText("Auto") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
+        compose.onNodeWithText("Passback Thinking").assertExists()
+        listOf("On" to true, "Off" to false, "Default" to null).forEach { (label, value) ->
+            compose.onNode(hasText(label) and hasAnyAncestor(hasTestTag("streaming-mode")))
+                .performScrollTo().performClick().assertIsSelected()
+            compose.onNodeWithText("Save").performClick()
+            compose.runOnIdle { assertEquals(value, saved?.supportStream) }
+        }
+    }
+
+    @Test fun providerInitialsAndModelBadgesUpdateWithType() {
+        var config by androidx.compose.runtime.mutableStateOf(ModelConfiguration(contextWindowTokens = 128_000))
+        compose.setContent { MaterialTheme {
+            androidx.compose.foundation.layout.Column {
+                org.starfall.multigateway.ui.components.EntityIcon(null, text =
+                    org.starfall.multigateway.ui.components.providerInitials("My Provider Name"))
+                org.starfall.multigateway.ui.chat.ModelCapabilityBadges(config)
+            }
+        } }
+        compose.onNodeWithText("MP").assertIsDisplayed()
+        compose.onNodeWithText("Chat").assertIsDisplayed()
+        compose.onNodeWithText("128k").assertIsDisplayed()
+        assertTrue(compose.onNodeWithText("Chat").fetchSemanticsNode().boundsInRoot.right <
+            compose.onNodeWithText("128k").fetchSemanticsNode().boundsInRoot.left)
+        compose.onNodeWithText("Image").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Image").assertExists()
+        compose.onNodeWithContentDescription("Thinking").assertExists()
+        compose.onNodeWithContentDescription("Tools").assertExists()
+        compose.runOnIdle { config = config.copy(contextWindowTokens = 1_000_000) }
+        compose.onNodeWithText("1M").assertIsDisplayed()
+        compose.runOnIdle { config = config.copy(modelType = ModelType.IMAGE_GENERATION) }
+        compose.onNodeWithText(ModelType.IMAGE_GENERATION.displayName).assertIsDisplayed()
+        compose.onNodeWithText("1M").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Image").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Thinking").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Tools").assertDoesNotExist()
+    }
+
     @Test fun connectionFieldsRestoreUrlSelectAuthAndToggleKeyVisibility() {
         var saved: LlmProviderInfo? = null
         compose.setContent { MaterialTheme {
@@ -48,8 +97,10 @@ class ProviderEditorBehaviorTest {
                     if (id == "text-bad") Result.failure(IllegalStateException("Unavailable model")) else Result.success("OK")
                 })
         } }
+        compose.onNodeWithText("Models").performClick()
+        compose.waitForIdle()
         compose.onNodeWithContentDescription("Test connection").performClick()
-        compose.onNodeWithText("image-only").assertDoesNotExist()
+        compose.onNode(hasText("image-only") and hasAnyAncestor(isDialog())).assertDoesNotExist()
         compose.onNodeWithContentDescription("Test all text models").performClick()
         compose.waitUntil(5_000) { calls.size == 2 }
         compose.waitForIdle()
@@ -74,7 +125,9 @@ class ProviderEditorBehaviorTest {
                     }))
                 })
         } }
-        compose.onNodeWithContentDescription("Open model catalog").performClick()
+        compose.onNodeWithText("Models").performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithContentDescription("Open model catalog")[0].performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Catalog Model").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Owned by: Vendor").assertDoesNotExist()
         compose.onNodeWithText("Added").assertDoesNotExist()
@@ -84,7 +137,7 @@ class ProviderEditorBehaviorTest {
         compose.onNodeWithText("Created: 2024-", substring = true).assertExists()
         compose.onNodeWithContentDescription("Select model catalog-test-model").performClick()
         compose.runOnIdle { assertTrue("catalog-test-model" in saved) }
-        compose.onNodeWithText("Catalog Model").performClick()
+        compose.onNode(hasText("Catalog Model") and hasContentDescription("Collapse")).performClick()
         compose.onNodeWithText("Owned by: Vendor").assertDoesNotExist()
         compose.runOnIdle { assertTrue("catalog-test-model" in saved) }
         compose.onNodeWithContentDescription("Select model catalog-test-model").performClick()
@@ -105,9 +158,13 @@ class ProviderEditorBehaviorTest {
         }
         compose.onNodeWithText("Type").assertIsDisplayed()
         compose.onRoot().performTouchInput { swipeLeft() }
+        compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Test connection").assertIsDisplayed()
-        compose.onNodeWithText("custom-model").assertIsDisplayed().performClick()
+        compose.onNodeWithText("custom-model", useUnmergedTree = true).assertIsDisplayed().performClick()
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
         compose.onNodeWithText("Edit Model").assertIsDisplayed()
     }
 
@@ -131,9 +188,9 @@ class ProviderEditorBehaviorTest {
                     onSave = { _, config -> saved = config }, onBack = {})
             }
         }
-        compose.onNodeWithText("On").performScrollTo().performClick()
-        compose.onNodeWithText("Medium").assertIsDisplayed()
-        compose.onNodeWithText("Off").performClick()
+        compose.onNode(hasText("On") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
+        compose.onNodeWithText("Medium").performScrollTo().assertIsDisplayed()
+        compose.onNode(hasText("Off") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
         compose.onNodeWithText("Medium").assertDoesNotExist()
         compose.onNodeWithText("Save").performClick()
         compose.runOnIdle { assertTrue(saved!!.reasoningDisabled) }

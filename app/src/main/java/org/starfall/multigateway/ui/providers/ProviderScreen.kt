@@ -5,10 +5,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.state.ToggleableState
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonPrimitive
-import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
-import org.starfall.multigateway.data.model.ModelType
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -17,12 +13,10 @@ import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,12 +28,8 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
@@ -51,15 +41,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -71,28 +58,21 @@ import java.util.UUID
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.AuthMethod
-import org.starfall.multigateway.data.model.Authorization
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.DiscoveredModel
 import org.starfall.multigateway.data.model.ModelConfiguration
 import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ProviderRootOrderItem
 import org.starfall.multigateway.data.model.ProviderType
-import org.starfall.multigateway.data.model.bearerHeaderValue
 import org.starfall.multigateway.data.model.defaultAuthorization
-import org.starfall.multigateway.data.model.editMethod
-import org.starfall.multigateway.data.model.withType
-import org.starfall.multigateway.ui.chat.ModelCapabilityBadges
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.providerInitials
 import org.starfall.multigateway.ui.components.IconPickerRow
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.MorphingCardLayout
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
-import org.starfall.multigateway.ui.components.rememberLazyListReorderState
-import org.starfall.multigateway.ui.components.reorderGestures
-import org.starfall.multigateway.ui.components.reorderItem
 import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
@@ -1022,7 +1002,7 @@ fun ProviderUnifiedCard(
             isGrid = isGrid,
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             icon = {
-                EntityIcon(provider.icon, Modifier.size(42.dp), fallback = Icons.Outlined.Hub, matchName = provider.name)
+                EntityIcon(provider.icon, Modifier.size(42.dp), text = providerInitials(provider.name), matchName = provider.name)
             },
             actions = {
                 ProviderOverflowMenu(onEdit, onMoveToGroup, onDelete)
@@ -1103,32 +1083,4 @@ private fun ProviderOverflowMenu(
             )
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
-@Composable
-fun ProviderEditScreen(
-    initialProvider: LlmProviderInfo,
-    isNew: Boolean,
-    onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
-    onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
-    onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
-    onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)? = null,
-    onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
-    onReorderModels: (String, List<String>) -> Unit,
-    onDismiss: () -> Unit,
-    onSave: (LlmProviderInfo) -> Unit
-) {
-    ProviderEditorContent(
-        initialProvider = initialProvider,
-        isNew = isNew,
-        onAuthorizeProvider = onAuthorizeProvider,
-        onClearOAuthCredentials = onClearOAuthCredentials,
-        onTestConnection = onTestConnection,
-        onFetchModels = onFetchModels,
-        onSaveModels = onSaveModels,
-        onReorderModels = onReorderModels,
-        onDismiss = onDismiss,
-        onSave = onSave
-    )
 }

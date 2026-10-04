@@ -36,13 +36,13 @@ fun FilesActionSheet(
 ) {
     AppBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
-        containerColor = MaterialTheme.colorScheme.surface
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 28.dp)
@@ -80,7 +80,7 @@ fun FilesActionSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             AddActionRow(
                 icon = Icons.Outlined.Image,
@@ -95,20 +95,20 @@ fun FilesActionSheet(
                 onClick = { onCreateVideo(); onDismiss() }
             )
             AddActionRow(
-                icon = Icons.Outlined.Summarize,
-                title = "Conversation Summary",
-                subtitle = "Compress earlier context into a summary",
+                icon = Icons.Outlined.Extension,
+                title = "Tools Manage",
+                subtitle = "Choose tools available to the model",
                 onClick = {
-                    onOpenConversationSummary()
+                    onOpenTools()
                     onDismiss()
                 }
             )
             AddActionRow(
-                icon = Icons.Outlined.Extension,
-                title = "MCP & tools",
-                subtitle = "Choose tools available to the model",
+                icon = Icons.Outlined.Summarize,
+                title = "Summary",
+                subtitle = "Compress earlier context into a summary",
                 onClick = {
-                    onOpenTools()
+                    onOpenConversationSummary()
                     onDismiss()
                 }
             )
@@ -127,7 +127,7 @@ private fun AddActionTile(
         modifier = modifier
             .aspectRatio(1f)
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(30.dp),
+        shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Column(
@@ -138,13 +138,13 @@ private fun AddActionTile(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(34.dp),
+                modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
@@ -162,31 +162,31 @@ private fun AddActionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 14.dp),
+            .padding(horizontal = 8.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            modifier = Modifier.size(56.dp),
+            modifier = Modifier.size(40.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(30.dp),
+                modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onSurface
             )
         }
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Normal),
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = subtitle,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

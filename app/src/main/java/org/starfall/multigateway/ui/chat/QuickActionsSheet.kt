@@ -4,6 +4,7 @@ import org.starfall.multigateway.ui.components.AppBottomSheet
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -17,17 +18,19 @@ fun QuickActionsSheet(onDismiss: () -> Unit) {
     val controls = LocalToolControls.current
     AppBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
+                .padding(horizontal = 16.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("Tools", style = MaterialTheme.typography.titleLarge)
+            Text("Tools Manage", style = MaterialTheme.typography.titleLarge)
             Text("System tools", style = MaterialTheme.typography.titleMedium)
             listOf("generate_image", "generate_video").forEach { name ->
                 val cfg = controls.settings.system[name] ?: SystemToolConfig()

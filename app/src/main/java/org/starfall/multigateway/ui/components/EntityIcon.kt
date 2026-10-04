@@ -29,6 +29,14 @@ import kotlinx.coroutines.withContext
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.service.IconStore
 
+internal fun providerInitials(name: String): String = name.trim()
+    .split(Regex("\\s+"))
+    .filter { it.isNotBlank() }
+    .take(2)
+    .mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }
+    .joinToString("")
+    .ifBlank { "?" }
+
 @Composable
 fun EntityIcon(
     image: String?,

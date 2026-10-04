@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.UnfoldLess
 import androidx.compose.material.icons.outlined.UnfoldMore
@@ -28,6 +29,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,6 +50,7 @@ import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ProviderType
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.providerInitials
 
 sealed interface ModelPickerItem {
     data class Group(
@@ -238,6 +246,17 @@ fun ModelPickerSheet(
     val listState = remember(targetIndex) {
         LazyListState(firstVisibleItemIndex = targetIndex)
     }
+    val listScrollBoundary = remember {
+        object : NestedScrollConnection {
+            // Downward overscroll belongs to the list, not the sheet. In
+            // particular, a fling reaching item zero must not dismiss it.
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                Offset(0f, available.y.coerceAtLeast(0f))
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                Velocity(0f, available.y.coerceAtLeast(0f))
+        }
+    }
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) listState.scrollToItem(0)
@@ -248,7 +267,7 @@ fun ModelPickerSheet(
 
     AppBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
@@ -298,7 +317,9 @@ fun ModelPickerSheet(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .testTag("model-picker-list")
+                    .nestedScroll(listScrollBoundary),
                 contentPadding = PaddingValues(start = 20.dp, top = 10.dp, end = 20.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -463,7 +484,6 @@ private fun ModelPickerProviderRow(
             Spacer(Modifier.width(6.dp))
             ProviderMark(
                 provider = provider,
-                modelId = provider.config.modelIds?.firstOrNull().orEmpty(),
                 compact = true
             )
             Spacer(Modifier.width(8.dp))
@@ -652,25 +672,32 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
             .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        if (config.modelType == ModelType.TEXT_GENERATION) {
-            ModelBadge(label = stringResource(R.string.context_window_badge,
-                java.text.NumberFormat.getIntegerInstance().format(config.contextWindowTokens.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS)))
-        }
         ModelBadge(
             label = when (config.modelType) {
                 ModelType.TEXT_GENERATION -> "Chat"
                 else -> config.modelType.displayName
             },
-            icon = Icons.Outlined.ChatBubbleOutline,
+            icon = when (config.modelType) {
+                ModelType.TEXT_GENERATION -> Icons.Outlined.ChatBubbleOutline
+                ModelType.IMAGE_GENERATION -> Icons.Outlined.Image
+                ModelType.VIDEO_GENERATION -> Icons.Outlined.Videocam
+                else -> Icons.Outlined.Audiotrack
+            },
             colors = AssistChipDefaults.assistChipColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                 leadingIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
             )
         )
+        if (config.modelType != ModelType.TEXT_GENERATION) return@Row
+        ModelBadge(
+            label = compactContextWindow(config.contextWindowTokens),
+            icon = Icons.Outlined.Memory
+        )
         if (config.supportsVision) {
             ModelBadge(
                 label = "Image",
+                iconOnly = true,
                 icon = Icons.Outlined.Image,
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -682,6 +709,7 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.supportsVideoInput) {
             ModelBadge(
                 label = "Video",
+                iconOnly = true,
                 icon = Icons.Outlined.Videocam,
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -693,6 +721,7 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.supportsAudioInput) {
             ModelBadge(
                 label = "Audio",
+                iconOnly = true,
                 icon = Icons.Outlined.Audiotrack,
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -704,6 +733,7 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.supportsThinking) {
             ModelBadge(
                 label = "Thinking",
+                iconOnly = true,
                 icon = Icons.Outlined.Psychology,
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -715,6 +745,7 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.supportsToolCalls) {
             ModelBadge(
                 label = "Tools",
+                iconOnly = true,
                 icon = Icons.Outlined.Build,
                 colors = AssistChipDefaults.assistChipColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -726,43 +757,48 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
     }
 }
 
+private fun compactContextWindow(tokens: Int): String {
+    val count = tokens.takeIf { it > 0 } ?: DEFAULT_CONTEXT_WINDOW_TOKENS
+    val divisor = when {
+        count >= 1_000_000 -> 1_000_000
+        count >= 1_000 -> 1_000
+        else -> return count.toString()
+    }
+    val value = java.math.BigDecimal(count).divide(java.math.BigDecimal(divisor), 1, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros().toPlainString()
+    return value + if (divisor == 1_000_000) "M" else "k"
+}
+
 @Composable
 private fun ModelBadge(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    iconOnly: Boolean = false,
     colors: ChipColors = AssistChipDefaults.assistChipColors()
 ) {
-    AssistChip(
-        onClick = {},
-        enabled = false,
-        label = { Text(label, fontSize = 11.sp) },
-        leadingIcon = icon?.let { imageVector ->
-            { Icon(imageVector, contentDescription = null, modifier = Modifier.size(14.dp)) }
-        },
-        colors = colors,
-        border = null,
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = colors.containerColor,
+        contentColor = colors.labelColor,
         modifier = Modifier.height(28.dp)
-    )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            icon?.let { Icon(it, contentDescription = if (iconOnly) label else null, modifier = Modifier.size(14.dp)) }
+            if (!iconOnly) Text(label, fontSize = 11.sp)
+        }
+    }
 }
 
 @Composable
 private fun ProviderMark(
     provider: LlmProviderInfo,
-    modelId: String,
     compact: Boolean = false
 ) {
-    val mark = when (provider.type) {
-        ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> if (modelId.startsWith(
-                "o",
-                ignoreCase = true
-            )
-        ) "◉" else "◎"
-
-        ProviderType.GOOGLE -> "✦"
-        ProviderType.ANTHROPIC -> "A"
-        ProviderType.OLLAMA -> "◌"
-        else -> provider.type.displayName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    }
+    val mark = providerInitials(provider.name)
     EntityIcon(provider.icon, Modifier.size(if (compact) 22.dp else 42.dp), text = mark, matchName = provider.name)
 }
 

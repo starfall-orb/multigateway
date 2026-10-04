@@ -20,6 +20,7 @@ workflows:
         script: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+          python3 scripts/name-apks.py app/build/outputs/apk/debug
     artifacts:
       - app/build/outputs/apk/debug/*.apk
 
@@ -72,6 +73,7 @@ workflows:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace
+          python3 scripts/name-apks.py app/build/outputs/apk/release
       - name: Publish APKs and SHA-1 checksums to GitHub Release
         ignore_failure: false
         script: |

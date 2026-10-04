@@ -174,7 +174,7 @@ fun InlineVideoPreview(reference: String, thumbnail: ImageBitmap?, modifier: Mod
     val ratio = thumbnail?.let { it.width.toFloat() / it.height.coerceAtLeast(1) } ?: (16f / 9f)
     BoundedMediaFrame(ratio, modifier) {
         if (activated && !fullscreen) key(reference) {
-            VideoPlayback(reference, inline = true, aspectRatio = ratio, initialPosition = resumePosition, autoPlay = resumePlaying,
+            VideoPlayback(reference, inline = true, initialPosition = resumePosition, autoPlay = resumePlaying,
                 onPositionChanged = { resumePosition = it }, onPlayingChanged = { resumePlaying = it }, onFullscreen = { fullscreen = true })
         }
         else Box(Modifier.fillMaxSize().clickable(onClickLabel = "Play video") { activated = true },
@@ -207,7 +207,7 @@ fun InlineVideoPreview(reference: String, thumbnail: ImageBitmap?, modifier: Mod
 }
 
 @Composable
-private fun VideoPlayback(reference: String, inline: Boolean = false, aspectRatio: Float = 16f / 9f,
+private fun VideoPlayback(reference: String, inline: Boolean = false,
     fullscreen: Boolean = false, initialPosition: Int = 0, autoPlay: Boolean = true,
     onPositionChanged: (Int) -> Unit = {}, onPlayingChanged: (Boolean) -> Unit = {}, onFullscreen: (() -> Unit)? = null) {
     val context = LocalContext.current
@@ -324,17 +324,20 @@ private fun VideoPlayback(reference: String, inline: Boolean = false, aspectRati
             }
         }
     }
-    Column(if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
-    Box(Modifier.fillMaxWidth().then(when { fullscreen -> Modifier.weight(1f); inline -> Modifier.aspectRatio(aspectRatio); else -> Modifier.windowHeight(0.4f) })
+    // Inline playback must use the already bounded frame, not remeasure itself
+    // from the full width: a portrait aspect ratio would push controls below it.
+    Column(if (fullscreen || inline) Modifier.fillMaxSize() else Modifier.fillMaxWidth()) {
+    val zoomModifier = if (inline) Modifier else Modifier.transformable(rememberTransformableState { zoom, pan, _ ->
+        scale = (scale * zoom).coerceIn(1f, 5f)
+        val boundX = viewportSize.width * (scale - 1f) / 2f
+        val boundY = viewportSize.height * (scale - 1f) / 2f
+        offset = Offset((offset.x + pan.x).coerceIn(-boundX, boundX),
+            (offset.y + pan.y).coerceIn(-boundY, boundY))
+    })
+    Box(Modifier.fillMaxWidth().then(when { fullscreen || inline -> Modifier.weight(1f); else -> Modifier.windowHeight(0.4f) })
         .background(MaterialTheme.colorScheme.scrim).clipToBounds()
         .onSizeChanged { viewportSize = it }
-        .transformable(rememberTransformableState { zoom, pan, _ ->
-            scale = (scale * zoom).coerceIn(1f, 5f)
-            val boundX = viewportSize.width * (scale - 1f) / 2f
-            val boundY = viewportSize.height * (scale - 1f) / 2f
-            offset = Offset((offset.x + pan.x).coerceIn(-boundX, boundX),
-                (offset.y + pan.y).coerceIn(-boundY, boundY))
-        }).then(if (inline || fullscreen) Modifier.clickable(enabled = ready && !error, onClick = ::togglePlayback) else Modifier),
+        .then(zoomModifier).then(if (inline || fullscreen) Modifier.clickable(enabled = ready && !error, onClick = ::togglePlayback) else Modifier),
         contentAlignment = Alignment.Center) {
         if (!error) {
             AndroidView(

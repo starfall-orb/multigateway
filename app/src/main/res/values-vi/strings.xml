@@ -134,12 +134,13 @@
     <string name="model_id_duplicate">Provider này đã có model với ID này.</string>
     <string name="model_type">Loại model</string>
     <string name="capabilities">Khả năng</string>
-    <string name="input_media">Dữ liệu đầu vào</string>
-    <string name="model_thinking">Suy luận</string>
+    <string name="input_media">Đầu vào</string>
+    <string name="model_thinking">Reasoning</string>
     <string name="reasoning_effort">Mức suy luận</string>
-    <string name="tool_calls">Gọi công cụ</string>
-    <string name="send_thinking_content_back">Gửi nội dung suy luận trở lại AI</string>
+    <string name="tool_calls">Công cụ</string>
+    <string name="send_thinking_content_back">Passback Thinking</string>
     <string name="streaming">Streaming</string>
+    <string name="common_default">Default</string>
     <string name="use_provider_stream_setting">Dùng cài đặt stream của provider</string>
     <string name="provider_stream_state">Provider: %1$s</string>
     <string name="stream_responses">Stream phản hồi</string>

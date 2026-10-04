@@ -11,6 +11,7 @@ Implemented responsibility boundaries:
 - [x] ~~Provider connection/authentication fields and labels~~: `ui/providers/ProviderConnectionFields.kt`.
 - [x] ~~Provider model discovery, filtering, metadata and bulk selection~~: `ui/providers/ProviderModelCatalogSheet.kt`.
 - [x] ~~Provider model connection-test orchestration and dialog~~: `ui/providers/ModelConnectionTests.kt` and `ModelConnectionDialog.kt`; verified duplicate suppression, four-request concurrency limit and cancellation handling.
+- [x] ~~Provider editor and model-list presentation separated from provider/group navigation~~: `ui/providers/ProviderEditorScreen.kt` and `ProviderModelsPane.kt`; preserves authentication, model configuration memory and model-list scroll state.
 - [x] ~~MCP tool list, enablement controls and parameter presentation~~: `ui/mcp/McpToolsTab.kt`.
 - [x] ~~MCP list/editor/connection/OAuth/server-card separation~~: `ui/mcp/McpScreen.kt`, `McpServerEditor.kt`, `McpConnectionSettings.kt`, `McpOAuthFields.kt` and `McpServerCard.kt`.
 - [x] ~~Markdown block model and pure parser; code and LaTeX presentation~~: `ui/chat/MarkdownParser.kt`, `MarkdownCodeBlock.kt` and `MarkdownLatexBlock.kt`.
@@ -23,7 +24,7 @@ Implemented responsibility boundaries:
 
 Remaining work before closing this finding:
 
-- [ ] Separate provider list/group presentation from the provider editor.
+- [x] ~~Separate provider list/group presentation from the provider editor~~.
 - [x] ~~Separate MCP server list, editor/basic settings and authentication/transport presentation~~.
 - [x] ~~Separate inline Markdown parsing/link presentation from Compose block rendering~~.
 - [ ] Further narrow `ChatViewModel` dependencies and conversation mutation responsibilities.
@@ -34,7 +35,7 @@ The finding remains open: the extractions reduce coupling, but do not yet comple
 
 ### High priority
 
-- `app/src/main/java/org/starfall/multigateway/ui/providers/ProviderScreen.kt` — **1,865 lines**. It combines provider/group list state, drag-and-drop ordering, group cards, menus and dialogs, provider editing, authentication UI, model configuration, and model catalog loading. This is the clearest God file in the project.
+- [x] ~~`app/src/main/java/org/starfall/multigateway/ui/providers/ProviderScreen.kt` — originally **1,865 lines**, combining provider/group navigation, editing, authentication, model configuration and discovery~~. Editor, model-list, connection-field, connection-test and catalog responsibilities now have separate modules; the main screen coordinates provider/group navigation and ordering.
 - [x] ~~`app/src/main/java/org/starfall/multigateway/ui/mcp/McpScreen.kt` — originally **1,181 lines**, combining server lists, editing, connection/authentication/transport settings, tool discovery and tool rows~~. These responsibilities now have separate UI modules; the main screen only coordinates the server list and navigation.
 - [x] ~~`app/src/main/java/org/starfall/multigateway/ui/chat/MarkdownRenderer.kt` — originally **1,075 lines**, combining parsing, block models, inline links, code, LaTeX and Compose rendering~~. Parsing/model, inline text, code and LaTeX boundaries are now separated; the main file handles Compose block composition and streaming presentation.
 - `app/src/main/java/org/starfall/multigateway/ui/chat/ChatViewModel.kt` — **815 lines**. It coordinates conversations, providers, MCP, preferences, tool settings, message generation, queueing, summaries, context-window checks, speech/TTS, file attachments, and persistence. The class also has a very large dependency list.
@@ -64,4 +65,4 @@ The assessment used source-file size, line count, number of top-level/private fu
 - Debug APK and Android-test APK build successfully.
 - The complete debug unit-test suite passes, including tool/file delivery, content-api, Markdown and model-connection tests.
 - `git diff --check` passes.
-- Recent device reruns are not confirmed: ADB test-APK installation/instrumentation commands timed out. Earlier provider Base URL/auth controls passed their device test before the later media changes.
+- Five provider checks passed individually on device after editor extraction: tab swipe/model editing, reasoning mode, text-model connection testing/removal, provider title updates, and catalog metadata/selection. The authentication rerun timed out; combined-class runs sometimes terminated with `Process crashed`. Full device-suite and media verification remain unconfirmed.

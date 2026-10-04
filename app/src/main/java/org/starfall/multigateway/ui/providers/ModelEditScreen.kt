@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -196,7 +197,7 @@ fun ModelEditScreen(
                         stringResource(R.string.common_on),
                         stringResource(R.string.common_off)
                     )
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().testTag("reasoning-mode")) {
                         modeLabels.forEachIndexed { index, label ->
                             SegmentedButton(
                                 selected = mode == index,
@@ -232,29 +233,32 @@ fun ModelEditScreen(
                             steps = 2
                         )
                     }
+                    if (!config.reasoningDisabled) {
+                        ModelCapabilitySwitch(stringResource(R.string.send_thinking_content_back), config.sendThinkingContent) {
+                            config = config.copy(sendThinkingContent = it)
+                        }
+                    }
                 }
                 ModelCapabilitySwitch(stringResource(R.string.tool_calls), config.supportsToolCalls) {
                     config = config.copy(supportsToolCalls = it)
                 }
-                ModelCapabilitySwitch(stringResource(R.string.send_thinking_content_back), config.sendThinkingContent) {
-                    config = config.copy(sendThinkingContent = it)
-                }
                 HorizontalDivider()
                 Text(stringResource(R.string.streaming), style = MaterialTheme.typography.titleMedium)
-                ModelCapabilitySwitch(stringResource(R.string.use_provider_stream_setting), config.supportStream == null) {
-                    config = config.copy(supportStream = if (it) null else provider.config.supportStream)
-                }
-                if (config.supportStream == null) {
-                    Text(
-                        stringResource(
-                            R.string.provider_stream_state,
-                            stringResource(if (provider.config.supportStream) R.string.common_on else R.string.common_off)
-                        ),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                } else {
-                    ModelCapabilitySwitch(stringResource(R.string.stream_responses), config.supportStream == true) {
-                        config = config.copy(supportStream = it)
+                val streamOptions = listOf(null, true, false)
+                val streamLabels = listOf(
+                    stringResource(R.string.common_default),
+                    stringResource(R.string.common_on),
+                    stringResource(R.string.common_off)
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().testTag("streaming-mode")) {
+                    streamOptions.forEachIndexed { index, value ->
+                        SegmentedButton(
+                            selected = config.supportStream == value,
+                            onClick = { config = config.copy(supportStream = value) },
+                            shape = SegmentedButtonDefaults.itemShape(index, streamOptions.size)
+                        ) {
+                            Text(streamLabels[index])
+                        }
                     }
                 }
                 OutlinedButton(onClick = { showSampling = true }, modifier = Modifier.fillMaxWidth()) {

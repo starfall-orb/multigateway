@@ -13,7 +13,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FormatListBulleted
-import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.NetworkCheck
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +30,7 @@ import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.tools.providerBase
 import org.starfall.multigateway.ui.components.IconPickerRow
+import org.starfall.multigateway.ui.components.providerInitials
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem
 import org.starfall.multigateway.ui.components.moved
 import org.starfall.multigateway.ui.components.rememberOAuthStart
@@ -39,7 +39,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-internal fun ProviderEditorContent(
+fun ProviderEditScreen(
     initialProvider: LlmProviderInfo, isNew: Boolean,
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
@@ -135,7 +135,7 @@ internal fun ProviderEditorContent(
                     }
                     HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
                         if (page == 0) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IconPickerRow(providerIcon, { providerIcon = it }, fallback = Icons.Outlined.Hub, onBusyChange = { iconImporting = it }, matchName = name)
+                            IconPickerRow(providerIcon, { providerIcon = it }, text = providerInitials(name), onBusyChange = { iconImporting = it }, matchName = name)
                             ExposedDropdownMenuBox(typeExpanded, { typeExpanded = !typeExpanded }, modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())

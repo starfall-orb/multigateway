@@ -6,9 +6,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.state.ToggleableState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.platform.LocalContext
 import org.starfall.multigateway.ui.components.windowHeightIn
 
@@ -51,16 +48,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import kotlin.math.roundToInt
 import java.util.UUID
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
@@ -85,7 +81,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
-private data class DraggedProvider(val provider: LlmProviderInfo, val bounds: Rect)
+private data class DraggedProvider(val provider: LlmProviderInfo)
 
 private class ProviderPlacementAnimationState {
     val positions = mutableMapOf<String, Offset>()
@@ -102,7 +98,7 @@ private fun Modifier.animateProviderPlacement(
     }
 
     onGloballyPositioned { coordinates ->
-        val position = coordinates.positionInRoot()
+        val position = coordinates.positionInParent()
         val previous = state.positions.put(providerId, position)
         if (previous != null) {
             val delta = previous - position
@@ -194,11 +190,12 @@ fun ProviderScreen(
     val context = LocalContext.current
     var editor by remember { mutableStateOf<ProviderEditor?>(null) }
     var deletingProviderId by remember { mutableStateOf<String?>(null) }
-    var orderedProviders by remember(providers) { mutableStateOf(providers) }
-    var rootItems by remember(providers, providerGroups) {
-        mutableStateOf(providerRootItems(providers, providerGroups))
-    }
+    var orderedProviders by remember { mutableStateOf(providers) }
+    var rootItems by remember { mutableStateOf(providerRootItems(providers, providerGroups)) }
+    var pendingProviderOrder by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    var pendingRootOrder by remember { mutableStateOf<List<ProviderRootOrderItem>?>(null) }
     var collapsedSections by remember { mutableStateOf(collapsedSectionsState) }
+    var pendingCollapsedSections by remember { mutableStateOf<Set<String>?>(null) }
     var groupToRename by remember { mutableStateOf<ProviderGroup?>(null) }
     var deletingGroup by remember { mutableStateOf<ProviderGroup?>(null) }
     var movingProvider by remember { mutableStateOf<LlmProviderInfo?>(null) }
@@ -212,7 +209,6 @@ fun ProviderScreen(
     var folderReorderCandidate by remember { mutableStateOf<String?>(null) }
     var lastReorderTarget by remember { mutableStateOf<String?>(null) }
     var liveOrderChanged by remember { mutableStateOf(false) }
-    var contentPosition by remember { mutableStateOf(Offset.Zero) }
     val density = LocalDensity.current
 
     val sortedGroups = remember(providerGroups) {
@@ -236,6 +232,7 @@ fun ProviderScreen(
 
     fun setCollapsedSections(value: Set<String>) {
         collapsedSections = value
+        pendingCollapsedSections = value
         onCollapsedSectionsChange(value)
     }
 
@@ -257,7 +254,15 @@ fun ProviderScreen(
     }
 
     fun persistRootOrder() {
-        onReorderRootItems(rootItems.map { it.toOrderItem() })
+        val order = rootItems.map { it.toOrderItem() }
+        pendingRootOrder = order
+        onReorderRootItems(order)
+    }
+
+    fun persistProviderOrder(groupId: String) {
+        val order = orderedProviders.filter { it.groupId == groupId }.map { it.id }
+        pendingProviderOrder = groupId to order
+        onReorderProviders(order)
     }
 
     fun dropProvider(provider: LlmProviderInfo, point: Offset) {
@@ -271,14 +276,14 @@ fun ProviderScreen(
         if (targetGroupId != sourceGroupId) {
             if (liveOrderChanged) {
                 if (sourceGroupId == null) persistRootOrder()
-                else onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
+                else persistProviderOrder(sourceGroupId)
             }
             onMoveProviderToGroup(provider.id, targetGroupId)
             return
         }
         if (liveOrderChanged) {
             if (sourceGroupId == null) persistRootOrder()
-            else onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
+            else persistProviderOrder(sourceGroupId)
             return
         }
         val target = orderedProviders.firstOrNull {
@@ -288,7 +293,7 @@ fun ProviderScreen(
         if (sourceGroupId != null) {
             val members = orderedProviders.filter { it.groupId == sourceGroupId }
             moveWithinGroup(sourceGroupId, members.indexOfFirst { it.id == provider.id }, members.indexOfFirst { it.id == target.id })
-            onReorderProviders(orderedProviders.filter { it.groupId == sourceGroupId }.map { it.id })
+            persistProviderOrder(sourceGroupId)
         } else {
             rootItems = rootItems.moved(rootItems.indexOfFirst { it.id == provider.id }, rootItems.indexOfFirst { it.id == target.id })
             persistRootOrder()
@@ -305,12 +310,12 @@ fun ProviderScreen(
             },
             onDrag = { bounds, point ->
                 if (draggedProvider == null) {
+                    draggedProvider = DraggedProvider(provider)
                     dragRootSnapshot = rootItems
                     dragProviderSnapshot = orderedProviders
                     liveOrderChanged = false
                     lastReorderTarget = null
                 }
-                draggedProvider = DraggedProvider(provider, bounds)
                 val sourceGroup = provider.groupId?.takeIf { it in validGroupIds }
                 val insideFolder = groupCardBounds.entries.firstOrNull { it.value.containsPoint(point) }?.key
                 val margin = with(density) { 36.dp.toPx() }
@@ -367,8 +372,49 @@ fun ProviderScreen(
         }
     }
 
+    LaunchedEffect(providers, providerGroups, draggedProvider, draggedGroupId) {
+        if (draggedProvider != null || draggedGroupId != null) return@LaunchedEffect
+
+        val incomingProvidersById = providers.associateBy { it.id }
+        val pendingProvider = pendingProviderOrder
+        if (pendingProvider == null) {
+            orderedProviders = providers
+        } else {
+            val (groupId, expectedOrder) = pendingProvider
+            val actualOrder = providers.filter { it.groupId == groupId }.map { it.id }
+            if (actualOrder == expectedOrder) {
+                pendingProviderOrder = null
+                orderedProviders = providers
+            } else {
+                val currentIds = orderedProviders.mapTo(hashSetOf()) { it.id }
+                orderedProviders =
+                    orderedProviders.mapNotNull { incomingProvidersById[it.id] } +
+                        providers.filter { it.id !in currentIds }
+            }
+        }
+
+        val incomingRootItems = providerRootItems(providers, providerGroups)
+        val pendingRoot = pendingRootOrder
+        if (pendingRoot == null) {
+            rootItems = incomingRootItems
+        } else if (incomingRootItems.map { it.toOrderItem() } == pendingRoot) {
+            pendingRootOrder = null
+            rootItems = incomingRootItems
+        } else {
+            val incomingByKey = incomingRootItems.associateBy { it.toOrderItem() }
+            val currentKeys = rootItems.mapTo(hashSetOf()) { it.toOrderItem() }
+            rootItems =
+                rootItems.mapNotNull { incomingByKey[it.toOrderItem()] } +
+                    incomingRootItems.filter { it.toOrderItem() !in currentKeys }
+        }
+    }
+
     LaunchedEffect(collapsedSectionsState) {
-        collapsedSections = collapsedSectionsState
+        val pending = pendingCollapsedSections
+        when {
+            pending == null -> collapsedSections = collapsedSectionsState
+            collapsedSectionsState == pending -> pendingCollapsedSections = null
+        }
     }
     LaunchedEffect(validGroupIds) {
         val cleaned = collapsedSections.filterTo(linkedSetOf()) { it in validGroupIds }
@@ -449,7 +495,6 @@ fun ProviderScreen(
                         .fillMaxSize()
                         .padding(padding)
                         .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .onGloballyPositioned { contentPosition = it.positionInRoot() }
                 ) {
                     if (providers.isEmpty() && providerGroups.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -485,8 +530,7 @@ fun ProviderScreen(
                                             key = "group_${group.id}",
                                             span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
                                         ) {
-                                             Box(Modifier.zIndex(if (draggedGroupId == group.id) 100f else 0f)
-                                                 .animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing))) {
+                                             Box(Modifier.zIndex(if (draggedGroupId == group.id || draggedProvider?.provider?.groupId == group.id) 100f else 0f)) {
                                             if (expanded) {
                                                 ProviderGroupExpandedContainer(
                                                     group = group,
@@ -577,25 +621,6 @@ fun ProviderScreen(
                                 }
                             }
                         }
-                    }
-                    draggedProvider?.let { dragged ->
-                        ProviderUnifiedCard(
-                            provider = dragged.provider,
-                            isGrid = isGridView,
-                            modifier = Modifier
-                                .zIndex(100f)
-                                .offset {
-                                    IntOffset(
-                                        (dragged.bounds.left - contentPosition.x).roundToInt(),
-                                        (dragged.bounds.top - contentPosition.y).roundToInt()
-                                    )
-                                }
-                                .width(with(density) { dragged.bounds.width.toDp() })
-                                .testTag("dragged_provider"),
-                            onEdit = {},
-                            onMoveToGroup = {},
-                            onDelete = {}
-                        )
                     }
                 }
             }

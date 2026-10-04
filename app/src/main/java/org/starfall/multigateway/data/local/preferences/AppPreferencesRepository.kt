@@ -1,6 +1,7 @@
 package org.starfall.multigateway.data.local.preferences
 
 import android.content.Context
+import org.starfall.multigateway.data.repository.ImmediateState
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
@@ -83,7 +84,7 @@ class AppPreferencesRepository(private val context: Context) {
         val LATEX_MODE = stringPreferencesKey("latex_mode")
     }
 
-    val appPreferencesFlow: Flow<AppPreferences> = context.dataStore.data
+    private val storedPreferences: Flow<AppPreferences> = context.dataStore.data
         .map { preferences ->
             val profileId = preferences[PreferenceKeys.SELECTED_PROFILE_ID]
             val storedThemeMode = preferences[PreferenceKeys.THEME_MODE] ?: "SYSTEM"
@@ -124,190 +125,251 @@ class AppPreferencesRepository(private val context: Context) {
             )
         }
 
+    private val state = ImmediateState(storedPreferences)
+    val appPreferencesFlow: Flow<AppPreferences> = state.flow
+
     private fun decodeSidebar(raw: String?): SidebarOrganization = raw?.let {
         runCatching { Json.decodeFromString<SidebarOrganization>(it) }.getOrNull()
     } ?: SidebarOrganization()
 
     suspend fun updateSidebar(transform: (SidebarOrganization) -> SidebarOrganization) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SIDEBAR] = Json.encodeToString(transform(decodeSidebar(preferences[PreferenceKeys.SIDEBAR])))
+        state.mutate({ it.copy(sidebar = transform(it.sidebar)) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SIDEBAR] = Json.encodeToString(transform(decodeSidebar(preferences[PreferenceKeys.SIDEBAR])))
+            }
         }
     }
 
     suspend fun setSelectedProfileId(profileId: String?) {
-        context.dataStore.edit { preferences ->
-            if (profileId.isNullOrEmpty()) {
-                preferences.remove(PreferenceKeys.SELECTED_PROFILE_ID)
-            } else {
-                preferences[PreferenceKeys.SELECTED_PROFILE_ID] = profileId
+        state.mutate({ it.copy(selectedProfileId = profileId) }) {
+            context.dataStore.edit { preferences ->
+                if (profileId.isNullOrEmpty()) {
+                    preferences.remove(PreferenceKeys.SELECTED_PROFILE_ID)
+                } else {
+                    preferences[PreferenceKeys.SELECTED_PROFILE_ID] = profileId
+                }
             }
         }
     }
 
     suspend fun setSelectedModel(providerId: String, modelId: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SELECTED_PROVIDER_ID] = providerId
-            preferences[PreferenceKeys.SELECTED_MODEL_ID] = modelId
+        state.mutate({ it.copy(selectedProviderId = providerId, selectedModelId = modelId) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SELECTED_PROVIDER_ID] = providerId
+                preferences[PreferenceKeys.SELECTED_MODEL_ID] = modelId
+            }
         }
     }
 
     suspend fun setSelectedSpeechServiceId(serviceId: String?) {
-        context.dataStore.edit { preferences ->
-            if (serviceId.isNullOrBlank()) preferences.remove(PreferenceKeys.SELECTED_SPEECH_SERVICE_ID)
-            else preferences[PreferenceKeys.SELECTED_SPEECH_SERVICE_ID] = serviceId
+        state.mutate({ it.copy(selectedSpeechServiceId = serviceId) }) {
+            context.dataStore.edit { preferences ->
+                if (serviceId.isNullOrBlank()) preferences.remove(PreferenceKeys.SELECTED_SPEECH_SERVICE_ID)
+                else preferences[PreferenceKeys.SELECTED_SPEECH_SERVICE_ID] = serviceId
+            }
         }
     }
 
     suspend fun setThemeMode(mode: String) {
-        context.dataStore.edit { preferences ->
-            if (preferences[PreferenceKeys.THEME_MODE] == "AMOLED" &&
-                preferences[PreferenceKeys.USE_AMOLED] == null
-            ) {
-                preferences[PreferenceKeys.USE_AMOLED] = true
+        state.mutate({ it.copy(themeMode = if (mode == "AMOLED") "DARK" else mode, useAmoled = it.useAmoled || mode == "AMOLED") }) {
+            context.dataStore.edit { preferences ->
+                if (preferences[PreferenceKeys.THEME_MODE] == "AMOLED" &&
+                    preferences[PreferenceKeys.USE_AMOLED] == null
+                ) {
+                    preferences[PreferenceKeys.USE_AMOLED] = true
+                }
+                preferences[PreferenceKeys.THEME_MODE] = if (mode == "AMOLED") "DARK" else mode
+                if (mode == "AMOLED") preferences[PreferenceKeys.USE_AMOLED] = true
             }
-            preferences[PreferenceKeys.THEME_MODE] = if (mode == "AMOLED") "DARK" else mode
-            if (mode == "AMOLED") preferences[PreferenceKeys.USE_AMOLED] = true
         }
     }
 
     suspend fun setUseAmoled(useAmoled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.USE_AMOLED] = useAmoled
+        state.mutate({ it.copy(useAmoled = useAmoled) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.USE_AMOLED] = useAmoled
+            }
         }
     }
     suspend fun setUseDynamicColor(useDynamic: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.USE_DYNAMIC_COLOR] = useDynamic
+        state.mutate({ it.copy(useDynamicColor = useDynamic) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.USE_DYNAMIC_COLOR] = useDynamic
+            }
         }
     }
 
     suspend fun setColorSchemeName(scheme: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.COLOR_SCHEME_NAME] = scheme
+        state.mutate({ it.copy(colorSchemeName = scheme) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.COLOR_SCHEME_NAME] = scheme
+            }
         }
     }
 
     suspend fun setDefaultSystemPrompt(prompt: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.DEFAULT_SYSTEM_PROMPT] = prompt
+        state.mutate({ it.copy(defaultSystemPrompt = prompt) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.DEFAULT_SYSTEM_PROMPT] = prompt
+            }
         }
     }
 
     suspend fun setContinueLastConversation(enable: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] = enable
+        state.mutate({ it.copy(continueLastConversation = enable) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] = enable
+            }
         }
     }
 
     suspend fun setPersistChatSelection(enable: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] = enable
+        state.mutate({ it.copy(persistChatSelection = enable) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] = enable
+            }
         }
     }
 
     suspend fun setPromptLibrary(library: org.starfall.multigateway.data.model.PromptLibrary) {
-        val prompts = library.prompts.distinctBy { it.id }
-        val cleaned = library.copy(prompts = prompts, selectedIds = library.selectedIds.intersect(prompts.map { it.id }.toSet()))
-        context.dataStore.edit { it[PreferenceKeys.PROMPT_LIBRARY] = Json.encodeToString(cleaned) }
+        state.mutate({ it.copy(promptLibrary = library.copy(prompts = library.prompts.distinctBy { p -> p.id }, selectedIds = library.selectedIds.intersect(library.prompts.map { p -> p.id }.toSet()))) }) {
+            val prompts = library.prompts.distinctBy { it.id }
+            val cleaned = library.copy(prompts = prompts, selectedIds = library.selectedIds.intersect(prompts.map { it.id }.toSet()))
+            context.dataStore.edit { it[PreferenceKeys.PROMPT_LIBRARY] = Json.encodeToString(cleaned) }
+        }
     }
 
     suspend fun setTtsReadCodeBlocks(enable: Boolean) {
-        context.dataStore.edit { it[PreferenceKeys.TTS_READ_CODE_BLOCKS] = enable }
+        state.mutate({ it.copy(ttsReadCodeBlocks = enable) }) {
+            context.dataStore.edit { it[PreferenceKeys.TTS_READ_CODE_BLOCKS] = enable }
+        }
     }
 
     suspend fun setAutoScroll(enable: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.AUTO_SCROLL] = enable
+        state.mutate({ it.copy(autoScroll = enable) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.AUTO_SCROLL] = enable
+            }
         }
     }
 
     suspend fun setEnableVibration(enable: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.ENABLE_VIBRATION] = enable
+        state.mutate({ it.copy(enableVibration = enable) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.ENABLE_VIBRATION] = enable
+            }
         }
     }
 
     suspend fun setHideStatusBar(hide: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.HIDE_STATUS_BAR] = hide
+        state.mutate({ it.copy(hideStatusBar = hide) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.HIDE_STATUS_BAR] = hide
+            }
         }
     }
 
     suspend fun setHideNavigationBar(hide: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.HIDE_NAVIGATION_BAR] = hide
+        state.mutate({ it.copy(hideNavigationBar = hide) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.HIDE_NAVIGATION_BAR] = hide
+            }
         }
     }
 
     suspend fun setDebugMode(debug: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.DEBUG_MODE] = debug
+        state.mutate({ it.copy(debugMode = debug) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.DEBUG_MODE] = debug
+            }
         }
     }
 
     suspend fun setSelectedLanguage(lang: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SELECTED_LANGUAGE] = lang
+        state.mutate({ it.copy(selectedLanguage = lang) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SELECTED_LANGUAGE] = lang
+            }
         }
     }
 
     suspend fun setShowProfilesAsGrid(isGrid: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SHOW_PROFILES_AS_GRID] = isGrid
+        state.mutate({ it.copy(showProfilesAsGrid = isGrid) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SHOW_PROFILES_AS_GRID] = isGrid
+            }
         }
     }
 
     suspend fun setShowProvidersAsGrid(isGrid: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SHOW_PROVIDERS_AS_GRID] = isGrid
+        state.mutate({ it.copy(showProvidersAsGrid = isGrid) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SHOW_PROVIDERS_AS_GRID] = isGrid
+            }
         }
     }
 
     suspend fun setShowMcpAsGrid(isGrid: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SHOW_MCP_AS_GRID] = isGrid
+        state.mutate({ it.copy(showMcpAsGrid = isGrid) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SHOW_MCP_AS_GRID] = isGrid
+            }
         }
     }
 
     suspend fun setShowSpeechAsGrid(isGrid: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.SHOW_SPEECH_AS_GRID] = isGrid
+        state.mutate({ it.copy(showSpeechAsGrid = isGrid) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.SHOW_SPEECH_AS_GRID] = isGrid
+            }
         }
     }
 
     suspend fun setProvidersCollapsedSections(ids: Set<String>) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.PROVIDERS_COLLAPSED_SECTIONS] = ids
+        state.mutate({ it.copy(providersCollapsedSections = ids) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.PROVIDERS_COLLAPSED_SECTIONS] = ids
+            }
         }
     }
 
     suspend fun setModelPickerCollapsedGroups(ids: Set<String>) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_GROUPS] = ids
+        state.mutate({ it.copy(modelPickerCollapsedGroups = ids) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_GROUPS] = ids
+            }
         }
     }
 
     suspend fun setModelPickerCollapsedProviders(ids: Set<String>) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS] = ids
+        state.mutate({ it.copy(modelPickerCollapsedProviders = ids) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS] = ids
+            }
         }
     }
 
     suspend fun setMcpPresetsInitialized(initialized: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] = initialized
+        state.mutate({ it.copy(mcpPresetsInitialized = initialized) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] = initialized
+            }
         }
     }
 
     suspend fun setContentApiPresetInitialized(initialized: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.CONTENT_API_PRESET_INITIALIZED] = initialized
+        state.mutate({ it.copy(contentApiPresetInitialized = initialized) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.CONTENT_API_PRESET_INITIALIZED] = initialized
+            }
         }
     }
 
     suspend fun setLatexMode(mode: String) {
-        context.dataStore.edit { preferences ->
-            preferences[PreferenceKeys.LATEX_MODE] = mode
+        state.mutate({ it.copy(latexMode = mode) }) {
+            context.dataStore.edit { preferences ->
+                preferences[PreferenceKeys.LATEX_MODE] = mode
+            }
         }
     }
 }

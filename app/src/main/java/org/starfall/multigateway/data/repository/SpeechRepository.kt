@@ -1,5 +1,8 @@
 package org.starfall.multigateway.data.repository
 
+import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -12,25 +15,36 @@ import org.starfall.multigateway.data.model.*
 class SpeechRepository(private val db: AppDatabase) {
     private val dao = db.speechServiceDao()
 
-    val allServices: Flow<List<SpeechService>> = dao.getAllSpeechServices().map { entities ->
+    private val stored: Flow<List<SpeechService>> = dao.getAllSpeechServices().map { entities ->
         entities.map { entityToModel(it) }
     }
 
+    private val state = ImmediateState(stored)
+    val allServices: Flow<List<SpeechService>> = state.flow
+
     suspend fun getById(id: String): SpeechService? {
-        val entity = dao.getServiceById(id) ?: return null
-        return entityToModel(entity)
+        state.value?.let { items -> return items.firstOrNull { it.id == id } }
+        return withContext(Dispatchers.IO) { dao.getServiceById(id)?.let(::entityToModel) }
     }
 
     suspend fun saveService(service: SpeechService) {
-        dao.insertOrUpdate(modelToEntity(service))
+        state.mutate({ it.upsert(service) { item -> item.id }.sortedBy { it.sortOrder } }) {
+            dao.insertOrUpdate(modelToEntity(service))
+        }
     }
 
     suspend fun deleteService(id: String) {
-        dao.deleteById(id)
+        state.mutate({ items -> items.filterNot { it.id == id } }) {
+            dao.deleteById(id)
+        }
     }
 
     suspend fun reorderServices(ids: List<String>) {
-        ids.forEachIndexed { index, id -> dao.updateSortOrder(id, index) }
+        state.mutate({ items -> items.map { item -> ids.indexOf(item.id).takeIf { it >= 0 }?.let { item.copy(sortOrder = it) } ?: item }.sortedBy { it.sortOrder } }) {
+            db.withTransaction {
+                ids.forEachIndexed { index, id -> dao.updateSortOrder(id, index) }
+            }
+        }
     }
 
     private fun entityToModel(entity: SpeechServiceEntity): SpeechService {

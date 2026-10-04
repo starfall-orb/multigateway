@@ -53,6 +53,28 @@ from Room, but an in-flight request is not restarted and the selected conversati
 not automatically reopened. Editors still use local Compose state; unsaved editor
 forms are not guaranteed to survive process recreation.
 
+## Local mutations and responsiveness
+
+Repositories share an application-lifetime `ImmediateState` for Room lists, app
+preferences and tool settings. It publishes in-memory changes before awaiting disk,
+serializes accepted writes on IO, and retains pending transforms until read-back.
+A Room/DataStore invalidation is re-read under the writer lock, so an older emission
+cannot undo a newer optimistic edit. All JSON decoding, credential encryption and
+persistence run off the UI thread. Read/modify/write actions consult the current
+in-memory snapshot, including changes whose writes are still pending.
+
+Transforms must be pure and inexpensive: they may be reapplied to a newer committed
+snapshot. Never put IO or side effects in a transform. Persistence failures remove
+only the failed transform, retain newer pending changes, and are reported to the
+user through `LocalWriteErrors`. Accepted writes survive navigation/ViewModel
+cancellation, but are not durable until persistence finishes; process termination
+can still lose an uncommitted change.
+
+Chat actions update the visible selection immediately. Their persistence is ordered
+separately from rendering; active generation is stopped and its final snapshot saved
+before deleting/renaming its conversation. Message editing no longer rejects input
+merely because a previous local write is pending.
+
 ## Source layout
 
 - `di/`: construction and ViewModel factories.

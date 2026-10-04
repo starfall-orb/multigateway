@@ -1,5 +1,8 @@
 package org.starfall.multigateway.data.repository
 
+import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
@@ -42,17 +45,22 @@ class McpRepository(
 
     private val dao = db.mcpServerDao()
 
-    val allServers: Flow<List<McpInfo>> = dao.getAllServers().map { entities ->
+    private val stored: Flow<List<McpInfo>> = dao.getAllServers().map { entities ->
         entities.map { entityToModel(it) }
     }
 
+    private val state = ImmediateState(stored)
+    val allServers: Flow<List<McpInfo>> = state.flow
+
     suspend fun getById(id: String): McpInfo? {
-        val entity = dao.getServerById(id) ?: return null
-        return entityToModel(entity)
+        state.value?.let { items -> return items.firstOrNull { it.id == id } }
+        return withContext(Dispatchers.IO) { dao.getServerById(id)?.let(::entityToModel) }
     }
 
     suspend fun saveServer(server: McpInfo) {
-        dao.insertOrUpdate(modelToEntity(server))
+        state.mutate({ it.upsert(server) { item -> item.id }.sortedBy { it.sortOrder } }) {
+            dao.insertOrUpdate(modelToEntity(server))
+        }
     }
 
     suspend fun saveCachedTools(serverId: String, tools: List<ToolDefinition>) {
@@ -61,12 +69,18 @@ class McpRepository(
     }
 
     suspend fun deleteServer(id: String) {
-        oauth?.clear(id)
-        dao.deleteById(id)
+        state.mutate({ items -> items.filterNot { it.id == id } }) {
+            oauth?.clear(id)
+            dao.deleteById(id)
+        }
     }
 
     suspend fun reorderServers(ids: List<String>) {
-        ids.forEachIndexed { index, id -> dao.updateSortOrder(id, index) }
+        state.mutate({ items -> items.map { item -> ids.indexOf(item.id).takeIf { it >= 0 }?.let { item.copy(sortOrder = it) } ?: item }.sortedBy { it.sortOrder } }) {
+            db.withTransaction {
+                ids.forEachIndexed { index, id -> dao.updateSortOrder(id, index) }
+            }
+        }
     }
 
     private fun entityToModel(entity: McpServerEntity): McpInfo {

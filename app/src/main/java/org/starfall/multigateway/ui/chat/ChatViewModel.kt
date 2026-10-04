@@ -1,9 +1,12 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.data.repository.LocalWriteErrors
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.data.local.preferences.AppPreferencesRepository
 import org.starfall.multigateway.data.model.*
@@ -36,10 +39,10 @@ class ChatViewModel(
 ) : ViewModel() {
 
     val toolSettings = toolStore.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ToolSettings())
-    fun setSystemTool(name: String, config: SystemToolConfig) { viewModelScope.launch { toolStore.update { it.copy(system = it.system + (name to config)) } } }
-    fun setQuickMcp(id: String, enabled: Boolean) { viewModelScope.launch { toolStore.update { it.copy(quickMcp = it.quickMcp + (id to enabled)) } } }
+    fun setSystemTool(name: String, config: SystemToolConfig) { viewModelScope.launch(LocalWriteErrors.handler) { toolStore.update { it.copy(system = it.system + (name to config)) } } }
+    fun setQuickMcp(id: String, enabled: Boolean) { viewModelScope.launch(LocalWriteErrors.handler) { toolStore.update { it.copy(quickMcp = it.quickMcp + (id to enabled)) } } }
     fun setMcpToolEnabled(serverId: String, toolName: String, enabled: Boolean) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             toolStore.update { settings ->
                 val serverTools = settings.mcpTools[serverId].orEmpty() + (toolName to enabled)
                 settings.copy(mcpTools = settings.mcpTools + (serverId to serverTools))
@@ -50,7 +53,16 @@ class ChatViewModel(
         toolChat.generate(provider, model, messages, prompt, mcpServers.value, providers.value,
             settings = { toolSettings.value })
 
-    val conversations: StateFlow<List<Conversation>> = conversationRepo.allConversations
+    private val deletingAllConversations = MutableStateFlow(false)
+    private val deletingConversations = MutableStateFlow<Set<String>>(emptySet())
+    private val renamingConversations = MutableStateFlow<Map<String, String>>(emptyMap())
+    val conversations: StateFlow<List<Conversation>> = combine(
+        conversationRepo.allConversations, deletingConversations, renamingConversations, deletingAllConversations
+    ) { items, deleted, renamed, deletingAll ->
+        if (deletingAll) emptyList() else items.filterNot { it.id in deleted }.map { item ->
+            renamed[item.id]?.let { item.copy(title = it) } ?: item
+        }
+    }
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     val providers: StateFlow<List<LlmProviderInfo>> = llmRepo.allProviders
@@ -69,7 +81,9 @@ class ChatViewModel(
     val currentConversation: StateFlow<Conversation?> = _currentConversation.asStateFlow()
 
     private val summaries = ConversationSummaryCoordinator(conversationRepo, toolChat, { _currentConversation.value }) { updated ->
-        if (_currentConversation.value?.id == updated.id) _currentConversation.value = updated
+        if (_currentConversation.value?.id == updated.id) {
+            _currentConversation.value = renamingConversations.value[updated.id]?.let { updated.copy(title = it) } ?: updated
+        }
     }
     val summaryProgress = summaries.progress
     private var summaryJob: Job? = null
@@ -112,15 +126,27 @@ class ChatViewModel(
     }
 
     private val generation = ChatGeneration(viewModelScope, conversationRepo::saveConversation) { updated ->
-        if (_currentConversation.value?.id == updated.id) _currentConversation.value = updated
+        if (_currentConversation.value?.id == updated.id) {
+            _currentConversation.value = renamingConversations.value[updated.id]?.let { updated.copy(title = it) } ?: updated
+        }
     }
     val isGenerating = generation.busy
 
-    val contextWindowStatus = combine(_currentConversation, appPreferences, providers) { conversation, prefs, available ->
+    private data class ContextEstimate(
+        val conversation: Conversation?,
+        val preferences: AppPreferences,
+        val model: ModelConfiguration?,
+        val status: ContextWindowStatus?,
+    )
+
+    private val contextEstimate: StateFlow<ContextEstimate?> = combine(_currentConversation, appPreferences, providers) { conversation, prefs, available ->
         val config = available.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId)
-        if (conversation == null || config == null || config.modelType != ModelType.TEXT_GENERATION) null
-        else contextWindowStatus(conversation, prefs.effectiveSystemPrompt, config, prefs.promptRoleMessages())
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        ContextEstimate(conversation, prefs, config,
+            if (conversation == null || config == null || config.modelType != ModelType.TEXT_GENERATION) null
+            else org.starfall.multigateway.ui.chat.contextWindowStatus(conversation, prefs.effectiveSystemPrompt, config, prefs.promptRoleMessages()))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    val contextWindowStatus: StateFlow<ContextWindowStatus?> = contextEstimate.map { it?.status }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var lastAutomaticSummaryAttempt: String? = null
 
@@ -138,7 +164,11 @@ class ChatViewModel(
         val current = _currentConversation.value ?: return false
         val prefs = appPreferences.value
         val model = providers.value.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId) ?: return false
-        val status = contextWindowStatus(current, prefs.effectiveSystemPrompt, model, prefs.promptRoleMessages())
+        val status = contextEstimate.value?.takeIf {
+            it.conversation === current && it.preferences == prefs && it.model == model
+        }?.status ?: if (incoming != null) {
+            org.starfall.multigateway.ui.chat.contextWindowStatus(current, prefs.effectiveSystemPrompt, model, prefs.promptRoleMessages())
+        } else return false
         val projected = status.copy(estimatedTokens = status.estimatedTokens + (incoming?.let { estimateMessageTokens(it, false) } ?: 0))
         if (model.modelType != ModelType.TEXT_GENERATION || !projected.shouldAutoSummarize) return false
         val boundary = current.messages.lastOrNull()?.id ?: return false
@@ -159,7 +189,7 @@ class ChatViewModel(
     val queuedMessages: StateFlow<List<StoredMessage>> = _queuedMessages.asStateFlow()
 
     init {
-        viewModelScope.launch { contextWindowStatus.collect { maybeStartAutomaticSummary() } }
+        viewModelScope.launch { contextEstimate.collect { maybeStartAutomaticSummary() } }
         viewModelScope.launch {
             isGenerating.collect { busy ->
                 if (!busy && !maybeStartAutomaticSummary()) drainQueuedMessages()
@@ -201,18 +231,35 @@ class ChatViewModel(
     val chatError = generation.error
     val generatingConversationId = generation.conversationId
     private var pendingConversationWrites = 0
+    private val conversationWrites = Mutex()
 
-    private fun writeConversation(block: suspend () -> Unit) {
+    private fun writeConversation(serialize: Boolean = false, block: suspend () -> Unit) {
         pendingConversationWrites++
-        viewModelScope.launch {
-            try { block() } finally {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            try {
+                if (serialize) conversationWrites.withLock { block() } else block()
+            } finally {
                 pendingConversationWrites--
                 drainQueuedMessages()
             }
         }
     }
 
+    private fun saveEditedConversation(previous: Conversation, updated: Conversation) {
+        writeConversation {
+            try {
+                conversationRepo.saveConversation(updated)
+            } catch (error: Exception) {
+                if (_currentConversation.value == updated) {
+                    _currentConversation.value = conversationRepo.getById(previous.id) ?: previous
+                }
+                throw error
+            }
+        }
+    }
+
     fun selectConversation(conversation: Conversation) {
+        if (deletingAllConversations.value || conversation.id in deletingConversations.value) return
         _queuedMessages.value = emptyList()
         _currentConversation.value = generation.snapshot?.takeIf { it.id == conversation.id } ?: conversation
     }
@@ -228,62 +275,81 @@ class ChatViewModel(
         )
     }
 
-    fun deleteConversation(id: String) {
-        writeConversation {
-            if (generation.snapshot?.id == id) generation.stopAndJoin()
-            conversationRepo.deleteConversation(id)
-            prefsRepo.updateSidebar { it.removeChats(setOf(id)) }
-            if (_currentConversation.value?.id == id) {
-                _currentConversation.value = null
-                _queuedMessages.value = emptyList()
-            }
-        }
-    }
+    fun deleteConversation(id: String) = deleteConversations(setOf(id))
 
     fun deleteConversations(ids: Set<String>) {
-        writeConversation {
-            if (generation.snapshot?.id in ids) generation.stopAndJoin()
-            conversationRepo.deleteConversations(ids.toList())
-            prefsRepo.updateSidebar { it.removeChats(ids) }
-            if (_currentConversation.value?.id in ids) {
-                _currentConversation.value = null
-                _queuedMessages.value = emptyList()
+        val targets = ids - deletingConversations.value
+        if (targets.isEmpty()) return
+        val previous = _currentConversation.value?.takeIf { it.id in targets }
+        deletingConversations.update { it + targets }
+        if (previous != null) {
+            _currentConversation.value = null
+            _queuedMessages.value = emptyList()
+        }
+        writeConversation(serialize = true) {
+            var deleted = false
+            try {
+                if (summaryProgress.value?.conversationId in targets) summaryJob?.cancelAndJoin()
+                if (generation.snapshot?.id in targets) generation.stopAndJoin()
+                conversationRepo.deleteConversations(targets.toList())
+                deleted = true
+                prefsRepo.updateSidebar { it.removeChats(targets) }
+            } catch (error: Exception) {
+                if (!deleted && _currentConversation.value == null && previous != null) {
+                    _currentConversation.value = previous
+                }
+                throw error
+            } finally {
+                deletingConversations.update { it - targets }
             }
         }
     }
 
     fun renameConversation(id: String, newTitle: String) {
-        writeConversation {
-            if (generation.snapshot?.id == id) generation.stopAndJoin()
-            val conv = conversationRepo.getById(id) ?: return@writeConversation
-            val updated = conv.copy(title = newTitle, updatedAt = System.currentTimeMillis())
-            conversationRepo.saveConversation(updated)
-            if (_currentConversation.value?.id == id) {
-                _currentConversation.value = updated
+        val previous = _currentConversation.value?.takeIf { it.id == id }
+        renamingConversations.update { it + (id to newTitle) }
+        previous?.let { _currentConversation.value = it.copy(title = newTitle) }
+        writeConversation(serialize = true) {
+            try {
+                if (generation.snapshot?.id == id) generation.stopAndJoin()
+                conversationRepo.renameConversation(id, newTitle)
+            } catch (error: Exception) {
+                if (_currentConversation.value?.id == id && _currentConversation.value?.title == newTitle) {
+                    previous?.let { _currentConversation.value = _currentConversation.value?.copy(title = it.title) }
+                }
+                throw error
+            } finally {
+                renamingConversations.update { if (it[id] == newTitle) it - id else it }
             }
         }
     }
 
     fun clearAllConversations() {
-        writeConversation {
-            generation.stopAndJoin()
-            conversationRepo.deleteAll()
-            _queuedMessages.value = emptyList()
-            prefsRepo.updateSidebar { org.starfall.multigateway.data.model.SidebarOrganization() }
-            _currentConversation.value = null
+        if (deletingAllConversations.value) return
+        val previous = _currentConversation.value
+        deletingAllConversations.value = true
+        _currentConversation.value = null
+        _queuedMessages.value = emptyList()
+        writeConversation(serialize = true) {
+            var deleted = false
+            try {
+                summaryJob?.cancelAndJoin()
+                generation.stopAndJoin()
+                conversationRepo.deleteAll()
+                deleted = true
+                prefsRepo.updateSidebar { SidebarOrganization() }
+            } catch (error: Exception) {
+                if (!deleted && _currentConversation.value == null) _currentConversation.value = previous
+                throw error
+            } finally {
+                deletingAllConversations.value = false
+            }
         }
     }
 
     fun deleteAllUserData() {
-        writeConversation {
-            generation.stopAndJoin()
-            conversationRepo.deleteAll()
-            _queuedMessages.value = emptyList()
-            prefsRepo.updateSidebar { org.starfall.multigateway.data.model.SidebarOrganization() }
-            _currentConversation.value = null
-            // Also reset active profile to default
-            prefsRepo.setSelectedProfileId(null)
-        }
+        clearAllConversations()
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setSelectedProfileId(null) }
     }
 
     fun cleanCache() {
@@ -294,14 +360,15 @@ class ChatViewModel(
 
 
     fun setDefaultSystemPrompt(prompt: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             prefsRepo.setDefaultSystemPrompt(prompt)
         }
     }
-    fun setPromptLibrary(library: PromptLibrary) { viewModelScope.launch { prefsRepo.setPromptLibrary(library) } }
+    fun setPromptLibrary(library: PromptLibrary) { viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setPromptLibrary(library) } }
 
     fun selectModel(providerId: String, modelId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            launch { prefsRepo.setSelectedModel(providerId, modelId) }
             val provider = llmRepo.getProviderById(providerId)
             if (provider?.config?.modelIds != null && modelId !in provider.config.modelIds) {
                 llmRepo.saveProvider(provider.copy(config = provider.config.copy(
@@ -309,12 +376,11 @@ class ChatViewModel(
                     modelConfigs = provider.config.modelConfigs + (modelId to ModelConfiguration())
                 )))
             }
-            prefsRepo.setSelectedModel(providerId, modelId)
         }
     }
 
     fun selectSpeechService(serviceId: String?) {
-        viewModelScope.launch { prefsRepo.setSelectedSpeechServiceId(serviceId) }
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setSelectedSpeechServiceId(serviceId) }
     }
 
     private val speech = ChatSpeechCoordinator(viewModelScope, appPreferences, providers, speechServices,
@@ -561,7 +627,6 @@ class ChatViewModel(
         if (
             isGenerating.value ||
             summaryJob?.isActive == true ||
-            pendingConversationWrites > 0 ||
             (newContent.isBlank() && files.isEmpty())
         ) return false
         val conv = _currentConversation.value ?: return false
@@ -591,12 +656,12 @@ class ChatViewModel(
             updatedAt = System.currentTimeMillis()
         )
         _currentConversation.value = updated
-        writeConversation { conversationRepo.saveConversation(updated) }
+        saveEditedConversation(conv, updated)
         return true
     }
 
     fun deleteMessage(messageId: String) {
-        if (isGenerating.value || pendingConversationWrites > 0) return
+        if (isGenerating.value) return
         val conv = _currentConversation.value ?: return
         val messageIndex = conv.messages.indexOfFirst { it.id == messageId }
         if (messageIndex == -1) return
@@ -607,11 +672,11 @@ class ChatViewModel(
             updatedAt = System.currentTimeMillis()
         )
         _currentConversation.value = updated
-        writeConversation { conversationRepo.saveConversation(updated) }
+        saveEditedConversation(conv, updated)
     }
 
     fun deleteMessageVersion(messageId: String) {
-        if (isGenerating.value || pendingConversationWrites > 0) return
+        if (isGenerating.value) return
         val conv = _currentConversation.value ?: return
         val currentMsgs = conv.messages.toMutableList()
         val messageIndex = currentMsgs.indexOfFirst { it.id == messageId }
@@ -636,11 +701,11 @@ class ChatViewModel(
             updatedAt = System.currentTimeMillis()
         )
         _currentConversation.value = updated
-        writeConversation { conversationRepo.saveConversation(updated) }
+        saveEditedConversation(conv, updated)
     }
 
     fun switchMessageVersion(messageId: String, versionIndex: Int) {
-        if (isGenerating.value || pendingConversationWrites > 0) return
+        if (isGenerating.value) return
         val conv = _currentConversation.value ?: return
         val currentMsgs = conv.messages.toMutableList()
         val idx = currentMsgs.indexOfFirst { it.id == messageId }
@@ -654,7 +719,7 @@ class ChatViewModel(
                     updatedAt = System.currentTimeMillis()
                 )
                 _currentConversation.value = updated
-                writeConversation { conversationRepo.saveConversation(updated) }
+                saveEditedConversation(conv, updated)
             }
         }
     }

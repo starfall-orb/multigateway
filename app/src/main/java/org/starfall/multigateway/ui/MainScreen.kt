@@ -81,6 +81,11 @@ fun MainScreen(
     val importedProviderId by configurationViewModel.importedProviderId.collectAsStateWithLifecycle()
     val providerImportError by configurationViewModel.providerImportError.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        org.starfall.multigateway.data.repository.LocalWriteErrors.errors.collect {
+            Toast.makeText(context, "Could not save the change. Please try again.", Toast.LENGTH_LONG).show()
+        }
+    }
     LaunchedEffect(importedProviderId) {
         importedProviderId?.let { id ->
             drawerState.close()

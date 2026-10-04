@@ -127,7 +127,11 @@ class IconStore(private val context: Context) {
         }
         return downloadLock.withLock {
             find(name, model)?.let { return@withLock it }
-            for (candidate in iconMatchNames(name, model)) {
+            val remoteCandidates = buildList {
+                if (model) LobeModelIconResolver.resolve(name)?.let(::add)
+                addAll(iconMatchNames(name, model))
+            }.distinctBy { it.lowercase(java.util.Locale.ROOT) }
+            for (candidate in remoteCandidates) {
                 var attemptedId: String? = null
                 val key = candidate.lowercase(java.util.Locale.ROOT)
                 automatic.getString(key, null)?.let { cached ->

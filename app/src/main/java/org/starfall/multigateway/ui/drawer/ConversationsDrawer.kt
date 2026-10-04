@@ -1,7 +1,7 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 package org.starfall.multigateway.ui.drawer
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import org.starfall.multigateway.ui.components.windowHeightIn
 import org.starfall.multigateway.ui.components.windowWidth

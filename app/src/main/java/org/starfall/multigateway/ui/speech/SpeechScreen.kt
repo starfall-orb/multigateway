@@ -51,7 +51,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
-import org.starfall.multigateway.ui.components.MorphingCardLayout
+import org.starfall.multigateway.ui.components.AdaptiveCardLayout
+import org.starfall.multigateway.ui.components.FadeGridListContent
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
 
@@ -131,8 +132,12 @@ fun SpeechScreen(
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(if (isGridView) 2 else 1),
+        FadeGridListContent(
+            isGrid = isGridView,
+            modifier = Modifier.fillMaxSize()
+        ) { gridMode ->
+            LazyVerticalGrid(
+            columns = GridCells.Fixed(if (gridMode) 2 else 1),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
@@ -147,7 +152,7 @@ fun SpeechScreen(
                 }
                 SpeechServiceUnifiedCard(
                     service = service,
-                    isGrid = isGridView,
+                    isGrid = gridMode,
                     modifier = Modifier
                         .animateItem(
                             placementSpec = spring(
@@ -158,7 +163,7 @@ fun SpeechScreen(
                         .longPressReorder(
                             index = index,
                             itemCount = orderedServices.size,
-                            columns = if (isGridView) 2 else 1,
+                            columns = if (gridMode) 2 else 1,
                             onMove = { from, to -> orderedServices = orderedServices.moved(from, to) },
                             onDrop = { onReorderServices(orderedServices.map { it.id }) }
                         ),
@@ -174,6 +179,7 @@ fun SpeechScreen(
                     onDelete = { deletingServiceId = service.id }
                 )
             }
+        }
         }
     }
 
@@ -266,7 +272,7 @@ private fun SpeechServiceUnifiedCard(
             .fillMaxWidth()
             .clickable(onClick = onSelect)
     ) {
-        MorphingCardLayout(
+        AdaptiveCardLayout(
             isGrid = isGrid,
             modifier = Modifier
                 .fillMaxWidth()

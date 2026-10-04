@@ -57,7 +57,10 @@ internal fun Modifier.providerDrag(
     this
         .onGloballyPositioned { coordinates ->
             layoutBounds = coordinates.boundsInRoot()
-            if (!dragging) boundsChanged(layoutBounds)
+            // Keep publishing the current layout slot while dragging. The visual card is
+            // translated independently, so reorder hit-testing can compare the dragged
+            // card center against the live slot centers and reverse direction immediately.
+            boundsChanged(layoutBounds)
         }
         .zIndex(if (dragging) 100f else 0f)
         .graphicsLayer {

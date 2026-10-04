@@ -49,7 +49,7 @@ Recent targeted device checks passed for portrait-video controls/chat scrolling,
 
 ## Release and Update Delivery
 
-- [ ] Verify signed Codemagic release output and GitHub assets for version `1.1.0`: universal `multifgateway.apk` plus ABI-specific `multifgateway-<abi>.apk` files and matching checksums.
+- [ ] Verify signed Codemagic release output and GitHub assets for version `1.1.0`: single universal `MultiGateway.apk` and matching checksum.
 - [ ] Ensure the in-app updater selects a compatible ABI-specific APK, with the universal APK as a fallback, when a release contains multiple APK assets.
 - [ ] Confirm release metadata, version checks and checksum links remain correct after artifact renaming.
 - [ ] Review and publish the accumulated changes when requested; previous trackers' historical push/install blockers should not be treated as current environment status.

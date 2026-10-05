@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.data.tools.videoOptionFields
 import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
@@ -58,23 +59,24 @@ fun SystemToolsScreen(
 ) {
     var choosing by remember { mutableStateOf<String?>(null) }
     var editingPrompt by rememberSaveable { mutableStateOf<String?>(null) }
-    var editingImage by remember { mutableStateOf(false) }
-    val imageConfig = settings.system["generate_image"] ?: SystemToolConfig()
-    val imageProvider = providers.find { it.id == imageConfig.providerId }
+    var editingMedia by remember { mutableStateOf<String?>(null) }
+    val mediaConfig = settings.system[editingMedia] ?: SystemToolConfig()
+    val mediaProvider = providers.find { it.id == mediaConfig.providerId }
 
     SlideScreenContent(
-        editor = if (editingImage && imageProvider != null) imageProvider to imageConfig else null,
-        label = "Image tool settings"
+        editor = editingMedia?.let { name -> mediaProvider?.let { Triple(name, it, mediaConfig) } },
+        label = "Media tool settings"
     ) { page ->
     if (page != null) {
         ImageToolSettingsScreen(
-            page.first,
             page.second,
+            page.third,
             onSave = { options ->
-                onSave("generate_image", page.second.withImageOptions(options))
-                editingImage = false
+                onSave(page.first, if (page.first == "generate_video") page.third.withVideoOptions(options) else page.third.withImageOptions(options))
+                editingMedia = null
             },
-            onBack = { editingImage = false }
+            onBack = { editingMedia = null },
+            video = page.first == "generate_video"
         )
     } else {
     BackHandler(enabled = LocalScreenTransitionActive.current, onBack = onBack)
@@ -113,8 +115,13 @@ fun SystemToolsScreen(
                     if (name == "generate_image") {
                         TextButton(
                             enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
-                            onClick = { editingImage = true }
+                            onClick = { editingMedia = name }
                         ) { Text("Image settings") }
+                    } else if (provider != null && videoOptionFields(provider, config.modelId).isNotEmpty()) {
+                        TextButton(
+                            enabled = model?.modelType == ModelType.VIDEO_GENERATION,
+                            onClick = { editingMedia = name }
+                        ) { Text("Video settings") }
                     }
                 }
             }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -28,6 +29,59 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class ChatMediaUiTest {
+    @Test fun assistantFilesKeepTheirLargePreview() {
+        val image = File.createTempFile("assistant-photo", ".png", context.cacheDir)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        image.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        try {
+            val message = StoredMessage("assistant", ChatRole.MODEL,
+                listOf(MessageVersion(content = "Image", files = listOf(image.path))))
+            compose.setContent { MaterialTheme { AssistantMessageCard(message, false, {}, {}, {}, {}, {}, {}) } }
+            compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Generated image").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("Generated image").assertHeightIsAtLeast(120.dp).performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Image preview").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithContentDescription("Close viewer").performClick()
+        } finally { image.delete() }
+    }
+
+    @Test fun userAttachmentsStayInOneRowAndMatchInputTiles() {
+        val image = File.createTempFile("user-photo", ".png", context.cacheDir)
+        val document = File.createTempFile("user-document", ".txt", context.cacheDir)
+        val other = File.createTempFile("user-document-2", ".txt", context.cacheDir)
+        val bitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888)
+        image.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        bitmap.recycle()
+        document.writeText("A document"); other.writeText("Another document")
+        var input by mutableStateOf(false)
+        try {
+            val references = listOf(image.path, document.path, other.path)
+            val message = StoredMessage("user", ChatRole.USER, listOf(MessageVersion(content = "Files", files = references)))
+            compose.setContent { MaterialTheme {
+                if (input) AttachmentStrip(references, removable = true)
+                else UserMessageCard(message, {}, {}, {})
+            } }
+            val first = compose.onNodeWithTag("attachment-tile_${image.path}").fetchSemanticsNode().boundsInRoot
+            val second = compose.onNodeWithTag("attachment-tile_${document.path}").fetchSemanticsNode().boundsInRoot
+            assertEquals(first.top, second.top, 0.5f)
+            assertEquals(first.bottom, second.bottom, 0.5f)
+            compose.onNodeWithContentDescription("Generated image").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Image preview").assertDoesNotExist()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithContentDescription(image.name).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("attachment-tile_${image.path}").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithContentDescription("Image preview").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithContentDescription("Close viewer").performClick()
+            compose.runOnIdle { input = true }
+            val inputTile = compose.onNodeWithTag("attachment-tile_${image.path}").fetchSemanticsNode().boundsInRoot
+            assertEquals(inputTile.width, first.width, 0.5f)
+            assertEquals(inputTile.height, first.height, 0.5f)
+        } finally { image.delete(); document.delete(); other.delete() }
+    }
+
     @Test fun sendFileActivityIsHiddenWhileRunningAndAfterCompletion() {
         compose.setContent { MaterialTheme {
             ToolActivityCards(listOf(ToolActivity("running", "send_file"), ToolActivity("done", "send_file", status = "success")))
@@ -156,7 +210,7 @@ class ChatMediaUiTest {
         } finally { store.delete(listOf(name)) }
     }
 
-    @Test fun audioAttachmentPlaysInlineWithPlayPauseAndSeekControls() {
+    @Test fun userAudioAttachmentOpensPlayerOnlyAfterClick() {
         val file = File.createTempFile("audio-preview", ".wav", context.cacheDir)
         // Ten seconds of silent PCM: exercise a real decoder without audible test output.
         val dataSize = 8000 * 2 * 10
@@ -167,6 +221,12 @@ class ChatMediaUiTest {
         }.array())
         try {
             compose.setContent { MaterialTheme { AttachmentStrip(listOf(file.path), removable = false) } }
+            compose.onNodeWithContentDescription("Play audio").assertDoesNotExist()
+            compose.onAllNodes(isDialog()).assertCountEquals(0)
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithContentDescription("Play media").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("attachment-tile_${file.path}").performClick()
             compose.waitUntil(5_000) {
                 compose.onAllNodesWithContentDescription("Play audio").fetchSemanticsNodes().isNotEmpty()
             }
@@ -174,8 +234,9 @@ class ChatMediaUiTest {
             compose.onNodeWithContentDescription("Pause audio").assertExists().performClick()
             compose.onNodeWithContentDescription("Play audio").assertExists()
             compose.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo)).assertExists()
-            compose.onNodeWithContentDescription("Download file").assertExists()
-            compose.onAllNodes(isDialog()).assertCountEquals(0)
+            compose.onAllNodes(isDialog()).assertCountEquals(1)
+            compose.onNodeWithContentDescription("Close viewer").performClick()
+            compose.onNodeWithContentDescription("Play audio").assertDoesNotExist()
         } finally { file.delete() }
     }
 

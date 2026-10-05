@@ -15,7 +15,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         kind: ModelType,
         prompt: String,
         imageOptions: JsonObject = obj(),
-        attachments: List<String> = emptyList()
+        attachments: List<String> = emptyList(),
+        videoOptions: JsonObject = obj()
     ): Flow<GenerationEvent> = flow {
         require(kind == ModelType.IMAGE_GENERATION || kind == ModelType.VIDEO_GENERATION)
         val name = if (kind == ModelType.IMAGE_GENERATION) "generate_image" else "generate_video"
@@ -39,7 +40,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
             }
             val result = SystemMediaTools(http).generate(name, provider, model, prompt, imageOptions,
                 inputImage = if (kind == ModelType.VIDEO_GENERATION) inputs.singleOrNull() else null,
-                inputImages = if (kind == ModelType.IMAGE_GENERATION) inputs else emptyList())
+                inputImages = if (kind == ModelType.IMAGE_GENERATION) inputs else emptyList(),
+                videoOptions = videoOptions)
             val summary = summarizeToolResult(result, http.requireFiles())
             emit(GenerationEvent.Tool(activity.copy(status = "success", summary = summary.preview,
                 files = summary.files, response = summary.content.toString())))
@@ -258,7 +260,9 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                                 args.text("prompt"),
                                 cfg.imageOptions,
                                 mediaInputImageArgument(args),
-                                mediaInputImagesArgument(args)
+                                mediaInputImagesArgument(args),
+                                videoOptions = cfg.videoOptions,
+                                inputImageUrl = mediaInputImageUrlArgument(args)
                             )
                         }
 

@@ -83,7 +83,8 @@ fun AssistantMessageCard(
         }
         if (activeVersion.files.isNotEmpty()) {
             AttachmentStrip(activeVersion.files, removable = false, modifier = Modifier.padding(top = 8.dp),
-                selectedImageAttachments = selectedImageAttachments, onToggleChatImage = onToggleChatImage)
+                selectedImageAttachments = selectedImageAttachments, onToggleChatImage = onToggleChatImage,
+                inlinePreview = true)
         }
 
         if (isStreaming) {

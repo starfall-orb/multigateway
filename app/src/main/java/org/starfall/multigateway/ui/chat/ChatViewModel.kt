@@ -618,7 +618,8 @@ class ChatViewModel(
         _currentConversation.value = conversation
         return generation.startEvents(conversation, assistant.id,
             toolChat.generateMedia(provider, request.modelId, request.kind, request.prompt,
-                config?.imageOptions ?: obj(), request.attachments))
+                config?.imageOptions ?: obj(), request.attachments,
+                videoOptions = config?.videoOptions ?: obj()))
     }
 
     fun stopGeneration() { generation.stop() }

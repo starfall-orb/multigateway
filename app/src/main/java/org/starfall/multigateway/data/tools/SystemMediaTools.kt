@@ -5,7 +5,7 @@ import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.model.*
 
 class SystemMediaTools(private val http: ToolHttp) {
-    suspend fun generate(kind: String, provider: LlmProviderInfo, model: String, prompt: String, imageOptions: JsonObject = obj(), inputImage: String? = null, inputImages: List<String> = emptyList()): JsonObject = withContext(Dispatchers.IO) {
+    suspend fun generate(kind: String, provider: LlmProviderInfo, model: String, prompt: String, imageOptions: JsonObject = obj(), inputImage: String? = null, inputImages: List<String> = emptyList(), videoOptions: JsonObject = obj(), inputImageUrl: String? = null): JsonObject = withContext(Dispatchers.IO) {
         val files = http.requireFiles()
         require(kind in setOf("generate_image", "generate_video")) { "Unsupported media tool" }
         require(prompt.isNotBlank() && prompt.length <= 32000) { "A prompt of 1–32000 characters is required" }
@@ -22,6 +22,7 @@ class SystemMediaTools(private val http: ToolHttp) {
             }
             resolveInputImage(it, files)
         }
+        require(inputImageUrl == null || kind == "generate_video") { "input_image_url is only supported by generate_video." }
         val base = providerBase(provider)
         val response = when(provider.type) {
             ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> if(kind == "generate_image") {
@@ -31,23 +32,7 @@ class SystemMediaTools(private val http: ToolHttp) {
                     http.postMedia("$base/images/edits", openAiImageEditRequest(model, prompt, imageOptions, referenceImages), provider)
                 }
             } else {
-                var job = http.json(http.request("$base/videos", provider).post(openAiVideoRequest(model, prompt, image)).build())
-                val id = job.text("id")
-                require(id.isEmpty() || id.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid video job ID" }
-                if (id.isNotBlank() && job.text("status") !in listOf("completed", "failed")) {
-                    job = withTimeout(15*60*1000L) {
-                        var state = job
-                        while(state.text("status") !in listOf("completed","failed","cancelled")) {
-                            delay(3000)
-                            state = http.json(http.request("$base/videos/$id",provider).get().build())
-                        }
-                        state
-                    }
-                }
-                check(job.text("status") !in listOf("failed","cancelled")) { "Video generation failed" }
-                if (id.isNotBlank() && job.text("status") == "completed") {
-                    obj("file" to str("tool-file:" + http.download("$base/videos/$id/content",provider)))
-                } else job
+                VideoGeneration(http).generate(provider, model, prompt, image, videoOptions, inputImageUrl)
             }
             ProviderType.GOOGLE -> {
                 val root = if(Regex("/v1(?:beta|alpha)?$").containsMatchIn(base)) base else "$base/v1beta"
@@ -57,6 +42,7 @@ class SystemMediaTools(private val http: ToolHttp) {
                         else googleImageEditRequest(model, prompt, imageOptions, referenceImages)
                     http.post("$root/models/$model:$method", body, provider)
                 } else {
+                    require(videoOptions.isEmpty() && inputImageUrl == null) { "Google video generation uses attached images and provider defaults." }
                     var job = http.post("$root/models/$model:predictLongRunning", googleVideoRequest(prompt, image), provider)
                     val name = job.text("name")
                     require(name.matches(Regex("[A-Za-z0-9_./-]+")) && !name.contains("..")) { "Invalid video operation" }

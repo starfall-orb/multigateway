@@ -43,6 +43,12 @@ internal fun mediaInputImageArgument(arguments: JsonObject): String? {
     return value.content
 }
 
+internal fun mediaInputImageUrlArgument(arguments: JsonObject): String? {
+    val value = arguments["input_image_url"] ?: return null
+    require(value is JsonPrimitive && value.isString && value.content.isNotBlank()) { "input_image_url must be a public HTTPS URL string." }
+    return validateVideoImageUrl(value.content)
+}
+
 internal fun mediaToolSchema(name: String): JsonObject = obj(
     "type" to str("object"),
     "properties" to buildJsonObject {
@@ -50,6 +56,10 @@ internal fun mediaToolSchema(name: String): JsonObject = obj(
         if (name == "generate_video") put("input_image", obj(
             "type" to str("string"),
             "description" to str("Optional tool-file: URI of an attached or previously generated image to animate. Reuse it directly; send_file is not needed.")
+        ))
+        if (name == "generate_video") put("input_image_url", obj(
+            "type" to str("string"),
+            "description" to str("Optional public HTTPS source-image URL for Agnes Video or standalone H3. Agnes requires public URLs and does not accept local tool-file uploads. Use either input_image or input_image_url, not both.")
         ))
         if (name == "generate_image") put("input_images", obj(
             "type" to str("array"),

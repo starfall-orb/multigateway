@@ -12,13 +12,20 @@ data class SystemToolConfig(
     val providerId: String = "",
     val modelId: String = "",
     val prompt: String = "",
-    val imageOptionsByModel: Map<String, JsonObject> = emptyMap()
+    val imageOptionsByModel: Map<String, JsonObject> = emptyMap(),
+    val videoOptionsByModel: Map<String, JsonObject> = emptyMap()
 ) {
     val imageOptions: JsonObject
         get() = imageOptionsByModel["$providerId/$modelId"] ?: JsonObject(emptyMap())
 
     fun withImageOptions(options: JsonObject) =
         copy(imageOptionsByModel = imageOptionsByModel + ("$providerId/$modelId" to options))
+
+    val videoOptions: JsonObject
+        get() = videoOptionsByModel["$providerId/$modelId"] ?: JsonObject(emptyMap())
+
+    fun withVideoOptions(options: JsonObject) =
+        copy(videoOptionsByModel = videoOptionsByModel + ("$providerId/$modelId" to options))
 }
 
 @Serializable

@@ -4,7 +4,9 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.update
 import java.io.*
+import java.security.MessageDigest
 import java.util.UUID
 import kotlin.coroutines.coroutineContext
 
@@ -14,22 +16,39 @@ class ToolFiles(val directory: File) {
     init {
         directory.mkdirs()
         synchronized(initialized) {
-            if(initialized.add(directory.absolutePath)) directory.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
+            if(initialized.add(directory.canonicalPath)) directory.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
         }
     }
-    companion object { val revision = kotlinx.coroutines.flow.MutableStateFlow(0L); private val initialized = mutableSetOf<String>() }
+    private data class CachedHash(val length: Long, val modified: Long, val digest: String)
+    private class DirectoryIndex { val hashes = mutableMapOf<String, CachedHash>() }
+    companion object {
+        val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+        private val initialized = mutableSetOf<String>()
+        private val indexes = mutableMapOf<String, DirectoryIndex>()
+    }
+    private val index = synchronized(initialized) {
+        indexes.getOrPut(directory.canonicalPath) { DirectoryIndex() }
+    }
     private val limit = 256L * 1024 * 1024
     fun resolve(name: String): File? = name.takeIf { it.matches(Regex("[a-zA-Z0-9._-]+")) }
         ?.let { File(directory, it) }?.takeIf {
             it.isFile && !it.name.endsWith(".part") && it.canonicalFile.parentFile == directory.canonicalFile
         }
     fun list(): List<File> = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") }?.sortedByDescending { it.lastModified() } ?: emptyList()
-    fun delete(names: Collection<String>) { names.forEach { resolve(it)?.delete() }; revision.value++ }
+    fun delete(names: Collection<String>) {
+        synchronized(index) {
+            names.forEach { name ->
+                if (resolve(name)?.delete() == true) index.hashes.remove(name)
+            }
+        }
+        revision.update { it + 1 }
+    }
     private fun checkSpace() { check(directory.usableSpace > 64L * 1024 * 1024) { "Not enough storage. Free space in Storage." } }
     suspend fun save(input: InputStream, mime: String? = null, maxBytes: Long = limit): String = withContext(Dispatchers.IO) {
         checkSpace()
         val temp = File(directory, "${UUID.randomUUID()}.part")
         try {
+            val digest = MessageDigest.getInstance("SHA-256")
             temp.outputStream().use { out ->
                 val buffer = ByteArray(32768)
                 var total = 0L
@@ -41,6 +60,7 @@ class ToolFiles(val directory: File) {
                     if(total % (1024*1024) < n) checkSpace()
                     check(total <= minOf(limit, maxBytes)) { "File exceeds the ${minOf(limit, maxBytes) / (1024 * 1024)} MB limit." }
                     out.write(buffer, 0, n)
+                    digest.update(buffer, 0, n)
                 }
             }
             check(temp.length() > 0) { "Empty media response" }
@@ -73,10 +93,45 @@ class ToolFiles(val directory: File) {
                 mime == "application/json" -> "json"
                 else -> "bin"
             }
-            val dest = File(directory, "${UUID.randomUUID()}.$ext")
-            check(temp.renameTo(dest)) { "Could not save media" }
-            revision.value++
-            dest.name
+            val hash = digest.digest().joinToString("") { "%02x".format(it) }
+            val context = coroutineContext
+            synchronized(index) {
+                context.ensureActive()
+                val existingFiles = list().mapNotNull { resolve(it.name) }
+                index.hashes.keys.retainAll(existingFiles.map { it.name }.toSet())
+                val existing = existingFiles.firstOrNull { file ->
+                    if (file.length() != temp.length()) return@firstOrNull false
+                    val cached = index.hashes[file.name]?.takeIf {
+                        it.length == file.length() && it.modified == file.lastModified()
+                    }
+                    val fingerprint = cached ?: try {
+                        val fileDigest = MessageDigest.getInstance("SHA-256")
+                        file.inputStream().use { source ->
+                            val buffer = ByteArray(32768)
+                            while (true) {
+                                context.ensureActive()
+                                val count = source.read(buffer)
+                                if (count < 0) break
+                                fileDigest.update(buffer, 0, count)
+                            }
+                        }
+                        CachedHash(file.length(), file.lastModified(), fileDigest.digest().joinToString("") { "%02x".format(it) })
+                            .also { index.hashes[file.name] = it }
+                    } catch (_: IOException) { return@firstOrNull false }
+                    fingerprint.digest == hash
+                }
+                if (existing != null) existing.name else {
+                    context.ensureActive()
+                    // Never overwrite an existing referenced file, even if a
+                    // hash-named file was externally changed or is a symlink.
+                    val canonical = File(directory, "$hash.$ext")
+                    val dest = if (canonical.exists()) File(directory, "${UUID.randomUUID()}.$ext") else canonical
+                    check(temp.renameTo(dest)) { "Could not save media" }
+                    index.hashes[dest.name] = CachedHash(dest.length(), dest.lastModified(), hash)
+                    revision.update { it + 1 }
+                    dest.name
+                }
+            }
         } finally { input.close(); temp.delete() }
     }
     suspend fun decode(raw: File): String = raw.inputStream().use { source ->

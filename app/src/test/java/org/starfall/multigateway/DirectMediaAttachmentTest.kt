@@ -20,6 +20,42 @@ import java.util.Base64
 @Config(sdk = [28])
 @RunWith(RobolectricTestRunner::class)
 class DirectMediaAttachmentTest {
+    @Test fun directH3AndAgnesVideoModesUseJsonAndSavedVideoOptions() = runBlocking {
+        val root = Files.createTempDirectory("direct-json-video").toFile()
+        val attachment = Files.createTempFile("user-image", ".png").toFile().apply { writeBytes(referencePng) }
+        val server = MockWebServer().apply { start() }
+        try {
+            val provider = LlmProviderInfo("p", "local", ProviderType.OPENAI, baseUrl = server.url("/v1").toString())
+            for (model in listOf("h3-10s", "agnes-video-2.5-flash")) {
+                val h3 = model.startsWith("h3-")
+                server.enqueue(MockResponse().setBody(if (h3) """{"id":"h3_job","status":"completed"}"""
+                    else obj("status" to str("completed"), "url" to str(server.url("/agnes.mp4").toString())).toString()))
+                server.enqueue(MockResponse().setHeader("Content-Type", "video/mp4").setBody(okio.Buffer().write(
+                    ByteArray(32).also { "ftyp".toByteArray().copyInto(it, 4) })))
+                val events = engine(ToolFiles(root)).generateMedia(provider, model, ModelType.VIDEO_GENERATION,
+                    "animate", attachments = if (h3) listOf(attachment.absolutePath) else emptyList(),
+                    videoOptions = if (h3) obj() else obj("seconds" to JsonPrimitive(7), "first_frame" to str("https://example.com/photo.png"))).toList()
+                val sent = server.takeRequest()
+                assertEquals("/v1/videos", sent.path)
+                assertTrue(sent.getHeader("Content-Type")!!.startsWith("application/json"))
+                val body = Json.parseToJsonElement(sent.body.readUtf8()).jsonObject
+                if (h3) {
+                    assertEquals(10, body["seconds"]!!.jsonPrimitive.int)
+                    assertArrayEquals(referencePng, Base64.getDecoder().decode(body.text("image").substringAfter(',')))
+                } else {
+                    assertEquals("7", body.text("seconds"))
+                    assertEquals("keyframe", body.text("mode"))
+                    assertEquals("https://example.com/photo.png", body.text("first_frame"))
+                }
+                assertEquals(if (h3) "/v1/videos/h3_job/content" else "/agnes.mp4", server.takeRequest().path)
+                val activity = events.filterIsInstance<GenerationEvent.Tool>().last().activity
+                assertEquals("success", activity.status)
+                assertTrue(activity.files.any { it.endsWith(".mp4") })
+                assertFalse(events.toString().contains(attachment.absolutePath))
+            }
+        } finally { server.shutdown(); root.deleteRecursively(); attachment.delete() }
+    }
+
     @Test fun directOpenAiImageModeUploadsMultipleAttachmentsToEditsAndKeepsOptions() = runBlocking {
         val root = Files.createTempDirectory("direct-image").toFile()
         val attachment = Files.createTempFile("user-image", ".png").toFile().apply { writeBytes(referencePng) }

@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +40,6 @@ import java.io.File
 import org.starfall.multigateway.data.service.AttachmentResolver
 import org.starfall.multigateway.ui.components.MediaPreviewDialog
 import org.starfall.multigateway.ui.components.ChatFilePreview
-import org.starfall.multigateway.ui.components.isPreviewableMedia
 import org.starfall.multigateway.ui.components.mediaThumbnail
 
 private data class AttachmentPreviewData(
@@ -57,13 +57,15 @@ fun AttachmentStrip(
     modifier: Modifier = Modifier,
     compact: Boolean = false,
     selectedImageAttachments: List<String> = emptyList(),
-    onToggleChatImage: ((String) -> Unit)? = null
+    onToggleChatImage: ((String) -> Unit)? = null,
+    inlinePreview: Boolean = false
 ) {
     if (references.isEmpty()) return
-    if (!removable) {
+    if (inlinePreview && !removable) {
         Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             references.forEach { reference -> key(reference) {
-                AttachmentTile(reference, false, {}, false, reference in selectedImageAttachments, onToggleChatImage)
+                AttachmentTile(reference, false, {}, false, reference in selectedImageAttachments,
+                    onToggleChatImage, inlinePreview = true)
             } }
         }
         return
@@ -93,7 +95,8 @@ private fun AttachmentTile(
     onRemove: () -> Unit,
     compact: Boolean,
     selectedForChat: Boolean,
-    onToggleChatImage: ((String) -> Unit)?
+    onToggleChatImage: ((String) -> Unit)?,
+    inlinePreview: Boolean = false
 ) {
     val context = LocalContext.current
     var showPreview by remember(reference) { mutableStateOf(false) }
@@ -103,7 +106,7 @@ private fun AttachmentTile(
     val width = if (compact) 116.dp else 132.dp
     val height = if (compact) 72.dp else 92.dp
     val shape = RoundedCornerShape(if (compact) 26.dp else 18.dp)
-    if (!removable && data != null) {
+    if (inlinePreview && data != null) {
         val preview = data!!
         ChatFilePreview(reference, preview.name, preview.mimeType, preview.bitmap, false,
             selectedForChat = selectedForChat, onToggleAttachment = onToggleChatImage, onOpen = { showPreview = true })
@@ -115,9 +118,10 @@ private fun AttachmentTile(
         modifier = Modifier
             .width(width)
             .height(height)
+            .testTag("attachment-tile_$reference")
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .clickable(enabled = data?.mimeType?.let(::isPreviewableMedia) == true) { showPreview = true }
+            .clickable(enabled = data != null) { showPreview = true }
     ) {
         val preview = data
         if (preview?.bitmap != null) {

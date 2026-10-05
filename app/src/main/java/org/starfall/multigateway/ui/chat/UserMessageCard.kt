@@ -63,7 +63,7 @@ fun UserMessageCard(
                         references = message.files,
                         removable = false,
                         modifier = Modifier.padding(bottom = 8.dp),
-                        compact = true,
+                        compact = false,
                         selectedImageAttachments = selectedImageAttachments,
                         onToggleChatImage = onToggleChatImage
                     )

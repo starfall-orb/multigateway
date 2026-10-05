@@ -24,21 +24,23 @@ import org.starfall.multigateway.data.tools.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig, onSave: (JsonObject) -> Unit, onBack: () -> Unit) {
+fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig, onSave: (JsonObject) -> Unit, onBack: () -> Unit, video: Boolean = false) {
     val format = remember { Json { prettyPrint = true } }
-    var draft by rememberSaveable(provider.id, config.modelId) { mutableStateOf(format.encodeToString(JsonObject.serializer(), config.imageOptions)) }
+    val savedOptions = if (video) config.videoOptions else config.imageOptions
+    var draft by rememberSaveable(provider.id, config.modelId, video) { mutableStateOf(format.encodeToString(JsonObject.serializer(), savedOptions)) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var confirmDiscard by remember { mutableStateOf(false) }
     val parsed = runCatching { Json.parseToJsonElement(draft).jsonObject }.getOrNull()
     val error = if (parsed == null) "Enter a valid JSON object." else runCatching {
-        validateImageOptions(provider.type, config.modelId, parsed)
+        if (video) validateVideoOptions(provider, config.modelId, parsed)
+        else validateImageOptions(provider.type, config.modelId, parsed)
     }.exceptionOrNull()?.message
-    val dirty = parsed != config.imageOptions
+    val dirty = parsed != savedOptions
     fun back() { if (dirty) confirmDiscard = true else onBack() }
     BackHandler(enabled = LocalScreenTransitionActive.current) { back() }
     Scaffold(
         topBar = { TopAppBar(
-            title = { Text("Image settings") },
+            title = { Text(if (video) "Video settings" else "Image settings") },
             navigationIcon = { IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
             actions = { Button(enabled = error == null, onClick = { parsed?.let(onSave) }, modifier = Modifier.padding(end = 8.dp)) { Text("Save") } }
         ) }
@@ -53,6 +55,12 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
                 Text("Only set options supported by this model. Empty fields use provider defaults. Settings are saved separately for each model.",
                     style = MaterialTheme.typography.bodySmall)
             }
+            if (video) item {
+                Text(when {
+                    config.modelId.startsWith("agnes-video-", true) -> "Agnes reference images require public HTTPS URLs. Files attached in chat cannot be uploaded to this API. Use frame URLs below, or reference media in Advanced JSON."
+                    else -> "H3 requires an image attached in chat or a public image URL. Duration follows the selected model (6, 10, or 15 seconds); output is portrait 9:16."
+                }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             item { ToolSwitch("Advanced JSON", advanced) { advanced = it } }
             if (advanced) item {
                 SelectableOutlinedTextField(
@@ -62,7 +70,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
                     isError = error != null, minLines = 8, maxLines = 18, modifier = Modifier.fillMaxWidth()
                 )
             } else if (parsed != null) {
-                items(imageOptionFields(provider.type, config.modelId), key = { it.path }) { field ->
+                items(if (video) videoOptionFields(provider, config.modelId) else imageOptionFields(provider.type, config.modelId), key = { it.path }) { field ->
                     ImageOptionInput(field, parsed.optionAt(field.path)) { value ->
                         draft = format.encodeToString(JsonObject.serializer(), parsed.withOption(field.path, value))
                     }
@@ -74,7 +82,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
     }
     if (confirmDiscard) AlertDialog(
         onDismissRequest = { confirmDiscard = false },
-        title = { Text("Discard changes?") }, text = { Text("Your image settings have not been saved.") },
+        title = { Text("Discard changes?") }, text = { Text(if (video) "Your video settings have not been saved." else "Your image settings have not been saved.") },
         confirmButton = { TextButton(onClick = onBack) { Text("Discard") } },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text("Keep editing") } }
     )

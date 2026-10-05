@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.chat
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 import org.starfall.multigateway.ui.components.ChatAttachmentSelection
 import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 import org.starfall.multigateway.ui.components.PlatformTextSelection

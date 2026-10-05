@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.drawer
+
+import org.starfall.multigateway.ui.components.AppDialog as Dialog
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.BorderStroke
@@ -18,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.windowHeightIn
 import java.util.UUID

@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.settings
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import org.starfall.multigateway.ui.components.windowHeightIn

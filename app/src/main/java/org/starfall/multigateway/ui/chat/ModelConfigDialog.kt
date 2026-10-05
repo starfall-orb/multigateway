@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.chat
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.layout.*

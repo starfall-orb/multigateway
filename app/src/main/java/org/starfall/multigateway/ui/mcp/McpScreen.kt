@@ -1,5 +1,7 @@
 package org.starfall.multigateway.ui.mcp
 
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context

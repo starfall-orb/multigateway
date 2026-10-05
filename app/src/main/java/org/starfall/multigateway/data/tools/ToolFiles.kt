@@ -20,11 +20,13 @@ class ToolFiles(val directory: File) {
     companion object { val revision = kotlinx.coroutines.flow.MutableStateFlow(0L); private val initialized = mutableSetOf<String>() }
     private val limit = 256L * 1024 * 1024
     fun resolve(name: String): File? = name.takeIf { it.matches(Regex("[a-zA-Z0-9._-]+")) }
-        ?.let { File(directory, it) }?.takeIf { it.isFile && !it.name.endsWith(".part") }
+        ?.let { File(directory, it) }?.takeIf {
+            it.isFile && !it.name.endsWith(".part") && it.canonicalFile.parentFile == directory.canonicalFile
+        }
     fun list(): List<File> = directory.listFiles()?.filter { it.isFile && !it.name.endsWith(".part") }?.sortedByDescending { it.lastModified() } ?: emptyList()
     fun delete(names: Collection<String>) { names.forEach { resolve(it)?.delete() }; revision.value++ }
     private fun checkSpace() { check(directory.usableSpace > 64L * 1024 * 1024) { "Not enough storage. Free space in Storage." } }
-    suspend fun save(input: InputStream, mime: String? = null): String = withContext(Dispatchers.IO) {
+    suspend fun save(input: InputStream, mime: String? = null, maxBytes: Long = limit): String = withContext(Dispatchers.IO) {
         checkSpace()
         val temp = File(directory, "${UUID.randomUUID()}.part")
         try {
@@ -37,7 +39,7 @@ class ToolFiles(val directory: File) {
                     if (n < 0) break
                     total += n
                     if(total % (1024*1024) < n) checkSpace()
-                    check(total <= limit) { "File exceeds the 256 MB limit." }
+                    check(total <= minOf(limit, maxBytes)) { "File exceeds the ${minOf(limit, maxBytes) / (1024 * 1024)} MB limit." }
                     out.write(buffer, 0, n)
                 }
             }

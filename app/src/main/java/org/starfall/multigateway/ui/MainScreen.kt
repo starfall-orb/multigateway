@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui
+
+import org.starfall.multigateway.ui.theme.modalScrimColor
 import org.starfall.multigateway.ui.components.ChatAttachmentSelection
 import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 
@@ -110,6 +112,7 @@ fun MainScreen(
     )) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            scrimColor = modalScrimColor(DrawerDefaults.scrimColor),
             drawerContent = {
                 ConversationsDrawer(
                     conversations = conversations,

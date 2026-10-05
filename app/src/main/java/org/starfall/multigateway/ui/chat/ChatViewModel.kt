@@ -598,7 +598,7 @@ class ChatViewModel(
             provider.config.modelIds?.contains(request.modelId) == false) return false
         val now = System.currentTimeMillis()
         val user = StoredMessage(UUID.randomUUID().toString(), ChatRole.USER,
-            listOf(MessageVersion(content = request.prompt, timestamp = now.toString())))
+            listOf(MessageVersion(content = request.prompt, timestamp = now.toString(), files = request.attachments)))
         val assistant = StoredMessage(UUID.randomUUID().toString(), ChatRole.MODEL,
             listOf(generatedVersion(provider, request.modelId, now.toString())))
         val existing = _currentConversation.value
@@ -618,7 +618,7 @@ class ChatViewModel(
         _currentConversation.value = conversation
         return generation.startEvents(conversation, assistant.id,
             toolChat.generateMedia(provider, request.modelId, request.kind, request.prompt,
-                config?.imageOptions ?: obj()))
+                config?.imageOptions ?: obj(), request.attachments))
     }
 
     fun stopGeneration() { generation.stop() }

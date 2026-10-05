@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.providers
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import androidx.compose.foundation.selection.toggleable
@@ -39,6 +41,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -64,6 +67,7 @@ import org.starfall.multigateway.data.model.defaultAuthorization
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.FadeGridListContent
+import org.starfall.multigateway.ui.components.WordWrappedFadeText
 import org.starfall.multigateway.ui.components.providerInitials
 import org.starfall.multigateway.ui.components.IconPickerRow
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
@@ -75,7 +79,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
-private data class DraggedProvider(val provider: LlmProviderInfo)
+private data class DraggedProvider(val provider: LlmProviderInfo, val bounds: Rect, val compact: Boolean)
 
 private const val UNGROUPED_SECTION = "__ungrouped__"
 internal fun newProviderId(): String = "custom_${UUID.randomUUID()}"
@@ -171,6 +175,7 @@ fun ProviderScreen(
     val groupCardBounds = remember { mutableMapOf<String, Rect>() }
     val providerCardBounds = remember { mutableMapOf<String, Rect>() }
     var draggedProvider by remember { mutableStateOf<DraggedProvider?>(null) }
+    var dragOverlayOrigin by remember { mutableStateOf(Offset.Zero) }
     var draggedGroupId by remember { mutableStateOf<String?>(null) }
     var dragRootSnapshot by remember { mutableStateOf<List<ProviderRootItem>?>(null) }
     var dragProviderSnapshot by remember { mutableStateOf<List<LlmProviderInfo>?>(null) }
@@ -277,12 +282,14 @@ fun ProviderScreen(
             },
             onDrag = { bounds, point ->
                 if (draggedProvider == null) {
-                    draggedProvider = DraggedProvider(provider)
                     dragRootSnapshot = rootItems
                     dragProviderSnapshot = orderedProviders
                     liveOrderChanged = false
                 }
                 val sourceGroup = provider.groupId?.takeIf { it in validGroupIds }
+                val compact = draggedProvider?.compact ?: (!isGridView && sourceGroup != null &&
+                    orderedProviders.firstOrNull { it.groupId == sourceGroup }?.id == provider.id)
+                draggedProvider = DraggedProvider(provider, bounds, compact)
                 val insideFolder = groupCardBounds.entries.firstOrNull { it.value.containsPoint(point) }?.key
                 val margin = with(density) { 36.dp.toPx() }
                 folderReorderCandidate = if (sourceGroup == null && insideFolder == null) {
@@ -472,6 +479,7 @@ fun ProviderScreen(
                         .fillMaxSize()
                         .padding(padding)
                         .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .onGloballyPositioned { dragOverlayOrigin = it.positionInRoot() }
                 ) {
                     if (providers.isEmpty() && providerGroups.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -499,7 +507,7 @@ fun ProviderScreen(
                             columns = GridCells.Fixed(if (gridMode) 2 else 1),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize().testTag("provider_list")
                         ) {
                             rootItems.forEachIndexed { rootIndex, rootItem ->
                                 when (rootItem) {
@@ -511,18 +519,22 @@ fun ProviderScreen(
                                             key = "group_${group.id}",
                                             span = { GridItemSpan(if (expanded) maxLineSpan else 1) }
                                         ) {
-                                             Box(Modifier.zIndex(if (draggedGroupId == group.id || draggedProvider?.provider?.groupId == group.id) 100f else 0f)) {
+                                            // Lazy-grid placement animation belongs on the item
+                                            // wrapper, not inside the expanded/collapsed content.
+                                            Box(Modifier
+                                                .animateItem(
+                                                    placementSpec = spring(
+                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                        stiffness = Spring.StiffnessMediumLow
+                                                    )
+                                                )
+                                                .zIndex(if (draggedGroupId == group.id) 100f else 0f)) {
                                             if (expanded) {
                                                 ProviderGroupExpandedContainer(
                                                     group = group,
                                                     providers = groupProviders,
                                                     isGrid = gridMode,
-                                                    modifier = Modifier.testTag("provider_group_${group.id}").animateItem(
-                                                        placementSpec = spring(
-                                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                                            stiffness = Spring.StiffnessMediumLow
-                                                        )
-                                                    ),
+                                                    modifier = Modifier.testTag("provider_group_${group.id}"),
                                                     headerDragModifier = Modifier.longPressReorder(
                                                         index = rootIndex,
                                                         itemCount = rootItems.size,
@@ -552,12 +564,6 @@ fun ProviderScreen(
                                                     isGrid = gridMode,
                                                     modifier = Modifier
                                                         .testTag("provider_group_${group.id}")
-                                                        .animateItem(
-                                                            placementSpec = spring(
-                                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                                stiffness = Spring.StiffnessMediumLow
-                                                            )
-                                                        )
                                                         .longPressReorder(
                                                             index = rootIndex,
                                                             itemCount = rootItems.size,
@@ -603,6 +609,29 @@ fun ProviderScreen(
                             }
                         }
                         }
+                    }
+                    draggedProvider?.let { lifted ->
+                        ProviderUnifiedCard(
+                            provider = lifted.provider,
+                            isGrid = isGridView,
+                            compact = lifted.compact,
+                            modifier = Modifier
+                                .testTag("dragged_provider")
+                                .zIndex(100f)
+                                .requiredSize(
+                                    with(density) { lifted.bounds.width.toDp() },
+                                    with(density) { lifted.bounds.height.toDp() }
+                                )
+                                .graphicsLayer {
+                                    translationX = lifted.bounds.left - dragOverlayOrigin.x
+                                    translationY = lifted.bounds.top - dragOverlayOrigin.y
+                                    scaleX = 1.04f
+                                    scaleY = 1.04f
+                                    shadowElevation = 10.dp.toPx()
+                                    shape = RoundedCornerShape(if (isGridView) 20.dp else 16.dp)
+                                },
+                            onEdit = {}, onMoveToGroup = {}, onDelete = {}
+                        )
                     }
                 }
             }
@@ -859,16 +888,18 @@ private fun ProviderGroupExpandedContainer(
                 key("group-icon") {
                     ProviderGroupIconTile(
                         group = group,
+                        modifier = Modifier.testTag("provider_group_icon_${group.id}"),
                         tileHeight = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight,
                         fillFrame = isGrid,
                         onClick = onCollapse
                     )
                 }
-                providers.forEach { provider ->
+                providers.forEachIndexed { index, provider ->
                     key(provider.id) {
                         ProviderUnifiedCard(
                             provider = provider,
                             isGrid = isGrid,
+                            compact = !isGrid && index == 0,
                             modifier = Modifier.then(providerDragModifier(provider)),
                             onEdit = { onEditProvider(provider) },
                             onMoveToGroup = { onMoveProvider(provider) },
@@ -916,7 +947,10 @@ private fun ProviderGroupItemsLayout(
                 index == 1 -> secondWidth
                 else -> fullWidth
             }
-            measurable.measure(constraints.copy(minWidth = width, maxWidth = width, minHeight = 0))
+            val maxHeight = if (!isGrid && index <= 1) {
+                ProviderListCardHeight.roundToPx().coerceAtMost(constraints.maxHeight)
+            } else constraints.maxHeight
+            measurable.measure(constraints.copy(minWidth = width, maxWidth = width, minHeight = 0, maxHeight = maxHeight))
         }
         val rows = placeables.chunked(2).takeIf { isGrid }
         val height = if (isGrid) {
@@ -1106,7 +1140,8 @@ fun ProviderUnifiedCard(
     modifier: Modifier = Modifier,
     onEdit: () -> Unit,
     onMoveToGroup: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    compact: Boolean = false
 ) {
     val shapeCorner by animateDpAsState(
         targetValue = if (isGrid) 20.dp else 16.dp,
@@ -1123,62 +1158,79 @@ fun ProviderUnifiedCard(
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight)
+            .then(if (compact) Modifier.height(ProviderListCardHeight)
+                else Modifier.heightIn(min = if (isGrid) ProviderGridCardHeight else ProviderListCardHeight))
             .clickable { onEdit() }
     ) {
-        AdaptiveCardLayout(
-            isGrid = isGrid,
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            icon = {
+        if (compact) {
+            // The first list member shares an 88dp row with the folder logo. Keep
+            // its title and actions; metadata remains available in the editor.
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 EntityIcon(provider.icon, Modifier.size(42.dp), text = providerInitials(provider.name), matchName = provider.name)
-            },
-            actions = {
+                Spacer(Modifier.width(14.dp))
+                WordWrappedFadeText(
+                    text = provider.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f).testTag("provider_title_${provider.id}")
+                )
                 ProviderOverflowMenu(onEdit, onMoveToGroup, onDelete)
-            },
-            content = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                        Text(
-                            text = provider.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                            Text(
-                                text = provider.type.displayName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                    if (provider.auth.method == AuthMethod.OAUTH) {
-                        val signedIn = !provider.auth.value.isNullOrBlank()
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(
-                                if (signedIn) Icons.Outlined.CheckCircle else Icons.Outlined.AccountCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = if (signedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                stringResource(if (signedIn) R.string.oauth_signed_in else R.string.oauth_signed_out),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (signedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Text(
-                        text = provider.baseUrl,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
-        )
+        } else {
+            AdaptiveCardLayout(
+                isGrid = isGrid,
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                icon = {
+                    EntityIcon(provider.icon, Modifier.size(42.dp), text = providerInitials(provider.name), matchName = provider.name)
+                },
+                actions = {
+                    ProviderOverflowMenu(onEdit, onMoveToGroup, onDelete)
+                },
+                content = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                            Text(
+                                text = provider.name,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                                Text(
+                                    text = provider.type.displayName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                        if (provider.auth.method == AuthMethod.OAUTH) {
+                            val signedIn = !provider.auth.value.isNullOrBlank()
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(
+                                    if (signedIn) Icons.Outlined.CheckCircle else Icons.Outlined.AccountCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = if (signedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    stringResource(if (signedIn) R.string.oauth_signed_in else R.string.oauth_signed_out),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (signedIn) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Text(
+                            text = provider.baseUrl,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            )
+        }
     }
 }
 

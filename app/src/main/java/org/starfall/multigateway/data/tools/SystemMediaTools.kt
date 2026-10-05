@@ -2,21 +2,38 @@ package org.starfall.multigateway.data.tools
 
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
-import okhttp3.MultipartBody
 import org.starfall.multigateway.data.model.*
 
 class SystemMediaTools(private val http: ToolHttp) {
-    suspend fun generate(kind: String, provider: LlmProviderInfo, model: String, prompt: String, imageOptions: JsonObject = obj()): JsonObject {
-        http.requireFiles()
+    suspend fun generate(kind: String, provider: LlmProviderInfo, model: String, prompt: String, imageOptions: JsonObject = obj(), inputImage: String? = null, inputImages: List<String> = emptyList()): JsonObject = withContext(Dispatchers.IO) {
+        val files = http.requireFiles()
+        require(kind in setOf("generate_image", "generate_video")) { "Unsupported media tool" }
         require(prompt.isNotBlank() && prompt.length <= 32000) { "A prompt of 1–32000 characters is required" }
+        require(inputImages.isEmpty() || kind == "generate_image") { "input_images is only supported by generate_image. Video generation accepts one input_image." }
+        require(inputImages.size <= 16) { "Image generation accepts at most 16 reference images." }
+        if (inputImages.isNotEmpty()) require(provider.type.isOpenAi || provider.type == ProviderType.GOOGLE) {
+            "This provider does not support image editing. Select an OpenAI-compatible or Gemini image provider."
+        }
+        val referenceImages = inputImages.map { resolveInputImage(it, files, if (provider.type.isOpenAi) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES) }
+        val image = inputImage?.let {
+            require(kind == "generate_video") { "input_image is only supported by generate_video." }
+            require(provider.type.isOpenAi || provider.type == ProviderType.GOOGLE) {
+                "This provider does not support image-to-video. Select an OpenAI-compatible or Google video provider."
+            }
+            resolveInputImage(it, files)
+        }
         val base = providerBase(provider)
         val response = when(provider.type) {
             ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> if(kind == "generate_image") {
-                http.postMedia("$base/images/generations", imageGenerationRequest(provider.type, model, prompt, imageOptions), provider)
+                if (referenceImages.isEmpty()) {
+                    http.postMedia("$base/images/generations", imageGenerationRequest(provider.type, model, prompt, imageOptions), provider)
+                } else {
+                    http.postMedia("$base/images/edits", openAiImageEditRequest(model, prompt, imageOptions, referenceImages), provider)
+                }
             } else {
-                var job = http.json(http.request("$base/videos", provider).post(MultipartBody.Builder().setType(MultipartBody.FORM)
-                    .addFormDataPart("model",model).addFormDataPart("prompt",prompt).build()).build())
+                var job = http.json(http.request("$base/videos", provider).post(openAiVideoRequest(model, prompt, image)).build())
                 val id = job.text("id")
+                require(id.isEmpty() || id.matches(Regex("[A-Za-z0-9_-]+"))) { "Invalid video job ID" }
                 if (id.isNotBlank() && job.text("status") !in listOf("completed", "failed")) {
                     job = withTimeout(15*60*1000L) {
                         var state = job
@@ -36,9 +53,11 @@ class SystemMediaTools(private val http: ToolHttp) {
                 val root = if(Regex("/v1(?:beta|alpha)?$").containsMatchIn(base)) base else "$base/v1beta"
                 if(kind == "generate_image") {
                     val method = if(model.contains("imagen",ignoreCase = true)) "predict" else "generateContent"
-                    http.post("$root/models/$model:$method", imageGenerationRequest(provider.type, model, prompt, imageOptions), provider)
+                    val body = if (referenceImages.isEmpty()) imageGenerationRequest(provider.type, model, prompt, imageOptions)
+                        else googleImageEditRequest(model, prompt, imageOptions, referenceImages)
+                    http.post("$root/models/$model:$method", body, provider)
                 } else {
-                    var job = http.post("$root/models/$model:predictLongRunning",obj("instances" to JsonArray(listOf(obj("prompt" to str(prompt))))),provider)
+                    var job = http.post("$root/models/$model:predictLongRunning", googleVideoRequest(prompt, image), provider)
                     val name = job.text("name")
                     require(name.matches(Regex("[A-Za-z0-9_./-]+")) && !name.contains("..")) { "Invalid video operation" }
                     job = withTimeout(15*60*1000L) {
@@ -72,6 +91,6 @@ class SystemMediaTools(private val http: ToolHttp) {
         }
         collect(response)
         check(names.isNotEmpty()) { "Provider returned no supported media. Check the selected model and endpoint." }
-        return obj("files" to JsonArray(names.distinct().map { str("tool-file:$it") }), "message" to str("Media saved and displayed to the user."))
+        obj("files" to JsonArray(names.distinct().map { str("tool-file:$it") }), "message" to str("Media saved and displayed to the user. Reuse these tool-file: URIs directly as inputs to compatible tools; send_file is not required."))
     }
 }

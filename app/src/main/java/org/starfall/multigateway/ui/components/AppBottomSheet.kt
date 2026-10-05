@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import org.starfall.multigateway.ui.theme.modalScrimColor
 
 /**
  * Keeps unused downward list scroll/fling velocity from being handed to a modal sheet. Without
@@ -106,6 +107,7 @@ fun AppBottomSheet(
         sheetState = sheetState,
         shape = shape,
         containerColor = containerColor,
+        scrimColor = modalScrimColor(BottomSheetDefaults.ScrimColor),
         dragHandle = {
             BottomSheetDefaults.DragHandle(
                 modifier = Modifier.onSizeChanged {

@@ -20,18 +20,22 @@ internal class ModelConnectionTests(
 
     // Manual per-model tests may run in parallel, but Test All is deliberately serialized.
     private val manualSemaphore = Semaphore(4)
+    private val revisions = mutableMapOf<String, Long>()
+    private fun revision(id: String): Long = revisions[id] ?: 0L
 
     fun test(provider: LlmProviderInfo, modelId: String) {
         if (!scope.isActive || batchRunning.value || running[modelId] == true) return
         running[modelId] = true
+        val runRevision = revision(modelId)
         results.remove(modelId)
         scope.launch {
             try {
-                results[modelId] = manualSemaphore.withPermit {
+                val result = manualSemaphore.withPermit {
                     connectSafely(provider, modelId)
                 }
+                if (revision(modelId) == runRevision) results[modelId] = result
             } finally {
-                running[modelId] = false
+                if (revision(modelId) == runRevision) running[modelId] = false
             }
         }
     }
@@ -39,6 +43,7 @@ internal class ModelConnectionTests(
     fun testAll(provider: LlmProviderInfo, modelIds: Collection<String>) {
         if (!scope.isActive || batchRunning.value || running.values.any { it }) return
         val ids = modelIds.distinct()
+        val batchRevisions = ids.associateWith(::revision)
         if (ids.isEmpty()) return
 
         batchRunning.value = true
@@ -47,12 +52,14 @@ internal class ModelConnectionTests(
             try {
                 for (modelId in ids) {
                     if (!isActive) break
+                    if (revision(modelId) != batchRevisions.getValue(modelId)) continue
                     running[modelId] = true
                     try {
                         // Intentionally one request at a time to avoid provider rate-limit bursts.
-                        results[modelId] = connectSafely(provider, modelId)
+                        val result = connectSafely(provider, modelId)
+                        if (revision(modelId) == batchRevisions.getValue(modelId)) results[modelId] = result
                     } finally {
-                        running[modelId] = false
+                        if (revision(modelId) == batchRevisions.getValue(modelId)) running[modelId] = false
                     }
                 }
             } finally {
@@ -72,6 +79,7 @@ internal class ModelConnectionTests(
 
     fun forget(ids: Collection<String>) {
         ids.forEach {
+            revisions[it] = revision(it) + 1
             running.remove(it)
             results.remove(it)
         }

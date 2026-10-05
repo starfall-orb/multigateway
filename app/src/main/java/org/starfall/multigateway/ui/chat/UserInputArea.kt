@@ -1,5 +1,7 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.selectAllOnTripleClick
 import android.content.Intent
@@ -56,7 +58,8 @@ data class DirectMediaRequest(
     val prompt: String,
     val kind: ModelType,
     val providerId: String,
-    val modelId: String
+    val modelId: String,
+    val attachments: List<String> = emptyList()
 )
 
 data class ChatInputEditDraft(
@@ -202,10 +205,12 @@ fun UserInputArea(
     }
 
     val canSend = if (mediaKind == null) textState.isNotBlank() || attachments.isNotEmpty()
-        else textState.isNotBlank() && textState.length <= 32000 && attachments.isEmpty() && mediaModel != null && !isGenerating
+        else textState.isNotBlank() && textState.length <= 32000 &&
+            attachments.size <= (if (mediaKind == ModelType.VIDEO_GENERATION) 1 else 16) && mediaModel != null && !isGenerating
     val showStop = isGenerating && (mediaKind != null || (textState.isEmpty() && attachments.isEmpty()))
     val mediaHint = when {
-        attachments.isNotEmpty() -> "Remove attachments to generate"
+        mediaKind == ModelType.VIDEO_GENERATION && attachments.size > 1 -> "Choose one reference image for the video"
+        mediaKind == ModelType.IMAGE_GENERATION && attachments.size > 16 -> "Choose up to 16 reference images"
         textState.length > 32000 -> "Prompt exceeds 32,000 characters"
         mediaModel == null -> "Choose a $mediaLabel model"
         else -> "Direct to ${mediaModel.displayName.ifBlank { mediaModelId }}"
@@ -244,7 +249,7 @@ fun UserInputArea(
                 Text(
                     "$mediaLabel generation mode · $mediaHint",
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (attachments.isNotEmpty() || textState.length > 32000)
+                    color = if (textState.length > 32000 || attachments.size > (if (mediaKind == ModelType.VIDEO_GENERATION) 1 else 16))
                         MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -419,7 +424,7 @@ fun UserInputArea(
                                         val submitted = editDraft?.let { draft ->
                                             onEditMessage(draft.messageId, textState, attachments)
                                         } ?: mediaKind?.let { kind ->
-                                            onSendMedia(DirectMediaRequest(textState, kind, mediaProviderId, mediaModelId))
+                                            onSendMedia(DirectMediaRequest(textState, kind, mediaProviderId, mediaModelId, attachments))
                                         } ?: onSendMessage(textState, attachments)
                                         if (submitted) {
                                             focusManager.clearFocus(force = true)
@@ -482,14 +487,14 @@ fun UserInputArea(
         FilesActionSheet(
             onPickImage = {
                 photoPicker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
+                    PickVisualMediaRequest(if (mediaKind == null) ActivityResultContracts.PickVisualMedia.ImageAndVideo else ActivityResultContracts.PickVisualMedia.ImageOnly)
                 )
             },
             onPickDocument = {
                 documentPicker.launch(
                     Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                         addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "*/*"
+                        type = if (mediaKind == null) "*/*" else "image/*"
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                     }

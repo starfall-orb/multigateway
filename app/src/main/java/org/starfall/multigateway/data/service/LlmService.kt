@@ -39,14 +39,33 @@ class LlmService(context: Context) {
         }
     }
 
-    internal fun toolAttachments(message: StoredMessage): JsonArray = JsonArray(message.files.map { reference ->
+    internal suspend fun toolAttachments(
+        message: StoredMessage,
+        files: org.starfall.multigateway.data.tools.ToolFiles,
+        imported: MutableMap<String, String>
+    ): JsonArray = JsonArray(message.files.map { reference ->
         val meta = attachments.metadata(reference) ?: error("Attachment metadata is missing")
         val bytes = attachments.readBytes(reference) ?: error("Attachment data is missing")
+        val uri = imported[reference] ?: ("tool-file:" + files.save(bytes.inputStream(), meta.mimeType)).also {
+            imported[reference] = it
+        }
         buildJsonObject {
+            put("uri", uri)
             put("mimeType", meta.mimeType)
             put("data", Base64.getEncoder().encodeToString(bytes))
         }
     })
+
+    /** Trusted user selections only; model-supplied references use ToolFiles instead. */
+    internal suspend fun importToolAttachments(references: List<String>, files: org.starfall.multigateway.data.tools.ToolFiles, maxBytes: Long): List<String> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            references.map { reference ->
+                val meta = attachments.metadata(reference) ?: error("Attachment metadata is missing")
+                require(meta.sizeBytes <= maxBytes) { "Reference image is too large for the selected generation API." }
+                val input = attachments.open(reference) ?: error("Attachment data is missing")
+                "tool-file:" + files.save(input, meta.mimeType, maxBytes)
+            }
+        }
 
     fun resolveOllamaChatUrl(baseUrl: String): String {
         var clean = baseUrl.trim().trimEnd('/')

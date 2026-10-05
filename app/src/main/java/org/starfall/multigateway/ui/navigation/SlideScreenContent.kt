@@ -8,12 +8,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 
 /** Whether this page, including any nested editor, currently owns the system Back action. */
 val LocalScreenTransitionActive = compositionLocalOf { true }
 
-/** Keeps the outgoing page's data alive until the slide finishes. Null is the list page. */
+/** Retains the base page's scroll/UI state while its detail page is open. Null is the base page. */
 @Composable
 fun <T : Any> SlideScreenContent(
     editor: T?,
@@ -21,6 +22,7 @@ fun <T : Any> SlideScreenContent(
     content: @Composable (T?) -> Unit,
 ) {
     val parentActive = LocalScreenTransitionActive.current
+    val basePageState = rememberSaveableStateHolder()
     AnimatedContent(
         targetState = editor,
         contentKey = { it != null },
@@ -39,7 +41,11 @@ fun <T : Any> SlideScreenContent(
         CompositionLocalProvider(
             LocalScreenTransitionActive provides (parentActive && (page != null) == (editor != null))
         ) {
-            content(page)
+            if (page == null) {
+                basePageState.SaveableStateProvider("base") { content(null) }
+            } else {
+                content(page)
+            }
         }
     }
 }

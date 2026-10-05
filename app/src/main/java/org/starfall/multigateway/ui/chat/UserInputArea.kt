@@ -97,8 +97,8 @@ fun UserInputArea(
     chatModeRequest: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    var textState by remember { mutableStateOf("") }
-    var textSelection by remember { mutableStateOf(TextRange.Zero) }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue()) }
+    val textState = textFieldValue.text
     var inputRowWidthPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
@@ -168,8 +168,7 @@ fun UserInputArea(
     LaunchedEffect(editDraft?.revision) {
         editDraft?.let {
             mediaKind = null
-            textState = it.text
-            textSelection = TextRange(it.text.length)
+            textFieldValue = TextFieldValue(it.text, TextRange(it.text.length))
             onAttachmentsChange(it.attachments)
         }
     }
@@ -290,8 +289,7 @@ fun UserInputArea(
                         TextButton(
                             onClick = {
                                 onCancelEdit()
-                                textState = ""
-                                textSelection = TextRange.Zero
+                                textFieldValue = TextFieldValue()
                                 onAttachmentsChange(emptyList())
                             }
                         ) { Text("Cancel") }
@@ -329,24 +327,17 @@ fun UserInputArea(
                     }
 
                     BasicTextField(
-                        value = TextFieldValue(
-                            textState,
-                            TextRange(
-                                textSelection.start.coerceAtMost(textState.length),
-                                textSelection.end.coerceAtMost(textState.length)
-                            )
-                        ),
-                        onValueChange = {
-                            textState = it.text
-                            textSelection = it.selection
-                        },
+                        value = textFieldValue,
+                        onValueChange = { textFieldValue = it },
                         textStyle = inputTextStyle,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
                             .weight(1f)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                             .selectAllOnTripleClick {
-                                textSelection = TextRange(0, textState.length)
+                                textFieldValue = textFieldValue.copy(
+                                    selection = TextRange(0, textFieldValue.text.length)
+                                )
                             },
                         maxLines = 6,
                         decorationBox = { innerTextField ->
@@ -428,8 +419,7 @@ fun UserInputArea(
                                         } ?: onSendMessage(textState, attachments)
                                         if (submitted) {
                                             focusManager.clearFocus(force = true)
-                                            textState = ""
-                                            textSelection = TextRange.Zero
+                                            textFieldValue = TextFieldValue()
                                             onAttachmentsChange(emptyList())
                                             if (editDraft != null) onCancelEdit()
                                         } else {

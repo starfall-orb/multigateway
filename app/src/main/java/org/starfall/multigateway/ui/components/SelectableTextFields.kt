@@ -10,7 +10,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +64,19 @@ fun Modifier.selectAllOnTripleClick(onSelectAll: () -> Unit): Modifier = compose
     }
 }
 
+
+internal fun TextFieldValue.withExternalText(text: String): TextFieldValue {
+    if (this.text == text) return this
+    return copy(
+        text = text,
+        selection = TextRange(
+            selection.start.coerceAtMost(text.length),
+            selection.end.coerceAtMost(text.length)
+        ),
+        composition = null
+    )
+}
+
 /** Material text field used throughout the app, with a stable selection exposed for triple-click. */
 @Composable
 fun SelectableOutlinedTextField(
@@ -92,19 +105,19 @@ fun SelectableOutlinedTextField(
     colors: TextFieldColors = OutlinedTextFieldDefaults.colors()
 ) {
     var fieldValue by remember { mutableStateOf(TextFieldValue(value)) }
-    val displayedValue = if (fieldValue.text == value) fieldValue else {
-        fieldValue.copy(
-            text = value,
-            selection = TextRange(
-                fieldValue.selection.start.coerceAtMost(value.length),
-                fieldValue.selection.end.coerceAtMost(value.length)
-            )
-        )
+
+    // Do not derive TextFieldValue from the String on every recomposition. The IME owns
+    // selection/composition while editing; replacing that value mid-edit makes composing
+    // keyboards (for example Gboard Translate) think the input connection was reset.
+    // Only apply a genuinely external text change. An onValueChange echo already matches
+    // fieldValue.text, so its composition range is left untouched.
+    LaunchedEffect(value) {
+        val syncedValue = fieldValue.withExternalText(value)
+        if (syncedValue !== fieldValue) fieldValue = syncedValue
     }
-    SideEffect { fieldValue = displayedValue }
 
     OutlinedTextField(
-        value = displayedValue,
+        value = fieldValue,
         onValueChange = { updated ->
             fieldValue = updated
             if (updated.text != value) onValueChange(updated.text)

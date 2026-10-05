@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.configuration
 
+import org.starfall.multigateway.data.repository.LocalWriteErrors
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.*
@@ -29,7 +30,7 @@ class ConfigurationViewModel(
     val providerImportError = _providerImportError.asStateFlow()
 
     fun importProvider(provider: LlmProviderInfo) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             try {
                 llmRepo.saveProvider(provider)
                 _importedProviderId.value = provider.id
@@ -86,13 +87,13 @@ class ConfigurationViewModel(
     }
 
     fun saveProfile(profile: ChatProfile) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             profileRepo.saveProfile(profile)
         }
     }
 
     fun deleteProfile(profileId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             profileRepo.deleteProfile(profileId)
             if (appPreferences.value.selectedProfileId == profileId) {
                 prefsRepo.setSelectedProfileId(null)
@@ -101,7 +102,7 @@ class ConfigurationViewModel(
     }
 
     fun saveModelConfiguration(providerId: String, modelId: String, config: ModelConfiguration) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             val provider = llmRepo.getProviderById(providerId) ?: return@launch
             llmRepo.saveProvider(provider.copy(config = provider.config.copy(
                 modelConfigs = provider.config.modelConfigs + (modelId to config)
@@ -110,11 +111,11 @@ class ConfigurationViewModel(
     }
 
     fun reorderProviderModels(providerId: String, modelIds: List<String>) {
-        viewModelScope.launch { llmRepo.reorderProviderModels(providerId, modelIds) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.reorderProviderModels(providerId, modelIds) }
     }
 
     fun saveProviderModels(providerId: String, modelConfigs: Map<String, ModelConfiguration>) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             val provider = llmRepo.getProviderById(providerId) ?: return@launch
             val modelIds = modelConfigs.keys.toList()
             llmRepo.saveProvider(provider.copy(config = provider.config.copy(
@@ -129,7 +130,7 @@ class ConfigurationViewModel(
     }
 
     fun saveProvider(provider: LlmProviderInfo) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             llmRepo.saveProvider(provider)
             val prefs = appPreferences.value
             val modelIds = provider.config.modelIds
@@ -140,35 +141,39 @@ class ConfigurationViewModel(
     }
 
     fun deleteProvider(providerId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             llmRepo.deleteProvider(providerId)
         }
     }
 
     fun saveProviderGroup(group: ProviderGroup) {
-        viewModelScope.launch { llmRepo.saveGroup(group) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.saveGroup(group) }
     }
 
     fun deleteProviderGroup(groupId: String) {
-        viewModelScope.launch { llmRepo.deleteGroup(groupId) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.deleteGroup(groupId) }
     }
 
     fun moveProviderToGroup(providerId: String, groupId: String?) {
-        viewModelScope.launch { llmRepo.moveProviderToGroup(providerId, groupId) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.moveProviderToGroup(providerId, groupId) }
     }
 
     fun reorderProviderGroups(ids: List<String>) {
-        viewModelScope.launch { llmRepo.reorderGroups(ids) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.reorderGroups(ids) }
     }
 
     fun reorderProviderRootItems(items: List<ProviderRootOrderItem>) {
-        viewModelScope.launch { llmRepo.reorderRootItems(items) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.reorderRootItems(items) }
     }
 
     private val oauthAuthorizations = OAuthAuthorizations(viewModelScope, llmRepo::authorizeProvider)
 
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =
         oauthAuthorizations.authorize(provider)
+
+    fun cancelProviderAuthorization(provider: LlmProviderInfo) {
+        oauthAuthorizations.cancel(provider)
+    }
 
     suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> =
         llmRepo.clearOAuthCredentials(provider)
@@ -191,59 +196,59 @@ class ConfigurationViewModel(
         mcpRepo.clearOAuth(server)
 
     fun saveMcpServer(server: McpInfo) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             mcpRepo.saveServer(server)
             refreshMcpTools(server)
         }
     }
 
     fun deleteMcpServer(serverId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             mcpRepo.deleteServer(serverId)
             clearMcpToolsState(serverId)
         }
     }
     fun saveSpeechService(service: SpeechService) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             speechRepo.saveService(service)
         }
     }
 
     fun deleteSpeechService(serviceId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(LocalWriteErrors.handler) {
             speechRepo.deleteService(serviceId)
         }
     }
 
     fun reorderProfiles(ids: List<String>) {
-        viewModelScope.launch { profileRepo.reorderProfiles(ids) }
+        viewModelScope.launch(LocalWriteErrors.handler) { profileRepo.reorderProfiles(ids) }
     }
 
     fun reorderProviders(ids: List<String>) {
-        viewModelScope.launch { llmRepo.reorderProviders(ids) }
+        viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.reorderProviders(ids) }
     }
 
     fun reorderMcpServers(ids: List<String>) {
-        viewModelScope.launch { mcpRepo.reorderServers(ids) }
+        viewModelScope.launch(LocalWriteErrors.handler) { mcpRepo.reorderServers(ids) }
     }
 
     fun reorderSpeechServices(ids: List<String>) {
-        viewModelScope.launch { speechRepo.reorderServices(ids) }
+        viewModelScope.launch(LocalWriteErrors.handler) { speechRepo.reorderServices(ids) }
     }
 
     fun setShowProfilesAsGrid(isGrid: Boolean) {
-        viewModelScope.launch { prefsRepo.setShowProfilesAsGrid(isGrid) }
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setShowProfilesAsGrid(isGrid) }
     }
 
     fun setShowProvidersAsGrid(isGrid: Boolean) {
-        viewModelScope.launch { prefsRepo.setShowProvidersAsGrid(isGrid) }
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setShowProvidersAsGrid(isGrid) }
     }
 
     fun setShowMcpAsGrid(isGrid: Boolean) {
-        viewModelScope.launch { prefsRepo.setShowMcpAsGrid(isGrid) }
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setShowMcpAsGrid(isGrid) }
     }
 
     fun setShowSpeechAsGrid(isGrid: Boolean) {
-        viewModelScope.launch { prefsRepo.setShowSpeechAsGrid(isGrid) }
+        viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setShowSpeechAsGrid(isGrid) }
     }
 }

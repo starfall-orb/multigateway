@@ -23,8 +23,10 @@ internal fun OAuthAccountCard(
     signingOut: Boolean,
     canSignIn: Boolean,
     canSignOut: Boolean,
+    canCancelSignIn: Boolean,
     error: String?,
     onSignIn: () -> Unit,
+    onCancelSignIn: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -109,6 +111,11 @@ internal fun OAuthAccountCard(
                     Icon(Icons.Outlined.OpenInBrowser, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.oauth_sign_in))
+                }
+            }
+            if (signingIn) {
+                OutlinedButton(onClick = onCancelSignIn, enabled = canCancelSignIn, modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.common_cancel))
                 }
             }
             error?.let {

@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.chat
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+import org.starfall.multigateway.ui.components.bottomSheetListScrollBoundary
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -6,7 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
@@ -29,14 +32,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,6 +77,42 @@ sealed interface ModelPickerItem {
         val isSelected: Boolean,
         val depth: Int
     ) : ModelPickerItem
+}
+
+private val ModelPickerItem.folderId: String?
+    get() = when (this) {
+        is ModelPickerItem.Group -> group.id
+        is ModelPickerItem.Provider -> provider.groupId.takeIf { depth == 1 }
+        is ModelPickerItem.Model -> provider.groupId.takeIf { depth == 2 }
+    }
+
+// Each lazy row draws its part of one continuous folder outline, including the
+// spacing between rows. Keeping rows lazy preserves scrolling to selected models.
+private fun Modifier.folderOutline(first: Boolean, last: Boolean, color: Color): Modifier = drawBehind {
+    val stroke = 1.dp.toPx()
+    val left = stroke / 2
+    val right = size.width - stroke / 2
+    val top = if (first) stroke / 2 else -4.dp.toPx()
+    val bottom = if (last) size.height - stroke / 2 else size.height + 4.dp.toPx()
+    val radius = 18.dp.toPx().coerceAtMost((bottom - top) / 2)
+    val path = Path().apply {
+        moveTo(left, top + if (first) radius else 0f)
+        lineTo(left, bottom - if (last) radius else 0f)
+        if (last) {
+            quadraticBezierTo(left, bottom, left + radius, bottom)
+            lineTo(right - radius, bottom)
+            quadraticBezierTo(right, bottom, right, bottom - radius)
+        } else {
+            moveTo(right, bottom)
+        }
+        lineTo(right, top + if (first) radius else 0f)
+        if (first) {
+            quadraticBezierTo(right, top, right - radius, top)
+            lineTo(left + radius, top)
+            quadraticBezierTo(left, top, left, top + radius)
+        }
+    }
+    drawPath(path, color, style = Stroke(stroke))
 }
 
 fun matchesModel(selectedModelId: String, itemModelId: String, itemDisplayName: String): Boolean {
@@ -246,17 +288,7 @@ fun ModelPickerSheet(
     val listState = remember(targetIndex) {
         LazyListState(firstVisibleItemIndex = targetIndex)
     }
-    val listScrollBoundary = remember {
-        object : NestedScrollConnection {
-            // Downward overscroll belongs to the list, not the sheet. In
-            // particular, a fling reaching item zero must not dismiss it.
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-                Offset(0f, available.y.coerceAtLeast(0f))
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-                Velocity(0f, available.y.coerceAtLeast(0f))
-        }
-    }
+    val listScrollBoundary = remember { bottomSheetListScrollBoundary() }
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) listState.scrollToItem(0)
@@ -302,7 +334,7 @@ fun ModelPickerSheet(
                         )
                     )
                 }
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
                     leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
@@ -337,67 +369,79 @@ fun ModelPickerSheet(
                         }
                     }
                 } else {
-                    items(
+                    itemsIndexed(
                         flatItems,
-                        key = { item ->
+                        key = { _, item ->
+                                when (item) {
+                                    is ModelPickerItem.Group -> "group_${item.group.id}"
+                                    is ModelPickerItem.Provider -> "provider_${item.provider.id}"
+                                    is ModelPickerItem.Model -> "model_${item.provider.id}_${item.modelId}"
+                                }
+                            }
+                        ) { index, item ->
+                            val folderId = item.folderId
+                            val first = folderId != null && flatItems.getOrNull(index - 1)?.folderId != folderId
+                            val last = folderId != null && flatItems.getOrNull(index + 1)?.folderId != folderId
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .testTag("model-picker-frame_$index")
+                                    .then(if (folderId != null) Modifier.folderOutline(
+                                        first, last, MaterialTheme.colorScheme.outline
+                                    ) else Modifier)
+                                    .padding(
+                                        start = 6.dp, end = 6.dp,
+                                        top = if (first) 6.dp else 0.dp,
+                                        bottom = if (last) 6.dp else 0.dp
+                                    )
+                            ) {
                             when (item) {
-                                is ModelPickerItem.Group -> "group_${item.group.id}"
-                                is ModelPickerItem.Provider -> "provider_${item.provider.id}"
-                                is ModelPickerItem.Model -> "model_${item.provider.id}_${item.modelId}"
-                            }
-                        }
-                    ) { item ->
-                        when (item) {
-                            is ModelPickerItem.Group -> {
-                                val collapsed = item.group.id in collapsedGroupIds &&
-                                    !forceExpanded
-                                ModelPickerGroupRow(
-                                    group = item.group,
-                                    providerCount = item.providerCount,
-                                    collapsed = collapsed,
-                                    onToggle = {
-                                        expandSearchResults = false
-                                        setCollapsedGroups(
-                                            if (collapsed) collapsedGroupIds - item.group.id
-                                            else collapsedGroupIds + item.group.id
-                                        )
-                                    }
-                                )
-                            }
-
-                            is ModelPickerItem.Provider -> {
-                                val collapsed = item.provider.id in collapsedProviderIds &&
-                                    !forceExpanded
-                                ModelPickerProviderRow(
-                                    provider = item.provider,
-                                    modelCount = item.modelCount,
-                                    depth = item.depth,
-                                    collapsed = collapsed,
-                                    selected = item.provider.id == selectedProviderId,
-                                    onToggle = {
-                                        expandSearchResults = false
-                                        setCollapsedProviders(
-                                            if (collapsed) collapsedProviderIds - item.provider.id
-                                            else collapsedProviderIds + item.provider.id
-                                        )
-                                    }
-                                )
-                            }
-
-                            is ModelPickerItem.Model -> {
-                                Box(Modifier.padding(start = (item.depth * 18).dp)) {
-                                    ModelPickerCard(
-                                        modelId = item.modelId,
-                                        config = item.config,
-                                        isSelected = item.isSelected,
-                                        conversationReasoningEffort = conversationReasoningEffort,
-                                        onSetReasoningEffort = onSetReasoningEffort,
-                                        showReasoningEffort = showReasoningEffort,
-                                        onClick = {
-                                            onSelectModel(item.provider.id, item.modelId)
-                                            onDismiss()
+                                is ModelPickerItem.Group -> {
+                                    val collapsed = item.group.id in collapsedGroupIds &&
+                                        !forceExpanded
+                                    ModelPickerGroupRow(
+                                        group = item.group,
+                                        collapsed = collapsed,
+                                        onToggle = {
+                                            expandSearchResults = false
+                                            setCollapsedGroups(
+                                                if (collapsed) collapsedGroupIds - item.group.id
+                                                else collapsedGroupIds + item.group.id
+                                            )
                                         }
                                     )
+                                }
+
+                                is ModelPickerItem.Provider -> {
+                                    val collapsed = item.provider.id in collapsedProviderIds &&
+                                        !forceExpanded
+                                    ModelPickerProviderRow(
+                                        provider = item.provider,
+                                        collapsed = collapsed,
+                                        onToggle = {
+                                            expandSearchResults = false
+                                            setCollapsedProviders(
+                                                if (collapsed) collapsedProviderIds - item.provider.id
+                                                else collapsedProviderIds + item.provider.id
+                                            )
+                                        }
+                                    )
+                                }
+
+                                is ModelPickerItem.Model -> {
+                                    Box(Modifier.fillMaxWidth().testTag("model-picker-model_${item.provider.id}_${item.modelId}")) {
+                                        ModelPickerCard(
+                                            modelId = item.modelId,
+                                            config = item.config,
+                                            isSelected = item.isSelected,
+                                            conversationReasoningEffort = conversationReasoningEffort,
+                                            onSetReasoningEffort = onSetReasoningEffort,
+                                            showReasoningEffort = showReasoningEffort,
+                                            onClick = {
+                                                onSelectModel(item.provider.id, item.modelId)
+                                                onDismiss()
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -411,45 +455,40 @@ fun ModelPickerSheet(
 @Composable
 private fun ModelPickerGroupRow(
     group: ProviderGroup,
-    providerCount: Int,
     collapsed: Boolean,
     onToggle: () -> Unit
 ) {
+    val toggleDescription = stringResource(
+        if (collapsed) R.string.expand_group else R.string.collapse_group, group.name
+    )
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle)
+        modifier = Modifier.fillMaxWidth().testTag("model-picker-group_${group.id}")
+            .semantics { contentDescription = toggleDescription }
+            .clickable(onClick = onToggle)
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                if (collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                contentDescription = stringResource(if (collapsed) R.string.expand_group else R.string.collapse_group, group.name),
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(Modifier.width(4.dp))
             EntityIcon(
                 image = group.icon,
                 modifier = Modifier.size(24.dp),
-                fallback = Icons.Outlined.Folder,
+                fallback = if (collapsed) Icons.Outlined.Folder else Icons.Outlined.FolderOpen,
                 matchName = group.name
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 group.name,
                 modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
             )
-            Text(
-                providerCount.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Spacer(Modifier.width(32.dp))
         }
     }
 }
@@ -457,19 +496,16 @@ private fun ModelPickerGroupRow(
 @Composable
 private fun ModelPickerProviderRow(
     provider: LlmProviderInfo,
-    modelCount: Int,
-    depth: Int,
     collapsed: Boolean,
-    selected: Boolean,
     onToggle: () -> Unit
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
-        else MaterialTheme.colorScheme.surfaceContainerLow,
+        color = Color.Transparent,
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (depth * 18).dp)
+            .testTag("model-picker-provider_${provider.id}")
             .clickable(onClick = onToggle)
     ) {
         Row(
@@ -493,12 +529,8 @@ private fun ModelPickerProviderRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                 fontWeight = FontWeight.Medium
-            )
-            Text(
-                modelCount.toString(),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -692,7 +724,12 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.modelType != ModelType.TEXT_GENERATION) return@Row
         ModelBadge(
             label = compactContextWindow(config.contextWindowTokens),
-            icon = Icons.Outlined.Memory
+            icon = Icons.Outlined.Memory,
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         )
         if (config.supportsVision) {
             ModelBadge(

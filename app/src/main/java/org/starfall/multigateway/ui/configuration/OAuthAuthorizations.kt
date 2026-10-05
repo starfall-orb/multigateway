@@ -10,8 +10,10 @@ internal class OAuthAuthorizations(
 ) {
     private val active = mutableMapOf<String, Deferred<Result<LlmProviderInfo>>>()
 
+    private fun key(provider: LlmProviderInfo) = "${provider.id}:${provider.type}"
+
     suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo> {
-        val key = "${provider.id}:${provider.type}"
+        val key = key(provider)
         val pending = synchronized(active) {
             active[key] ?: scope.async(start = CoroutineStart.LAZY) {
                 authorizeAccount(provider)
@@ -24,4 +26,9 @@ internal class OAuthAuthorizations(
         }
         return pending.await()
     }
+    fun cancel(provider: LlmProviderInfo) {
+        val request = synchronized(active) { active[key(provider)] }
+        request?.cancel(CancellationException("OAuth authorization cancelled by user"))
+    }
+
 }

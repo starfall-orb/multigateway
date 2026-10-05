@@ -1,4 +1,7 @@
 package org.starfall.multigateway.ui.tools
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.activity.compose.BackHandler
@@ -52,7 +55,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
             }
             item { ToolSwitch("Advanced JSON", advanced) { advanced = it } }
             if (advanced) item {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = draft, onValueChange = { if (it.length <= 65536) draft = it },
                     label = { Text("Additional request body") },
                     supportingText = { Text("Nested objects and provider extensions are supported. Model and prompt come from chat.") },
@@ -91,7 +94,7 @@ private fun ImageOptionInput(field: ImageOptionField, value: JsonElement?, onCha
         else -> false
     }
     Column {
-        OutlinedTextField(
+        SelectableOutlinedTextField(
             value = text,
             onValueChange = { input ->
                 text = input

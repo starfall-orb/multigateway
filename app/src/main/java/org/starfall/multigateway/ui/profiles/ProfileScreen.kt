@@ -1,5 +1,8 @@
 package org.starfall.multigateway.ui.profiles
 
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+
 import org.starfall.multigateway.data.model.McpInfo
 import org.starfall.multigateway.data.model.McpAccess
 import org.starfall.multigateway.data.model.ToolDefinition
@@ -44,7 +47,8 @@ import org.starfall.multigateway.data.model.ChatProfile
 import org.starfall.multigateway.data.model.LlmChatConfig
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
-import org.starfall.multigateway.ui.components.MorphingCardLayout
+import org.starfall.multigateway.ui.components.AdaptiveCardLayout
+import org.starfall.multigateway.ui.components.FadeGridListContent
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
 
@@ -115,8 +119,9 @@ fun ProfileScreen(
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(if (isGridView) 2 else 1),
+            FadeGridListContent(isGrid = isGridView, modifier = Modifier.fillMaxSize()) { gridMode ->
+                LazyVerticalGrid(
+                columns = GridCells.Fixed(if (gridMode) 2 else 1),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
@@ -125,7 +130,7 @@ fun ProfileScreen(
                     val isSelected = profile.id == selectedProfileId
                     ProfileUnifiedCard(
                         profile = profile,
-                        isGrid = isGridView,
+                        isGrid = gridMode,
                         isSelected = isSelected,
                         modifier = Modifier
                             .animateItem(
@@ -137,7 +142,7 @@ fun ProfileScreen(
                             .longPressReorder(
                                 index = index,
                                 itemCount = orderedProfiles.size,
-                                columns = if (isGridView) 2 else 1,
+                                columns = if (gridMode) 2 else 1,
                                 onMove = { from, to -> orderedProfiles = orderedProfiles.moved(from, to) },
                                 onDrop = { onReorderProfiles(orderedProfiles.map { it.id }) }
                             ),
@@ -148,6 +153,7 @@ fun ProfileScreen(
                         onDelete = { deletingProfileId = profile.id }
                     )
                 }
+            }
             }
         }
     }
@@ -232,7 +238,7 @@ fun ProfileUnifiedCard(
             .fillMaxWidth()
             .clickable(onClick = onSelect)
     ) {
-        MorphingCardLayout(
+        AdaptiveCardLayout(
             isGrid = isGrid,
             modifier = Modifier
                 .fillMaxWidth()
@@ -334,7 +340,7 @@ fun AddOrEditProfileDialog(
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Profile Name") },
@@ -342,7 +348,7 @@ fun AddOrEditProfileDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = systemPrompt,
                     onValueChange = { systemPrompt = it },
                     label = { Text("System Prompt") },

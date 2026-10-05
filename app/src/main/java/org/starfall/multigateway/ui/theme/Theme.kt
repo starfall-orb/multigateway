@@ -4,6 +4,8 @@ import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
@@ -213,6 +215,13 @@ private fun ColorScheme.withAmoledSurfaces(): ColorScheme = copy(
     surfaceBright = Color(0xFF242424), surfaceVariant = Color(0xFF202020)
 )
 
+internal val LocalAmoledMode = staticCompositionLocalOf { false }
+internal val AmoledModalScrim = Color(0xFF606060)
+
+@Composable
+internal fun modalScrimColor(default: Color): Color =
+    if (LocalAmoledMode.current) AmoledModalScrim.copy(alpha = default.alpha) else default
+
 @Composable
 fun MultiGatewayTheme(
     themeMode: String = "SYSTEM",
@@ -245,10 +254,12 @@ fun MultiGatewayTheme(
         if (isAmoled) it.withAmoledSurfaces() else it
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography(),
-        shapes = Shapes(extraSmall = RoundedCornerShape(16.dp)),
-        content = content
-    )
+    CompositionLocalProvider(LocalAmoledMode provides isAmoled) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography(),
+            shapes = Shapes(extraSmall = RoundedCornerShape(16.dp)),
+            content = content
+        )
+    }
 }

@@ -31,6 +31,48 @@ class ModelConnectionTestsTest {
         assertFalse(tests.running.values.any { it })
     }
 
+
+    @Test fun testAllRunsStrictlySequentiallyAndBlocksManualTestsDuringBatch() = runBlocking {
+        val firstGate = CompletableDeferred<Unit>()
+        val firstStarted = CompletableDeferred<Unit>()
+        val calls = mutableListOf<String>()
+        var active = 0
+        var maximum = 0
+        val tests = ModelConnectionTests(CoroutineScope(coroutineContext + Dispatchers.Unconfined)) { _, id ->
+            calls += id
+            active++
+            maximum = maxOf(maximum, active)
+            try {
+                if (id == "model-0") {
+                    firstStarted.complete(Unit)
+                    firstGate.await()
+                }
+                Result.success(id)
+            } finally {
+                active--
+            }
+        }
+
+        tests.testAll(provider, listOf("model-0", "model-1", "model-2"))
+        firstStarted.await()
+        assertTrue(tests.batchRunning.value)
+        assertEquals(listOf("model-0"), calls)
+        assertEquals(1, active)
+
+        tests.test(provider, "manual")
+        assertFalse(tests.running["manual"] == true)
+        assertFalse("manual" in calls)
+
+        firstGate.complete(Unit)
+        withTimeout(1_000) {
+            while (tests.batchRunning.value) yield()
+        }
+
+        assertEquals(listOf("model-0", "model-1", "model-2"), calls)
+        assertEquals(1, maximum)
+        assertFalse(tests.running.values.any { it })
+    }
+
     @Test fun cancellationClearsRunningStateAndDoesNotBecomeAConnectionFailure() = runBlocking {
         val job = SupervisorJob()
         val tests = ModelConnectionTests(CoroutineScope(job + Dispatchers.Unconfined)) { _, _ ->

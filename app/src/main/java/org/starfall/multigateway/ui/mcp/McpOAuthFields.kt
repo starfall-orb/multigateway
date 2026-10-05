@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.mcp
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,6 +14,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.service.McpOAuthService
@@ -31,29 +34,44 @@ internal fun McpOAuthFields(url: String, clientId: String, onClientIdChange: (St
     }
     if (advanced) {
         Text(stringResource(R.string.client_id), style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(clientId, onClientIdChange, placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
+        SelectableOutlinedTextField(clientId, onClientIdChange, placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_id_help)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(clientSecret, onClientSecretChange, label = { Text(stringResource(R.string.client_secret)) },
+        SelectableOutlinedTextField(clientSecret, onClientSecretChange, label = { Text(stringResource(R.string.client_secret)) },
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_secret_help)) }, singleLine = true,
             visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.redirect_uri), style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(McpOAuthService.REDIRECT_URI, {}, readOnly = true, singleLine = true, modifier = Modifier.fillMaxWidth(),
+        SelectableOutlinedTextField(McpOAuthService.REDIRECT_URI, {}, readOnly = true, singleLine = true, modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
                 unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
     }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var authorizeJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     Text(stringResource(if (authorized) R.string.mcp_oauth_authorized else R.string.mcp_oauth_not_authorized),
         style = MaterialTheme.typography.bodySmall, color = if (authorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     Button(onClick = rememberOAuthStart {
-        scope.launch {
+        authorizeJob = scope.launch {
             busy = true; error = null
-            try { authorize().onFailure { error = it.message ?: it.toString() } } finally { busy = false }
+            try {
+                authorize().onFailure { error = it.message ?: it.toString() }
+            } catch (_: CancellationException) {
+            } finally {
+                busy = false
+                authorizeJob = null
+            }
         }
     }, enabled = !busy && url.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
         if (busy) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
         Text(stringResource(if (authorized) R.string.mcp_reauthorize_oauth else R.string.authorize_in_browser))
+    }
+    if (authorizeJob?.isActive == true) {
+        OutlinedButton(
+            onClick = { authorizeJob?.cancel(CancellationException("OAuth authorization cancelled by user")) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.common_cancel))
+        }
     }
     if (authorized) OutlinedButton(onClick = {
         scope.launch { busy = true; error = null; try { clear() } finally { busy = false } }

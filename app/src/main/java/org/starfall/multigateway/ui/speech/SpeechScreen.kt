@@ -1,4 +1,7 @@
 package org.starfall.multigateway.ui.speech
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.compose.animation.animateContentSize
@@ -50,7 +53,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
-import org.starfall.multigateway.ui.components.MorphingCardLayout
+import org.starfall.multigateway.ui.components.AdaptiveCardLayout
+import org.starfall.multigateway.ui.components.FadeGridListContent
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
 
@@ -130,8 +134,12 @@ fun SpeechScreen(
             )
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(if (isGridView) 2 else 1),
+        FadeGridListContent(
+            isGrid = isGridView,
+            modifier = Modifier.fillMaxSize()
+        ) { gridMode ->
+            LazyVerticalGrid(
+            columns = GridCells.Fixed(if (gridMode) 2 else 1),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
@@ -146,7 +154,7 @@ fun SpeechScreen(
                 }
                 SpeechServiceUnifiedCard(
                     service = service,
-                    isGrid = isGridView,
+                    isGrid = gridMode,
                     modifier = Modifier
                         .animateItem(
                             placementSpec = spring(
@@ -157,7 +165,7 @@ fun SpeechScreen(
                         .longPressReorder(
                             index = index,
                             itemCount = orderedServices.size,
-                            columns = if (isGridView) 2 else 1,
+                            columns = if (gridMode) 2 else 1,
                             onMove = { from, to -> orderedServices = orderedServices.moved(from, to) },
                             onDrop = { onReorderServices(orderedServices.map { it.id }) }
                         ),
@@ -173,6 +181,7 @@ fun SpeechScreen(
                     onDelete = { deletingServiceId = service.id }
                 )
             }
+        }
         }
     }
 
@@ -265,7 +274,7 @@ private fun SpeechServiceUnifiedCard(
             .fillMaxWidth()
             .clickable(onClick = onSelect)
     ) {
-        MorphingCardLayout(
+        AdaptiveCardLayout(
             isGrid = isGrid,
             modifier = Modifier
                 .fillMaxWidth()
@@ -444,7 +453,7 @@ private fun AddOrEditSpeechDialog(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             ) {
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     label = { Text("Service name") },
@@ -530,7 +539,7 @@ private fun AddOrEditSpeechDialog(
                     )
                 }
 
-                OutlinedTextField(
+                SelectableOutlinedTextField(
                     value = voice,
                     onValueChange = { voice = it },
                     label = {
@@ -557,7 +566,7 @@ private fun AddOrEditSpeechDialog(
 
                 if (!system) {
                     if (supportsInstructions) {
-                        OutlinedTextField(
+                        SelectableOutlinedTextField(
                             value = instructions, onValueChange = { instructions = it },
                             label = { Text("Voice instructions") },
                             supportingText = { Text("Tone, accent, emotion${if (google) " and speaking speed" else ""}.") },
@@ -565,7 +574,7 @@ private fun AddOrEditSpeechDialog(
                         )
                     }
                     if (google) {
-                        OutlinedTextField(
+                        SelectableOutlinedTextField(
                             value = languageCode, onValueChange = { languageCode = it },
                             label = { Text("Language code (optional)") },
                             placeholder = { Text("vi-VN") }, singleLine = true,
@@ -586,14 +595,14 @@ private fun AddOrEditSpeechDialog(
                             }
                         }
                     }
-                    OutlinedTextField(
+                    SelectableOutlinedTextField(
                         value = extraBodyText, onValueChange = { extraBodyText = it },
                         label = { Text("Additional API parameters (JSON)") },
                         isError = extraBody == null,
                         supportingText = { Text(if (extraBody == null) "Enter a valid JSON object." else "Provider-specific parameters; model, text and voice use the fields above.") },
                         modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5
                     )
-                    OutlinedTextField(
+                    SelectableOutlinedTextField(
                         value = apiKey, onValueChange = { apiKey = it },
                         label = { Text("API key override (optional)") },
                         supportingText = { Text("Leave empty to use the provider's authentication.") },

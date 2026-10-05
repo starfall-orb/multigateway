@@ -26,7 +26,7 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.McpInfo
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
-import org.starfall.multigateway.ui.components.MorphingCardLayout
+import org.starfall.multigateway.ui.components.AdaptiveCardLayout
 
 @Composable
 fun McpUnifiedCard(server: McpInfo, isGrid: Boolean, modifier: Modifier = Modifier, toolCount: Int?, toolError: String?,
@@ -35,7 +35,7 @@ fun McpUnifiedCard(server: McpInfo, isGrid: Boolean, modifier: Modifier = Modifi
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow), label = "mcpShapeCorner")
     Surface(shape = RoundedCornerShape(corner), color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant), modifier = modifier.fillMaxWidth().clickable(onClick = onEdit)) {
-        MorphingCardLayout(isGrid = isGrid, modifier = Modifier.fillMaxWidth().padding(14.dp),
+        AdaptiveCardLayout(isGrid = isGrid, modifier = Modifier.fillMaxWidth().padding(14.dp),
             icon = { EntityIcon(server.icon, Modifier.size(42.dp), fallback = Icons.Outlined.Extension, matchName = server.name) },
             actions = { ItemOverflowMenu(onEdit = onEdit, onDelete = onDelete, deleteColor = MaterialTheme.colorScheme.error) },
             content = {

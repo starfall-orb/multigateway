@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.components
+
+import org.starfall.multigateway.ui.components.AppDialog as Dialog
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.outlined.Fullscreen
 import androidx.compose.material.icons.outlined.FullscreenExit
@@ -52,7 +54,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -388,7 +389,13 @@ private fun MediaSeekBar(value: Float, onValueChange: (Float) -> Unit, onValueCh
     Slider(value = value, onValueChange = onValueChange, onValueChangeFinished = onValueChangeFinished,
         valueRange = 0f..duration, modifier = modifier,
         colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White, inactiveTrackColor = Color.Gray),
-        thumb = { Box(Modifier.size(8.dp).background(Color.White, CircleShape)) },
+        thumb = {
+            // Material3 gives the thumb a minimum track-height slot. Center the
+            // small dot in a taller slot rather than leaving it at the top.
+            Box(Modifier.width(8.dp).height(24.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(8.dp).background(Color.White, CircleShape))
+            }
+        },
         track = { state ->
             SliderDefaults.Track(
                 sliderState = state,

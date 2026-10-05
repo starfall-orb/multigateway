@@ -14,22 +14,48 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         model: String,
         kind: ModelType,
         prompt: String,
-        imageOptions: JsonObject = obj()
+        imageOptions: JsonObject = obj(),
+        attachments: List<String> = emptyList()
     ): Flow<GenerationEvent> = flow {
         require(kind == ModelType.IMAGE_GENERATION || kind == ModelType.VIDEO_GENERATION)
         val name = if (kind == ModelType.IMAGE_GENERATION) "generate_image" else "generate_video"
-        val activity = ToolActivity(UUID.randomUUID().toString(), name,
+        var activity = ToolActivity(UUID.randomUUID().toString(), name,
             arguments = obj("prompt" to str(prompt)).toString())
         emit(GenerationEvent.Tool(activity))
         try {
-            val result = SystemMediaTools(http).generate(name, provider, model, prompt, imageOptions)
+            require(kind != ModelType.VIDEO_GENERATION || attachments.size <= 1) {
+                "Video generation accepts one reference image. Remove extra attachments."
+            }
+            require(attachments.size <= 16) { "Image generation accepts at most 16 reference images." }
+            val maxBytes = if (kind == ModelType.IMAGE_GENERATION && provider.type.isOpenAi) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES
+            val inputs = llm.importToolAttachments(attachments, http.requireFiles(), maxBytes)
+            if (inputs.isNotEmpty()) {
+                activity = activity.copy(arguments = buildJsonObject {
+                    put("prompt", prompt)
+                    if (kind == ModelType.VIDEO_GENERATION) put("input_image", inputs.single())
+                    else put("input_images", JsonArray(inputs.map(::str)))
+                }.toString())
+                emit(GenerationEvent.Tool(activity))
+            }
+            val result = SystemMediaTools(http).generate(name, provider, model, prompt, imageOptions,
+                inputImage = if (kind == ModelType.VIDEO_GENERATION) inputs.singleOrNull() else null,
+                inputImages = if (kind == ModelType.IMAGE_GENERATION) inputs else emptyList())
             val summary = summarizeToolResult(result, http.requireFiles())
             emit(GenerationEvent.Tool(activity.copy(status = "success", summary = summary.preview,
                 files = summary.files, response = summary.content.toString())))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            emit(GenerationEvent.Tool(activity.copy(status = "error", summary = e.message.orEmpty())))
+            val error = obj(
+                "isError" to JsonPrimitive(true),
+                "status" to str("error"),
+                "error" to str(e.message.orEmpty().take(500))
+            )
+            emit(GenerationEvent.Tool(activity.copy(
+                status = "error",
+                summary = e.message.orEmpty().take(500),
+                response = error.toString()
+            )))
             throw e
         }
     }
@@ -84,15 +110,11 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     tools += ToolDefinition(
                         name = name,
                         description = if (name == "generate_image") {
-                            "Generate an image from a detailed prompt. The app displays the saved image."
+                            "Generate or edit an image from a detailed prompt and optional attached/reference images. The app displays the saved image."
                         } else {
                             "Generate a video from a detailed prompt. The app displays the saved video."
                         },
-                        schema = obj(
-                            "type" to str("object"),
-                            "properties" to obj("prompt" to obj("type" to str("string"))),
-                            "required" to JsonArray(listOf(str("prompt")))
-                        )
+                        schema = mediaToolSchema(name)
                     )
                 }
             }
@@ -108,18 +130,24 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 history += obj("role" to str("system"), "content" to str(prompt))
             }
             val sendThinkingContent = provider.config.modelConfigs[model]?.sendThinkingContent == true
+            val importedAttachments = mutableMapOf<String, String>()
             messages.forEach { message ->
                 val toolSummary = message.activeVersion.toolActivity
                     .filter { it.status != "running" }
                     .joinToString("\n", prefix = "\n") {
-                        "Tool ${it.name}: ${it.status}. ${it.summary.take(2000)}"
+                        val references = it.files.filter { name -> http.requireFiles().resolve(name) != null }
+                            .joinToString(", ") { name -> "tool-file:$name" }
+                        "Tool ${it.name}: ${it.status}. ${it.summary.take(2000)}" +
+                            if (references.isEmpty()) "" else " Reusable files: $references"
                     }
+                val attachments = if (message.files.isEmpty()) JsonArray(emptyList()) else
+                    llm.toolAttachments(message, http.requireFiles(), importedAttachments)
                 val baseMessage = obj(
                     "role" to str(if (message.role == ChatRole.MODEL) "assistant" else "user"),
-                    "content" to str(message.content + toolSummary)
+                    "content" to str(message.content + toolSummary + toolAttachmentReferences(attachments))
                 )
                 var wireMessage = if (message.files.isEmpty()) baseMessage else
-                    JsonObject(baseMessage + ("_attachments" to llm.toolAttachments(message)))
+                    JsonObject(baseMessage + ("_attachments" to attachments))
                 val reasoning = message.reasoningContent?.takeIf {
                     sendThinkingContent && message.role == ChatRole.MODEL && it.isNotBlank()
                 }
@@ -228,7 +256,9 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                                 mediaProvider,
                                 cfg.modelId,
                                 args.text("prompt"),
-                                cfg.imageOptions
+                                cfg.imageOptions,
+                                mediaInputImageArgument(args),
+                                mediaInputImagesArgument(args)
                             )
                         }
 
@@ -266,7 +296,11 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         send(GenerationEvent.Tool(activity.copy(status = "cancelled", summary = "Stopped")))
                         throw e
                     } catch (e: Exception) {
-                        result = obj("error" to str(e.message.orEmpty().take(500)))
+                        result = obj(
+                            "isError" to JsonPrimitive(true),
+                            "status" to str("error"),
+                            "error" to str(e.message.orEmpty().take(500))
+                        )
                         send(
                             GenerationEvent.Tool(
                                 activity.copy(

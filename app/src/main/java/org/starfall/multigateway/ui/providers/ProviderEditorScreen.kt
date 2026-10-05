@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -24,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
@@ -42,6 +44,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 fun ProviderEditScreen(
     initialProvider: LlmProviderInfo, isNew: Boolean,
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
+    onCancelProviderAuthorization: ((LlmProviderInfo) -> Unit)? = null,
     onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
     onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)? = null,
@@ -66,6 +69,7 @@ fun ProviderEditScreen(
     var oauthAuthorizing by remember { mutableStateOf(false) }
     var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
+    var activeOAuthRequest by remember { mutableStateOf<LlmProviderInfo?>(null) }
     fun authorization() = if (authMethod == AuthMethod.OAUTH) Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = if (oauthAuthorized) oauthMarker else "")
         else Authorization(authMethod, if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) authName.trim() else null,
             if (authMethod == AuthMethod.BEARER_TOKEN) bearerHeaderValue(authName.ifBlank { "Authorization" }, apiKey) else apiKey.trim())
@@ -137,7 +141,7 @@ fun ProviderEditScreen(
                         if (page == 0) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             IconPickerRow(providerIcon, { providerIcon = it }, text = providerInitials(name), onBusyChange = { iconImporting = it }, matchName = name)
                             ExposedDropdownMenuBox(typeExpanded, { typeExpanded = !typeExpanded }, modifier = Modifier.fillMaxWidth()) {
-                                OutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
+                                SelectableOutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                                 ExposedDropdownMenu(typeExpanded, { typeExpanded = false }) {
                                     ProviderType.entries.forEach { next -> RoundedDropdownMenuItem(text = { Text(next.displayName) }, onClick = {
@@ -152,11 +156,11 @@ fun ProviderEditScreen(
                                     }) }
                                 }
                             }
-                            OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            SelectableOutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                             ProviderBaseUrlField(type, baseUrl, urlValid) { baseUrl = it }
                             if (baseUrl.trim().startsWith("http://", true)) Text(stringResource(R.string.http_unencrypted_provider_warning),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) OutlinedTextField(authName, { authName = it },
+                            if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) SelectableOutlinedTextField(authName, { authName = it },
                                 label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
                                 isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
                             if (!type.isAccountProvider || authMethod != AuthMethod.OAUTH) ProviderAuthField(authMethod, apiKey, !type.isAccountProvider,
@@ -164,16 +168,25 @@ fun ProviderEditScreen(
                                 onValueChange = { apiKey = it }, onFocusLost = { if (authMethod == AuthMethod.BEARER_TOKEN) apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey) })
                             if (authMethod == AuthMethod.OAUTH) OAuthAccountCard(signedIn = oauthAuthorized, identity = oauthIdentity,
                                 signingIn = oauthAuthorizing && !oauthClearing, signingOut = oauthClearing, canSignIn = onAuthorizeProvider != null,
-                                canSignOut = onClearOAuthCredentials != null, error = oauthAuthError,
+                                canSignOut = onClearOAuthCredentials != null, canCancelSignIn = onCancelProviderAuthorization != null, error = oauthAuthError,
                                 onSignIn = rememberOAuthStart { scope.launch {
                                     oauthAuthorizing = true; oauthAuthError = null
                                     val request = draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }, auth = Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = oauthMarker))
-                                    val result = onAuthorizeProvider?.invoke(request) ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
-                                    result.onSuccess { authorized -> providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key;
-                                        oauthMarker = authorized.auth.value.orEmpty(); baseUrl = authorized.baseUrl
-                                    }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
-                                    oauthAuthorizing = false
-                                } }, onSignOut = { scope.launch {
+                                    activeOAuthRequest = request
+                                    try {
+                                        val result = onAuthorizeProvider?.invoke(request)
+                                            ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
+                                        result.onSuccess { authorized -> providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key;
+                                            oauthMarker = authorized.auth.value.orEmpty(); baseUrl = authorized.baseUrl
+                                        }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
+                                    } catch (_: CancellationException) {
+                                    } finally {
+                                        activeOAuthRequest = null
+                                        oauthAuthorizing = false
+                                    }
+                                } }, onCancelSignIn = {
+                                    activeOAuthRequest?.let { onCancelProviderAuthorization?.invoke(it) }
+                                }, onSignOut = { scope.launch {
                                     oauthAuthorizing = true; oauthClearing = true; oauthAuthError = null
                                     val result = onClearOAuthCredentials?.invoke(draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }))
                                         ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
@@ -193,8 +206,8 @@ fun ProviderEditScreen(
                             }
                             headerRows.forEachIndexed { index, row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(row.first, { headerRows[index] = it to headerRows[index].second }, label = { Text(stringResource(R.string.common_key)) }, singleLine = true, modifier = Modifier.weight(1f))
-                                OutlinedTextField(row.second, { headerRows[index] = headerRows[index].first to it }, label = { Text(stringResource(R.string.common_value)) }, singleLine = true, modifier = Modifier.weight(1f))
+                                SelectableOutlinedTextField(row.first, { headerRows[index] = it to headerRows[index].second }, label = { Text(stringResource(R.string.common_key)) }, singleLine = true, modifier = Modifier.weight(1f))
+                                SelectableOutlinedTextField(row.second, { headerRows[index] = headerRows[index].first to it }, label = { Text(stringResource(R.string.common_value)) }, singleLine = true, modifier = Modifier.weight(1f))
                                 IconButton(onClick = { headerRows.removeAt(index) }) { Icon(Icons.Outlined.Delete, stringResource(R.string.delete_header)) }
                             } }
                             if (!headersValid) Text("Header names and values must be valid and header names must be unique.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)

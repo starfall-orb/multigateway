@@ -179,6 +179,17 @@ class EntityIconTest {
         assertNull(LobeIconSource.match("claud", files))
     }
 
+    @Test fun officialLobeModelMappingsResolveBrandBeforeAssetLookup() {
+        assertEquals("deepseek", LobeModelIconResolver.resolve("DeepSeek-v4-Flash"))
+        assertEquals("perplexity", LobeModelIconResolver.resolve("sonar-pro"))
+        assertEquals("qwen", LobeModelIconResolver.resolve("vendor/Qwen3.8-Max"))
+        assertEquals("openai", LobeModelIconResolver.resolve("gpt-5.4"))
+
+        val files = setOf("deepseek.png", "deepseek-color.png", "perplexity-color.png")
+        val deepSeekBrand = requireNotNull(LobeModelIconResolver.resolve("DeepSeek-v4-Flash"))
+        assertEquals("deepseek-color.png", LobeIconSource.match(deepSeekBrand, files))
+    }
+
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun privateUploadsStayOutOfSharedCacheAndSurvivePruningWhileAssigned() {
         val store = IconStore(context)

@@ -1,4 +1,7 @@
 package org.starfall.multigateway.ui.tools
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.AppDialog as Dialog
 import org.starfall.multigateway.ui.components.ChatFilePreview
 import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 import org.starfall.multigateway.R
@@ -39,7 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers

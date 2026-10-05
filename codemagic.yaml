@@ -20,9 +20,9 @@ workflows:
         script: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
-          python3 scripts/name-apks.py app/build/outputs/apk/debug
+          python3 scripts/name-apks.py app/build/outputs/apk/debug MultiGateway-debug.apk
     artifacts:
-      - app/build/outputs/apk/debug/*.apk
+      - app/build/outputs/apk/debug/MultiGateway-debug.apk
 
   android-release:
     name: MultiGateway Android Release
@@ -73,7 +73,7 @@ workflows:
           set -euo pipefail
           chmod +x gradlew
           ./gradlew :app:assembleRelease --no-daemon --stacktrace
-          python3 scripts/name-apks.py app/build/outputs/apk/release
+          python3 scripts/name-apks.py app/build/outputs/apk/release MultiGateway.apk
       - name: Publish APKs and SHA-1 checksums to GitHub Release
         ignore_failure: false
         script: |
@@ -82,5 +82,5 @@ workflows:
           export GITHUB_RELEASE_TAG
           bash scripts/publish-github-release.sh
     artifacts:
-      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/apk/release/MultiGateway.apk
       - app/build/outputs/apk/release/*.sha1

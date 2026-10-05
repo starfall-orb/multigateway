@@ -1,6 +1,10 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 
+
 package org.starfall.multigateway.ui.drawer
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 import org.starfall.multigateway.ui.components.windowHeightIn
 import org.starfall.multigateway.ui.components.windowWidth
@@ -80,7 +84,7 @@ fun ConversationsDrawer(
 
     ModalDrawerSheet(modifier = modifier.windowWidth(0.85f), drawerContainerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize()) {
-            OutlinedTextField(
+            SelectableOutlinedTextField(
                 value = search, onValueChange = { search = it }, singleLine = true,
                 placeholder = { Text("Search history...") },
                 leadingIcon = { Icon(Icons.Default.Search, "Search") },
@@ -173,7 +177,7 @@ fun ConversationsDrawer(
             LazyColumn(Modifier.windowHeightIn(maxFraction = 0.5f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(organization.folders, key = { it.id }) { folder -> TextButton(onClick = { moveToFolder(folder.id) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Outlined.Folder, null); Spacer(Modifier.width(8.dp)); Text(folder.name) } }
                 item { TextButton(onClick = { moveToFolder(null) }) { Text("Move to History") } }
-                item { OutlinedTextField(folderName, { folderName = it }, label = { Text("New folder name") }, singleLine = true) }
+                item { SelectableOutlinedTextField(folderName, { folderName = it }, label = { Text("New folder name") }, singleLine = true) }
             }
         },
         confirmButton = { TextButton(enabled = folderName.isNotBlank(), onClick = {
@@ -187,10 +191,10 @@ fun ConversationsDrawer(
         confirmButton = { TextButton(onClick = { val ids = deleting; deleting = emptySet(); if (ids.size == 1) onDeleteConversation(ids.first()) else onDeleteConversations(ids); stopSelecting() }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { deleting = emptySet() }) { Text("Cancel") } })
     if (renaming != null) AlertDialog(onDismissRequest = { renaming = null }, title = { Text("Rename chat") },
-        text = { OutlinedTextField(title, { title = it }, singleLine = true, label = { Text("Chat title") }) },
+        text = { SelectableOutlinedTextField(title, { title = it }, singleLine = true, label = { Text("Chat title") }) },
         confirmButton = { TextButton(enabled = title.isNotBlank(), onClick = { renaming?.let { onRenameConversation(it.id, title.trim()) }; renaming = null }) { Text("Save") } }, dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } })
     if (editingFolder != null) AlertDialog(onDismissRequest = { editingFolder = null }, title = { Text("Rename folder") },
-        text = { OutlinedTextField(folderName, { folderName = it }, singleLine = true) },
+        text = { SelectableOutlinedTextField(folderName, { folderName = it }, singleLine = true) },
         confirmButton = { TextButton(enabled = folderName.isNotBlank(), onClick = { val id = editingFolder!!.id; val name = folderName.trim(); onUpdateOrganization { state -> state.copy(folders = state.folders.map { if (it.id == id) it.copy(name = name) else it }) }; editingFolder = null }) { Text("Save") } }, dismissButton = { TextButton(onClick = { editingFolder = null }) { Text("Cancel") } })
     if (deletingFolder != null) AlertDialog(onDismissRequest = { deletingFolder = null }, title = { Text("Remove folder?") }, text = { Text("Its chats will return to History.") },
         confirmButton = { TextButton(onClick = { val id = deletingFolder!!.id; onUpdateOrganization { it.removeFolder(id) }; deletingFolder = null }) { Text("Remove") } }, dismissButton = { TextButton(onClick = { deletingFolder = null }) { Text("Cancel") } })

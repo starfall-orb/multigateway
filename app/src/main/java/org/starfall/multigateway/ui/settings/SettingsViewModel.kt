@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.settings
 
 import org.starfall.multigateway.data.model.SidebarOrganization
+import org.starfall.multigateway.data.repository.LocalWriteErrors
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -14,52 +15,52 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppPreferences())
 
     fun updateSidebar(transform: (SidebarOrganization) -> SidebarOrganization) {
-        viewModelScope.launch { repository.updateSidebar(transform) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.updateSidebar(transform) }
     }
 
     fun setThemeMode(value: String) {
-        viewModelScope.launch { repository.setThemeMode(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setThemeMode(value) }
     }
     fun setUseAmoled(value: Boolean) {
-        viewModelScope.launch { repository.setUseAmoled(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setUseAmoled(value) }
     }
     fun setUseDynamicColor(value: Boolean) {
-        viewModelScope.launch { repository.setUseDynamicColor(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setUseDynamicColor(value) }
     }
     fun setColorSchemeName(value: String) {
-        viewModelScope.launch { repository.setColorSchemeName(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setColorSchemeName(value) }
     }
     fun setContinueLastConversation(value: Boolean) {
-        viewModelScope.launch { repository.setContinueLastConversation(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setContinueLastConversation(value) }
     }
     fun setPersistChatSelection(value: Boolean) {
-        viewModelScope.launch { repository.setPersistChatSelection(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setPersistChatSelection(value) }
     }
     fun setAutoScroll(value: Boolean) {
-        viewModelScope.launch { repository.setAutoScroll(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setAutoScroll(value) }
     }
     fun setTtsReadCodeBlocks(value: Boolean) {
-        viewModelScope.launch { repository.setTtsReadCodeBlocks(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setTtsReadCodeBlocks(value) }
     }
     fun setProvidersCollapsedSections(value: Set<String>) {
-        viewModelScope.launch { repository.setProvidersCollapsedSections(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setProvidersCollapsedSections(value) }
     }
     fun setModelPickerCollapsedGroups(value: Set<String>) {
-        viewModelScope.launch { repository.setModelPickerCollapsedGroups(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setModelPickerCollapsedGroups(value) }
     }
     fun setModelPickerCollapsedProviders(value: Set<String>) {
-        viewModelScope.launch { repository.setModelPickerCollapsedProviders(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setModelPickerCollapsedProviders(value) }
     }
     fun setEnableVibration(value: Boolean) {
-        viewModelScope.launch { repository.setEnableVibration(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setEnableVibration(value) }
     }
     fun setHideStatusBar(value: Boolean) {
-        viewModelScope.launch { repository.setHideStatusBar(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setHideStatusBar(value) }
     }
     fun setDebugMode(value: Boolean) {
-        viewModelScope.launch { repository.setDebugMode(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setDebugMode(value) }
     }
     fun setLatexMode(value: String) {
-        viewModelScope.launch { repository.setLatexMode(value) }
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setLatexMode(value) }
     }
 }

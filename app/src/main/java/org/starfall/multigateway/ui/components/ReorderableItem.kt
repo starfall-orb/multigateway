@@ -76,7 +76,6 @@ fun Modifier.longPressReorder(
             var activeIndex = currentIndexState.value
             var accumulatedX = 0f
             var accumulatedY = 0f
-            val threshold = 72.dp.toPx()
 
             detectDragGesturesAfterLongPress(
                 onDragStart = {
@@ -113,11 +112,13 @@ fun Modifier.longPressReorder(
 
                     val cols = columnsState.value
                     val count = itemCountState.value
-                    val horizontal = abs(accumulatedX) > abs(accumulatedY)
+                    val horizontal = cols > 1 && abs(accumulatedX) > abs(accumulatedY)
+                    val horizontalThreshold = (currentItemSize.width / 2f).coerceAtLeast(1f)
+                    val verticalThreshold = (currentItemSize.height / 2f).coerceAtLeast(1f)
                     val delta = when {
-                        horizontal && abs(accumulatedX) >= threshold ->
+                        horizontal && abs(accumulatedX) >= horizontalThreshold ->
                             if (accumulatedX > 0) 1 else -1
-                        !horizontal && abs(accumulatedY) >= threshold ->
+                        !horizontal && abs(accumulatedY) >= verticalThreshold ->
                             if (accumulatedY > 0) cols else -cols
                         else -> 0
                     }

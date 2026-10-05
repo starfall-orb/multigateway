@@ -108,6 +108,10 @@
     <string name="test_connection_lower">Kiểm tra kết nối</string>
     <string name="test_model">Kiểm tra %1$s</string>
     <string name="delete_model">Xóa %1$s</string>
+    <string name="restore_model">Khôi phục %1$s</string>
+    <string name="restore_removed_models">Khôi phục các model đã đánh dấu xóa</string>
+    <string name="remove_unavailable_models">Xóa các model lỗi</string>
+    <string name="model_removed_on_dialog_close">Sẽ bị xóa khi đóng hộp thoại này</string>
     <string name="connection_failed">Kết nối thất bại</string>
     <string name="connection_testing_unavailable">Không thể kiểm tra kết nối.</string>
     <string name="refresh_models">Làm mới model</string>

@@ -79,8 +79,8 @@ internal fun mergeImageOptions(defaults: JsonObject, options: JsonObject): JsonO
 
 fun validateImageOptions(type: ProviderType, model: String, options: JsonObject) {
     require(options.toString().length <= 65536) { "Image options must be under 64 KB" }
-    require(listOf("model", "prompt", "contents", "instances").none { it in options }) {
-        "Model and prompt are supplied by the selected model and chat."
+    require(listOf("model", "prompt", "contents", "instances", "image", "images", "input_images", "input_image", "mask").none { it in options }) {
+        "Model, prompt, and input files are supplied by the selected model and chat attachments."
     }
     listOf("parameters", "generationConfig").forEach { key ->
         require(options[key] == null || options[key] is JsonObject) { "$key must be a JSON object" }

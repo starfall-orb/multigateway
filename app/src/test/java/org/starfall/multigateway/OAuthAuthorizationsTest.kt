@@ -33,6 +33,28 @@ class OAuthAuthorizationsTest {
         } finally { owner.cancel() }
     }
 
+    @Test fun explicitCancelStopsTheViewModelOwnedAuthorization() = runBlocking {
+        val owner = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val started = CompletableDeferred<Unit>()
+        var cancelled = false
+        val coordinator = OAuthAuthorizations(owner) {
+            started.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                cancelled = true
+            }
+        }
+        try {
+            val waiter = async { coordinator.authorize(provider) }
+            started.await()
+            coordinator.cancel(provider)
+            waiter.join()
+            assertTrue(waiter.isCancelled)
+            assertTrue(cancelled)
+        } finally { owner.cancel() }
+    }
+
     @Test fun completedOrFailedAuthorizationDoesNotBlockAnExplicitNewAttempt() = runBlocking {
         val owner = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var attempts = 0

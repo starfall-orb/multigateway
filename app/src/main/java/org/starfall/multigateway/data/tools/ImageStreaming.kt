@@ -7,12 +7,16 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody
 import org.starfall.multigateway.data.model.LlmProviderInfo
 
 /** SSE data is spooled to disk; a single image event can contain hundreds of MB of base64. */
 internal suspend fun ToolHttp.postMedia(url: String, body: JsonObject, provider: LlmProviderInfo): JsonObject =
+    postMedia(url, body.toString().toRequestBody("application/json".toMediaType()), provider)
+
+internal suspend fun ToolHttp.postMedia(url: String, body: RequestBody, provider: LlmProviderInfo): JsonObject =
     withContext(Dispatchers.IO) {
-        val call = client.newCall(request(url, provider).post(body.toString().toRequestBody("application/json".toMediaType())).build())
+        val call = client.newCall(request(url, provider).post(body).build())
         execute(call).use { response ->
             val closeOnCancel = launch(start = CoroutineStart.UNDISPATCHED) {
                 try { awaitCancellation() } finally { call.cancel() }

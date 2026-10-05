@@ -1,5 +1,8 @@
 package org.starfall.multigateway.ui.chat
 
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -63,16 +66,16 @@ fun ModelConfigDialog(
                 }
                 HorizontalDivider()
                 Text("Leave blank to use API defaults. These settings apply only to this model on this provider.")
-                OutlinedTextField(temperature, { temperature = it }, label = { Text("Temperature (0–$tempMax)") },
+                SelectableOutlinedTextField(temperature, { temperature = it }, label = { Text("Temperature (0–$tempMax)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     supportingText = { if (!tempValid) Text("Enter a number from 0 to $tempMax, or leave blank.") },
                     isError = !tempValid, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(topP, { topP = it }, label = { Text("Top-p (0–1)") },
+                SelectableOutlinedTextField(topP, { topP = it }, label = { Text("Top-p (0–1)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     supportingText = { if (!topPValid) Text("Enter a number from 0 to 1, or leave blank.") },
                     isError = !topPValid, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (supportsTopK) {
-                    OutlinedTextField(topK, { topK = it }, label = { Text("Top-k (positive integer)") },
+                    SelectableOutlinedTextField(topK, { topK = it }, label = { Text("Top-k (positive integer)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         supportingText = { if (!topKValid) Text("Enter a positive whole number, or leave blank.") },
                         isError = !topKValid, singleLine = true, modifier = Modifier.fillMaxWidth())

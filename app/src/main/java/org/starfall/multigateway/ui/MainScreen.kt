@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui
+
+import org.starfall.multigateway.ui.theme.modalScrimColor
 import org.starfall.multigateway.ui.components.ChatAttachmentSelection
 import org.starfall.multigateway.ui.components.LocalChatAttachmentSelection
 
@@ -81,6 +83,11 @@ fun MainScreen(
     val importedProviderId by configurationViewModel.importedProviderId.collectAsStateWithLifecycle()
     val providerImportError by configurationViewModel.providerImportError.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    LaunchedEffect(Unit) {
+        org.starfall.multigateway.data.repository.LocalWriteErrors.errors.collect {
+            Toast.makeText(context, "Could not save the change. Please try again.", Toast.LENGTH_LONG).show()
+        }
+    }
     LaunchedEffect(importedProviderId) {
         importedProviderId?.let { id ->
             drawerState.close()
@@ -105,6 +112,7 @@ fun MainScreen(
     )) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            scrimColor = modalScrimColor(DrawerDefaults.scrimColor),
             drawerContent = {
                 ConversationsDrawer(
                     conversations = conversations,
@@ -248,6 +256,7 @@ fun MainScreen(
                                     onSaveModels = configurationViewModel::saveProviderModels,
                                     onReorderModels = configurationViewModel::reorderProviderModels,
                                     onAuthorizeProvider = configurationViewModel::authorizeProvider,
+                                    onCancelProviderAuthorization = configurationViewModel::cancelProviderAuthorization,
                                     onClearOAuthCredentials = configurationViewModel::clearOAuthCredentials,
                                     onTestConnection = configurationViewModel::testConnection,
                                     onFetchModels = configurationViewModel::fetchProviderModels
@@ -281,6 +290,7 @@ fun MainScreen(
                             onReorderProviders = configurationViewModel::reorderProviders,
                             onReorderRootItems = configurationViewModel::reorderProviderRootItems,
                             onAuthorizeProvider = { provider -> configurationViewModel.authorizeProvider(provider) },
+                            onCancelProviderAuthorization = configurationViewModel::cancelProviderAuthorization,
                             onClearOAuthCredentials = { provider -> configurationViewModel.clearOAuthCredentials(provider) },
                             onTestConnection = { prov, modelId -> configurationViewModel.testConnection(prov, modelId) },
                             onFetchModels = { provider -> configurationViewModel.fetchProviderModels(provider) },

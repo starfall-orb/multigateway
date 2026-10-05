@@ -1,4 +1,6 @@
 package org.starfall.multigateway.ui.settings
+
+import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 import org.starfall.multigateway.data.service.GitHubReleaseInfo
 import org.starfall.multigateway.data.service.fetchLatestGitHubRelease
 import org.starfall.multigateway.ui.components.windowHeightIn

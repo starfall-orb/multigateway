@@ -108,6 +108,10 @@
     <string name="test_connection_lower">Test connection</string>
     <string name="test_model">Test %1$s</string>
     <string name="delete_model">Delete %1$s</string>
+    <string name="restore_model">Restore %1$s</string>
+    <string name="restore_removed_models">Restore models marked for removal</string>
+    <string name="remove_unavailable_models">Remove unavailable models</string>
+    <string name="model_removed_on_dialog_close">Will be removed when this dialog closes</string>
     <string name="connection_failed">Connection failed</string>
     <string name="connection_testing_unavailable">Connection testing is unavailable.</string>
     <string name="refresh_models">Refresh models</string>

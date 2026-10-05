@@ -1,4 +1,5 @@
 package org.starfall.multigateway.ui.providers
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -44,7 +46,7 @@ fun AuthMethod.displayName(): String = when (this) {
 @Composable
 internal fun ProviderBaseUrlField(type: ProviderType, value: String, valid: Boolean, onChange: (String) -> Unit) {
     val defaultUrl = if (type == ProviderType.OPENAI) "https://api.openai.com/v1" else type.defaultBaseUrl
-    OutlinedTextField(
+    SelectableOutlinedTextField(
         value = value, onValueChange = onChange,
         label = { Text(stringResource(R.string.provider_base_url)) },
         isError = !valid,
@@ -70,7 +72,7 @@ internal fun ProviderAuthField(
     var expanded by remember { mutableStateOf(false) }
     var revealed by remember(method) { mutableStateOf(false) }
     val hasKey = method !in listOf(AuthMethod.OAUTH, AuthMethod.NONE, AuthMethod.OTHER)
-    OutlinedTextField(
+    SelectableOutlinedTextField(
         value = if (hasKey) value else "", onValueChange = onValueChange,
         label = {
             Text(
@@ -103,7 +105,10 @@ internal fun ProviderAuthField(
             }
         }) else null,
         visualTransformation = if (revealed || !hasKey) VisualTransformation.None else PasswordVisualTransformation(),
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { if (!it.isFocused) onFocusLost() }
+        maxLines = 3,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("provider_api_key")
+            .onFocusChanged { if (!it.isFocused) onFocusLost() }
     )
 }

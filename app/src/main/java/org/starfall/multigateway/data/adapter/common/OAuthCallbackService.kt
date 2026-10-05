@@ -30,14 +30,14 @@ class OAuthCallbackService : Service() {
         val returnToApp = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        startForeground(4557, NotificationCompat.Builder(this, CHANNEL_ID)
+        startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentTitle("Account sign-in in progress")
             .setContentText("Complete sign-in in your browser, then return to MultiGateway.")
             .setContentIntent(returnToApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build())
         if (wakeLock?.isHeld != true) {
@@ -56,6 +56,12 @@ class OAuthCallbackService : Service() {
         handler.removeCallbacks(expire)
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+
+        // OAuth is no longer active, so do not leave the foreground-service
+        // notification behind as a stale ongoing notification.
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+
         sessions.set(0)
         super.onDestroy()
     }
@@ -65,6 +71,7 @@ class OAuthCallbackService : Service() {
     companion object {
         // Android retains a channel's original importance; migrate the previous low-priority channel.
         internal const val CHANNEL_ID = "account_oauth_active_v2"
+        private const val NOTIFICATION_ID = 4557
         private const val SESSION_TIMEOUT_MS = 16 * 60_000L
         private val sessions = AtomicInteger(0)
 

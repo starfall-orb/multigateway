@@ -1,6 +1,8 @@
 package org.starfall.multigateway.data.repository
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -11,29 +13,53 @@ import org.starfall.multigateway.data.model.*
 class ConversationRepository(private val db: AppDatabase) {
     private val dao = db.conversationDao()
 
-    val allConversations: Flow<List<Conversation>> = dao.getAllConversations().map { entities ->
+    private val stored: Flow<List<Conversation>> = dao.getAllConversations().map { entities ->
         entities.map { entityToModel(it) }
     }
 
+    private val state = ImmediateState(stored)
+    val allConversations: Flow<List<Conversation>> = state.flow
+
     suspend fun getById(id: String): Conversation? {
-        val entity = dao.getConversationById(id) ?: return null
-        return entityToModel(entity)
+        state.value?.let { items -> return items.firstOrNull { it.id == id } }
+        return withContext(Dispatchers.IO) { dao.getConversationById(id)?.let(::entityToModel) }
     }
 
     suspend fun saveConversation(conversation: Conversation) {
-        dao.insertOrUpdate(modelToEntity(conversation))
+        state.mutate({ it.upsert(conversation) { item -> item.id }.sortedByDescending { it.updatedAt } }) {
+            dao.insertOrUpdate(modelToEntity(conversation))
+        }
+    }
+
+    suspend fun renameConversation(id: String, title: String) {
+        val now = System.currentTimeMillis()
+        state.mutate({ items ->
+            items.map { if (it.id == id) it.copy(title = title, updatedAt = now) else it }
+                .sortedByDescending { it.updatedAt }
+        }) {
+            db.withTransaction {
+                val current = dao.getConversationById(id) ?: return@withTransaction
+                dao.insertOrUpdate(current.copy(title = title, updatedAt = now))
+            }
+        }
     }
 
     suspend fun deleteConversation(id: String) {
-        dao.deleteById(id)
+        state.mutate({ items -> items.filterNot { it.id == id } }) {
+            dao.deleteById(id)
+        }
     }
 
     suspend fun deleteConversations(ids: List<String>) {
-        db.withTransaction { ids.chunked(500).forEach { dao.deleteByIds(it) } }
+        state.mutate({ items -> items.filterNot { it.id in ids } }) {
+            db.withTransaction { ids.chunked(500).forEach { dao.deleteByIds(it) } }
+        }
     }
 
     suspend fun deleteAll() {
-        dao.deleteAll()
+        state.mutate({ emptyList() }) {
+            dao.deleteAll()
+        }
     }
 
     private fun entityToModel(entity: ConversationEntity): Conversation {

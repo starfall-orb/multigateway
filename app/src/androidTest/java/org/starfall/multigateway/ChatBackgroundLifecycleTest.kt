@@ -54,7 +54,8 @@ class ChatBackgroundLifecycleTest {
                     busy = state
                     state.value = true
                 }
-                scenario.moveToState(Lifecycle.State.CREATED)
+                shell("input keyevent 4")
+                waitFor { scenario.state == Lifecycle.State.CREATED }
                 waitFor { hasGenerationNotification() }
                 busy!!.value = false
                 waitFor { !hasGenerationNotification() }

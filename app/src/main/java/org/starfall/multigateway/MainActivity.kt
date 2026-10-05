@@ -15,6 +15,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.luminance
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.addCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
@@ -49,6 +50,19 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             viewModel.isGenerating.collect { busy ->
                 updateGenerationService(busy)
+            }
+        }
+
+        // Register before Compose so dialogs, drawers and navigation handle Back
+        // first. At the root, retain the generation's ViewModel instead of finishing
+        // the activity (Android versions before 12 finish root activities on Back).
+        onBackPressedDispatcher.addCallback(this) {
+            if (viewModel.isGenerating.value) {
+                moveTaskToBack(true)
+            } else {
+                isEnabled = false
+                try { onBackPressedDispatcher.onBackPressed() }
+                finally { isEnabled = true }
             }
         }
 

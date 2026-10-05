@@ -27,7 +27,9 @@ class ChatBackgroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
-        return START_STICKY
+        // Generation belongs to the current process. Restarting an empty service
+        // after process death would show "AI is thinking" with no live generation.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -50,6 +52,8 @@ class ChatBackgroundService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setContentIntent(pendingIntent)
             .build()
     }

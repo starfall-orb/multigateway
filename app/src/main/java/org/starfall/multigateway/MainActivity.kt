@@ -1,6 +1,10 @@
 package org.starfall.multigateway
 
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.util.Log
 import android.net.Uri
 import android.widget.Toast
 import android.os.Bundle
@@ -11,6 +15,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.luminance
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: ChatViewModel by viewModels { container.viewModelFactory }
     private val configurationViewModel: ConfigurationViewModel by viewModels { container.viewModelFactory }
     private val settingsViewModel: SettingsViewModel by viewModels { container.viewModelFactory }
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,12 +48,7 @@ class MainActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             viewModel.isGenerating.collect { busy ->
-                val serviceIntent = Intent(this@MainActivity, ChatBackgroundService::class.java)
-                if (busy) {
-                    androidx.core.content.ContextCompat.startForegroundService(this@MainActivity, serviceIntent)
-                } else {
-                    stopService(serviceIntent)
-                }
+                updateGenerationService(busy)
             }
         }
 
@@ -76,6 +78,47 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        requestBackgroundNotificationPermission()
+    }
+
+    override fun onPause() {
+        // Flush the current generation state before leaving the visible activity.
+        // This includes Home, switching apps, and turning the screen off, even if
+        // the StateFlow collector has not yet processed a newly started response.
+        updateGenerationService(viewModel.isGenerating.value)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        // Finishing clears this activity's ViewModel and cancels its generation.
+        // Rotation retains the ViewModel, so its service must stay running.
+        if (isFinishing) updateGenerationService(false)
+        super.onDestroy()
+    }
+
+    private fun updateGenerationService(busy: Boolean) {
+        val serviceIntent = Intent(this, ChatBackgroundService::class.java)
+        if (!busy) {
+            stopService(serviceIntent)
+            return
+        }
+        try {
+            ContextCompat.startForegroundService(this, serviceIntent)
+        } catch (e: IllegalStateException) {
+            Log.w("ChatBackgroundService", "System refused foreground service start", e)
+        } catch (e: SecurityException) {
+            Log.w("ChatBackgroundService", "Foreground service permission unavailable", e)
+        }
+    }
+
+    private fun requestBackgroundNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED) return
+        val permissionPrefs = getSharedPreferences("notification_permission", MODE_PRIVATE)
+        if (permissionPrefs.getBoolean("background_requested", false)) return
+        permissionPrefs.edit().putBoolean("background_requested", true).apply()
+        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     override fun onNewIntent(intent: Intent) {

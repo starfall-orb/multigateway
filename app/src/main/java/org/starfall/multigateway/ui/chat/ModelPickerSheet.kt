@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
@@ -34,7 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -359,7 +363,6 @@ fun ModelPickerSheet(
                                 ModelPickerProviderRow(
                                     provider = item.provider,
                                     modelCount = item.modelCount,
-                                    depth = item.depth,
                                     collapsed = collapsed,
                                     selected = item.provider.id == selectedProviderId,
                                     onToggle = {
@@ -373,7 +376,7 @@ fun ModelPickerSheet(
                             }
 
                             is ModelPickerItem.Model -> {
-                                Box(Modifier.padding(start = (item.depth * 18).dp)) {
+                                Box(Modifier.fillMaxWidth().testTag("model-picker-model_${item.provider.id}_${item.modelId}")) {
                                     ModelPickerCard(
                                         modelId = item.modelId,
                                         config = item.config,
@@ -403,31 +406,31 @@ private fun ModelPickerGroupRow(
     collapsed: Boolean,
     onToggle: () -> Unit
 ) {
+    val toggleDescription = stringResource(
+        if (collapsed) R.string.expand_group else R.string.collapse_group, group.name
+    )
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggle)
+        modifier = Modifier.fillMaxWidth().testTag("model-picker-group_${group.id}")
+            .semantics { contentDescription = toggleDescription }
+            .clickable(onClick = onToggle)
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                if (collapsed) Icons.Default.KeyboardArrowRight else Icons.Default.KeyboardArrowDown,
-                contentDescription = stringResource(if (collapsed) R.string.expand_group else R.string.collapse_group, group.name),
-                modifier = Modifier.size(22.dp)
-            )
-            Spacer(Modifier.width(4.dp))
             EntityIcon(
                 image = group.icon,
                 modifier = Modifier.size(24.dp),
-                fallback = Icons.Outlined.Folder,
+                fallback = if (collapsed) Icons.Outlined.Folder else Icons.Outlined.FolderOpen,
                 matchName = group.name
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 group.name,
                 modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.titleSmall,
@@ -446,7 +449,6 @@ private fun ModelPickerGroupRow(
 private fun ModelPickerProviderRow(
     provider: LlmProviderInfo,
     modelCount: Int,
-    depth: Int,
     collapsed: Boolean,
     selected: Boolean,
     onToggle: () -> Unit
@@ -457,7 +459,7 @@ private fun ModelPickerProviderRow(
         else MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = (depth * 18).dp)
+            .testTag("model-picker-provider_${provider.id}")
             .clickable(onClick = onToggle)
     ) {
         Row(
@@ -680,7 +682,12 @@ internal fun ModelCapabilityBadges(config: ModelConfiguration) {
         if (config.modelType != ModelType.TEXT_GENERATION) return@Row
         ModelBadge(
             label = compactContextWindow(config.contextWindowTokens),
-            icon = Icons.Outlined.Memory
+            icon = Icons.Outlined.Memory,
+            colors = AssistChipDefaults.assistChipColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                leadingIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         )
         if (config.supportsVision) {
             ModelBadge(

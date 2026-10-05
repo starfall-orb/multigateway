@@ -29,7 +29,16 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            emit(GenerationEvent.Tool(activity.copy(status = "error", summary = e.message.orEmpty())))
+            val error = obj(
+                "isError" to JsonPrimitive(true),
+                "status" to str("error"),
+                "error" to str(e.message.orEmpty().take(500))
+            )
+            emit(GenerationEvent.Tool(activity.copy(
+                status = "error",
+                summary = e.message.orEmpty().take(500),
+                response = error.toString()
+            )))
             throw e
         }
     }
@@ -266,7 +275,11 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         send(GenerationEvent.Tool(activity.copy(status = "cancelled", summary = "Stopped")))
                         throw e
                     } catch (e: Exception) {
-                        result = obj("error" to str(e.message.orEmpty().take(500)))
+                        result = obj(
+                            "isError" to JsonPrimitive(true),
+                            "status" to str("error"),
+                            "error" to str(e.message.orEmpty().take(500))
+                        )
                         send(
                             GenerationEvent.Tool(
                                 activity.copy(

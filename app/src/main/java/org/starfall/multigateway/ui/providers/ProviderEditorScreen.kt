@@ -25,6 +25,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
@@ -43,6 +44,7 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 fun ProviderEditScreen(
     initialProvider: LlmProviderInfo, isNew: Boolean,
     onAuthorizeProvider: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
+    onCancelProviderAuthorization: ((LlmProviderInfo) -> Unit)? = null,
     onClearOAuthCredentials: (suspend (LlmProviderInfo) -> Result<LlmProviderInfo>)? = null,
     onTestConnection: (suspend (LlmProviderInfo, String) -> Result<String>)? = null,
     onFetchModels: (suspend (LlmProviderInfo) -> List<DiscoveredModel>)? = null,
@@ -67,6 +69,7 @@ fun ProviderEditScreen(
     var oauthAuthorizing by remember { mutableStateOf(false) }
     var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
+    var activeOAuthRequest by remember { mutableStateOf<LlmProviderInfo?>(null) }
     fun authorization() = if (authMethod == AuthMethod.OAUTH) Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = if (oauthAuthorized) oauthMarker else "")
         else Authorization(authMethod, if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) authName.trim() else null,
             if (authMethod == AuthMethod.BEARER_TOKEN) bearerHeaderValue(authName.ifBlank { "Authorization" }, apiKey) else apiKey.trim())
@@ -165,16 +168,25 @@ fun ProviderEditScreen(
                                 onValueChange = { apiKey = it }, onFocusLost = { if (authMethod == AuthMethod.BEARER_TOKEN) apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey) })
                             if (authMethod == AuthMethod.OAUTH) OAuthAccountCard(signedIn = oauthAuthorized, identity = oauthIdentity,
                                 signingIn = oauthAuthorizing && !oauthClearing, signingOut = oauthClearing, canSignIn = onAuthorizeProvider != null,
-                                canSignOut = onClearOAuthCredentials != null, error = oauthAuthError,
+                                canSignOut = onClearOAuthCredentials != null, canCancelSignIn = onCancelProviderAuthorization != null, error = oauthAuthError,
                                 onSignIn = rememberOAuthStart { scope.launch {
                                     oauthAuthorizing = true; oauthAuthError = null
                                     val request = draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }, auth = Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = oauthMarker))
-                                    val result = onAuthorizeProvider?.invoke(request) ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
-                                    result.onSuccess { authorized -> providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key;
-                                        oauthMarker = authorized.auth.value.orEmpty(); baseUrl = authorized.baseUrl
-                                    }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
-                                    oauthAuthorizing = false
-                                } }, onSignOut = { scope.launch {
+                                    activeOAuthRequest = request
+                                    try {
+                                        val result = onAuthorizeProvider?.invoke(request)
+                                            ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
+                                        result.onSuccess { authorized -> providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key;
+                                            oauthMarker = authorized.auth.value.orEmpty(); baseUrl = authorized.baseUrl
+                                        }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
+                                    } catch (_: CancellationException) {
+                                    } finally {
+                                        activeOAuthRequest = null
+                                        oauthAuthorizing = false
+                                    }
+                                } }, onCancelSignIn = {
+                                    activeOAuthRequest?.let { onCancelProviderAuthorization?.invoke(it) }
+                                }, onSignOut = { scope.launch {
                                     oauthAuthorizing = true; oauthClearing = true; oauthAuthError = null
                                     val result = onClearOAuthCredentials?.invoke(draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }))
                                         ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))

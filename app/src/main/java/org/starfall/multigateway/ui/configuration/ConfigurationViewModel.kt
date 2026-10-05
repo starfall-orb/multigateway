@@ -171,6 +171,10 @@ class ConfigurationViewModel(
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> =
         oauthAuthorizations.authorize(provider)
 
+    fun cancelProviderAuthorization(provider: LlmProviderInfo) {
+        oauthAuthorizations.cancel(provider)
+    }
+
     suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> =
         llmRepo.clearOAuthCredentials(provider)
 

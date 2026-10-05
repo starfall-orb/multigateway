@@ -141,6 +141,95 @@ class ToolChatIntegrationTest {
         }
     }
 
+
+    @Test fun failedImageToolIsReturnedToModelAsExplicitErrorResult() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val root = Files.createTempDirectory("tool-chat-error-test").toFile()
+        var rounds = 0
+        var followupBody = ""
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                return when (request.path) {
+                    "/v1/images/generations" -> MockResponse()
+                        .setResponseCode(500)
+                        .addHeader("Content-Type", "application/json")
+                        .setBody("""{"error":{"message":"image backend unavailable"}}""")
+                    "/v1/chat/completions" -> {
+                        rounds++
+                        if (rounds == 1) {
+                            MockResponse().addHeader("Content-Type", "text/event-stream").setBody(
+                                """data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call1","function":{"name":"generate_image","arguments":"{\"prompt\":\"a tree\"}"}}]}}]}
+
+data: [DONE]
+
+"""
+                            )
+                        } else {
+                            followupBody = request.body.readUtf8()
+                            MockResponse().addHeader("Content-Type", "text/event-stream").setBody(
+                                """data: {"choices":[{"delta":{"content":"The image tool failed."}}]}
+
+data: [DONE]
+
+"""
+                            )
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        try {
+            val provider = LlmProviderInfo(
+                "p", "local", ProviderType.OPENAI,
+                baseUrl = server.url("/v1").toString(),
+                config = ProviderConfiguration(
+                    modelIds = listOf("chat", "image"),
+                    modelConfigs = mapOf(
+                        "chat" to ModelConfiguration(supportsToolCalls = true),
+                        "image" to ModelConfiguration(modelType = ModelType.IMAGE_GENERATION)
+                    )
+                )
+            )
+            val files = ToolFiles(root)
+            val http = ToolHttp(files)
+            val events = ToolChat(http, McpService(http), LlmService(context)).generate(
+                provider,
+                "chat",
+                listOf(StoredMessage("u", ChatRole.USER, listOf(MessageVersion("Draw a tree")))),
+                "",
+                emptyList(),
+                listOf(provider),
+                {
+                    ToolSettings(
+                        system = mapOf(
+                            "generate_image" to SystemToolConfig(true, "p", "image")
+                        )
+                    )
+                }
+            ).toList()
+
+            assertEquals(2, rounds)
+            val followup = Json.parseToJsonElement(followupBody).jsonObject
+            val toolContent = followup["messages"]!!.jsonArray.last().jsonObject.text("content")
+            val toolError = Json.parseToJsonElement(toolContent).jsonObject
+            assertTrue(toolError["isError"]!!.jsonPrimitive.boolean)
+            assertEquals("error", toolError.text("status"))
+            assertTrue(toolError.text("error").contains("image backend unavailable") || toolError.text("error").contains("HTTP 500"))
+            assertEquals(
+                "The image tool failed.",
+                events.filterIsInstance<GenerationEvent.Text>().joinToString("") { it.text }
+            )
+            val tool = events.filterIsInstance<GenerationEvent.Tool>().last().activity
+            assertEquals("error", tool.status)
+            assertTrue(tool.response.contains("\"isError\":true"))
+        } finally {
+            server.shutdown()
+            root.deleteRecursively()
+        }
+    }
+
     @Test fun modelCallsImageToolAndResumesWithStreamedAnswerWithoutBase64InChat() = runBlocking {
         val server=MockWebServer();server.start()
         val root=Files.createTempDirectory("tool-chat-test").toFile()

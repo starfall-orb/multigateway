@@ -253,6 +253,7 @@ fun MainScreen(
                                     onSaveModels = configurationViewModel::saveProviderModels,
                                     onReorderModels = configurationViewModel::reorderProviderModels,
                                     onAuthorizeProvider = configurationViewModel::authorizeProvider,
+                                    onCancelProviderAuthorization = configurationViewModel::cancelProviderAuthorization,
                                     onClearOAuthCredentials = configurationViewModel::clearOAuthCredentials,
                                     onTestConnection = configurationViewModel::testConnection,
                                     onFetchModels = configurationViewModel::fetchProviderModels
@@ -286,6 +287,7 @@ fun MainScreen(
                             onReorderProviders = configurationViewModel::reorderProviders,
                             onReorderRootItems = configurationViewModel::reorderProviderRootItems,
                             onAuthorizeProvider = { provider -> configurationViewModel.authorizeProvider(provider) },
+                            onCancelProviderAuthorization = configurationViewModel::cancelProviderAuthorization,
                             onClearOAuthCredentials = { provider -> configurationViewModel.clearOAuthCredentials(provider) },
                             onTestConnection = { prov, modelId -> configurationViewModel.testConnection(prov, modelId) },
                             onFetchModels = { provider -> configurationViewModel.fetchProviderModels(provider) },

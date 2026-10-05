@@ -14,6 +14,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.service.McpOAuthService
@@ -44,17 +46,32 @@ internal fun McpOAuthFields(url: String, clientId: String, onClientIdChange: (St
     }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var authorizeJob by remember { mutableStateOf<Job?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     Text(stringResource(if (authorized) R.string.mcp_oauth_authorized else R.string.mcp_oauth_not_authorized),
         style = MaterialTheme.typography.bodySmall, color = if (authorized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
     Button(onClick = rememberOAuthStart {
-        scope.launch {
+        authorizeJob = scope.launch {
             busy = true; error = null
-            try { authorize().onFailure { error = it.message ?: it.toString() } } finally { busy = false }
+            try {
+                authorize().onFailure { error = it.message ?: it.toString() }
+            } catch (_: CancellationException) {
+            } finally {
+                busy = false
+                authorizeJob = null
+            }
         }
     }, enabled = !busy && url.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
         if (busy) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
         Text(stringResource(if (authorized) R.string.mcp_reauthorize_oauth else R.string.authorize_in_browser))
+    }
+    if (authorizeJob?.isActive == true) {
+        OutlinedButton(
+            onClick = { authorizeJob?.cancel(CancellationException("OAuth authorization cancelled by user")) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.common_cancel))
+        }
     }
     if (authorized) OutlinedButton(onClick = {
         scope.launch { busy = true; error = null; try { clear() } finally { busy = false } }

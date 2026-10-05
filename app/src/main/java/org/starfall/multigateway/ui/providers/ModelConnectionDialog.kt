@@ -26,14 +26,14 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
     onRemoveModels: (Set<String>) -> Unit, onDismiss: () -> Unit) {
     val textModels = (provider.config.modelIds ?: provider.config.modelConfigs.keys.toList())
         .filter { provider.config.modelConfigs[it]?.modelType == ModelType.TEXT_GENERATION }
-    val testingAny = textModels.any { tests.running[it] == true }
+    val testingAny = tests.batchRunning.value || textModels.any { tests.running[it] == true }
     val unavailable = textModels.filter { tests.results[it]?.isFailure == true && tests.running[it] != true }.toSet()
     fun remove(ids: Set<String>) { onRemoveModels(ids); tests.forget(ids) }
     AlertDialog(onDismissRequest = onDismiss,
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.test_connection), Modifier.weight(1f))
-                IconButton(onClick = { textModels.forEach { tests.test(provider, it) } },
+                IconButton(onClick = { tests.testAll(provider, textModels) },
                     enabled = textModels.isNotEmpty() && !testingAny && available) {
                     Icon(Icons.Outlined.NetworkCheck, "Test all text models")
                 }
@@ -57,7 +57,7 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
                                     if (config.displayName.isNotBlank()) Text(id, style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                IconButton(enabled = !testing && available, onClick = { tests.test(provider, id) }) {
+                                IconButton(enabled = !testingAny && available, onClick = { tests.test(provider, id) }) {
                                     if (testing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                                     else Icon(Icons.Outlined.NetworkCheck, stringResource(R.string.test_model, id))
                                 }

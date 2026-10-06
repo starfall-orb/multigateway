@@ -10,6 +10,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -92,7 +93,12 @@ internal fun PackedProviderGrid(
         regions.values.forEach { parts ->
             val outline = packedGroupPath(parts, cellRects, origin, 20.dp.toPx())
             drawPath(outline, background)
-            drawPath(outline, border, style = Stroke(1.5.dp.toPx()))
+            drawPath(outline, border, style = Stroke(
+                width = 1.5.dp.toPx(),
+                // Keep the concave transition subtle so the stroke does not bulge
+                // outside the folder's original envelope.
+                pathEffect = PathEffect.cornerPathEffect(4.dp.toPx())
+            ))
         }
     }) {
         LazyVerticalGrid(

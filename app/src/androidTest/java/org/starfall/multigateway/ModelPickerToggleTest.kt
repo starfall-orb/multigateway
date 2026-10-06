@@ -35,14 +35,17 @@ class ModelPickerToggleTest {
         compose.onNodeWithTag("model-picker-provider_p").assertIsDisplayed()
         compose.onNodeWithTag("model-picker-model_p_alpha").assertIsDisplayed()
         compose.onNodeWithTag("model-picker-model_p_beta").assertDoesNotExist()
-        compose.onNodeWithTag("reasoning-enabled").assertIsOn().performClick()
-        compose.onNodeWithTag("reasoning-slider").assertIsNotEnabled()
-        compose.runOnIdle { assertEquals("none", effort); assertTrue(config.supportsThinking) }
-        compose.onNodeWithTag("reasoning-enabled").assertIsOff().performClick()
         compose.onNodeWithTag("reasoning-slider").assertIsEnabled()
-        compose.runOnIdle { assertEquals("high", effort) }
         compose.onNodeWithTag("reasoning-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
             it(0f)
+        }
+        compose.runOnIdle { assertEquals("none", effort); assertTrue(config.supportsThinking) }
+        compose.onNodeWithTag("reasoning-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+            it(4f)
+        }
+        compose.runOnIdle { assertEquals("high", effort) }
+        compose.onNodeWithTag("reasoning-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+            it(1f)
         }
         compose.runOnIdle { assertEquals(null, effort) }
         compose.onNodeWithText("Default").assertIsDisplayed()

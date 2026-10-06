@@ -222,6 +222,7 @@ fun ProviderScreen(
     }
 
     fun beginDrag(key: String) {
+        println("ProviderScreen beginDrag: key=$key")
         dragRootSnapshot = rootItems
         dragProviderSnapshot = orderedProviders
         dragCollapsedSnapshot = collapsedSections
@@ -231,6 +232,7 @@ fun ProviderScreen(
     }
 
     fun previewMove(fromKey: String, toKey: String) {
+        println("ProviderScreen previewMove: fromKey=$fromKey toKey=$toKey")
         if (fromKey.startsWith("provider_")) {
             val target = when {
                 toKey.startsWith("provider_") -> ProviderRootOrderItem(toKey.removePrefix("provider_"), false)

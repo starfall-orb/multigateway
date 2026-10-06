@@ -184,29 +184,52 @@ class ProviderDragBehaviorTest {
         val source = bounds("provider_outside").center - root.topLeft
         fun scrollPosition() = surface.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
         val before = scrollPosition()
+        var forward = before
+        var reversed = before
         surface.performTouchInput {
             down(source)
             advanceEventTime(650)
-            moveBy(Offset(0f, 1f))
+            compose.mainClock.advanceTimeBy(650)
+            compose.waitForIdle()
+            
+            var currentY = source.y
+            val targetY = height - 20f
+            while (currentY < targetY) {
+                currentY = (currentY + 20f).coerceAtMost(targetY)
+                moveTo(Offset(source.x, currentY))
+                advanceEventTime(50)
+                compose.mainClock.advanceTimeBy(50)
+                compose.waitForIdle()
+            }
+            
+            repeat(30) {
+                advanceEventTime(100)
+                compose.mainClock.advanceTimeBy(100)
+                compose.waitForIdle()
+            }
+            forward = scrollPosition()
+            
+            val topY = 20f
+            while (currentY > topY) {
+                currentY = (currentY - 20f).coerceAtLeast(topY)
+                moveTo(Offset(source.x, currentY))
+                advanceEventTime(50)
+                compose.mainClock.advanceTimeBy(50)
+                compose.waitForIdle()
+            }
+            
+            repeat(30) {
+                advanceEventTime(100)
+                compose.mainClock.advanceTimeBy(100)
+                compose.waitForIdle()
+            }
+            reversed = scrollPosition()
+            cancel()
         }
         compose.waitForIdle()
-        compose.onNodeWithTag("dragged_provider").assertExists()
-        compose.mainClock.autoAdvance = false
-        try {
-            surface.performTouchInput { moveTo(Offset(source.x, height - 20f)) }
-            repeat(40) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle(); Thread.sleep(50) }
-            compose.onNodeWithTag("dragged_provider").assertExists()
-            val forward = scrollPosition()
-            assertTrue("Library must scroll through folder members while the finger stays at the edge: before=$before after=$forward", forward > before)
-            assertTrue("Autoscroll preview must not persist", writes.isEmpty())
-            surface.performTouchInput { moveTo(Offset(source.x, 20f)) }
-            repeat(40) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle(); Thread.sleep(50) }
-            assertTrue("Reversing at the edge must reverse autoscroll", scrollPosition() < forward)
-        } finally {
-            surface.performTouchInput { cancel() }
-            compose.mainClock.autoAdvance = true
-        }
-        compose.waitForIdle()
+        assertTrue("Library must scroll through folder members while the finger stays at the edge: before=$before after=$forward", forward > before)
+        assertTrue("Autoscroll preview must not persist", writes.isEmpty())
+        assertTrue("Reversing at the edge must reverse autoscroll", reversed < forward)
         assertTrue("Cancellation must not save membership or order", writes.isEmpty())
         surface.performScrollToNode(hasTestTag("provider_outside"))
         compose.onNodeWithTag("provider_outside").assertIsDisplayed()

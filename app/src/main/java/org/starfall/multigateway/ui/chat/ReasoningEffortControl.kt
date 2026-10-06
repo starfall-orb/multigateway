@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
 internal val reasoningEfforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
-internal val reasoningEffortLabels = listOf("Off", "Default", "Low", "Med", "High", "X-High")
+internal val reasoningEffortLabels = listOf("Off", "Default", "Low", "Medium", "High", "X-High")
 
 internal fun reasoningEffortEnabled(effort: String?): Boolean =
     effort?.trim()?.lowercase() !in listOf("none", "off")

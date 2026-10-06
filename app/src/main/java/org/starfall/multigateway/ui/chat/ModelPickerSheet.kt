@@ -319,10 +319,7 @@ fun ModelPickerSheet(
         providers.all { it.id in collapsedProviderIds }
 
     AppBottomSheet(
-        onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 56.dp, topEnd = 56.dp),
-        dragHandleHeight = 32.dp,
-        dragHandleWidth = 160.dp
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

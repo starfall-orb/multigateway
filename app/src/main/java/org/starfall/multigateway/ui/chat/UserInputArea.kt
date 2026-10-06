@@ -4,6 +4,7 @@ import org.starfall.multigateway.ui.components.AppAlertDialog as AlertDialog
 
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.selectAllOnTripleClick
+import kotlinx.coroutines.launch
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -151,13 +152,29 @@ fun UserInputArea(
     var showFilesSheet by remember { mutableStateOf(false) }
 
     val dynamicModelsMap = remember { mutableStateMapOf<String, List<String>>() }
-    LaunchedEffect(providers) {
-        providers
-            .filter { it.type == org.starfall.multigateway.data.model.ProviderType.OLLAMA && it.config.modelIds == null }
-            .forEach { provider ->
-                val remoteModels = onFetchOllamaModels?.invoke(provider.baseUrl).orEmpty()
-                if (remoteModels.isNotEmpty()) dynamicModelsMap[provider.id] = remoteModels
+    val dynamicModelEndpoints = remember { mutableMapOf<String, String>() }
+    val ollamaCache = remember(context) { org.starfall.multigateway.data.service.OllamaModelCache(context) }
+    val dynamicProviders = providers.filter { it.type == ProviderType.OLLAMA && it.config.modelIds == null }
+        .map { it.id to it.baseUrl }.sortedBy { it.first }
+    val fetchOllamaModels by rememberUpdatedState(onFetchOllamaModels)
+    LaunchedEffect(dynamicProviders) {
+        dynamicModelsMap.keys.retainAll(dynamicProviders.map { it.first }.toSet())
+        dynamicModelEndpoints.keys.retainAll(dynamicProviders.map { it.first }.toSet())
+        // Publish disk snapshots before any network discovery; one slow/offline host
+        // must not block the other providers or discard models on a screen remount.
+        dynamicProviders.forEach { (id, url) ->
+            if (dynamicModelEndpoints[id] == url && dynamicModelsMap.containsKey(id)) return@forEach
+            dynamicModelEndpoints[id] = url
+            dynamicModelsMap.remove(id)
+            ollamaCache.read(url)?.let { dynamicModelsMap[id] = it.models }
+        }
+        kotlinx.coroutines.coroutineScope {
+            dynamicProviders.forEach { (id, url) ->
+                launch {
+                    fetchOllamaModels?.let { fetch -> dynamicModelsMap[id] = fetch(url) }
+                }
             }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -515,7 +532,7 @@ fun UserInputArea(
             },
             onSetReasoningEffort = { if (mediaKind == null) onSetReasoningEffort(it) },
             showReasoningEffort = mediaKind == null,
-            dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap,
+            dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap.toMap(),
             modelFilter = if (mediaKind == null) chatModelPickerFilter else { _, _, config -> config.modelType == mediaKind },
             onDismiss = { showModelPicker = false }
         )

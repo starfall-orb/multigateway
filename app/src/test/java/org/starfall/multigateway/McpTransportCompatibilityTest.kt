@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class McpTransportCompatibilityTest {
-    @Test
+    @Test(timeout = 15000)
     fun streamableHttp415FallsBackToLegacySse() = runBlocking {
         val server = SseTestServer(InetSocketAddress("127.0.0.1", 0))
         val executor = Executors.newCachedThreadPool()
@@ -80,7 +80,7 @@ class McpTransportCompatibilityTest {
                         put("id", request["id"]!!)
                         put("result", buildJsonObject {
                             put("protocolVersion", "2025-06-18")
-                            put("capabilities", buildJsonObject {})
+                            put("capabilities", buildJsonObject { put("tools", buildJsonObject {}) })
                             put("serverInfo", buildJsonObject { put("name", "legacy-test"); put("version", "1") })
                         })
                     }.toString())

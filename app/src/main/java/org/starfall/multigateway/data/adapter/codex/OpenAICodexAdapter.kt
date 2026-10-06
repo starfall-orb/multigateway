@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.Uri
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.get
@@ -13,7 +12,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
-import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readUTF8Line
@@ -37,7 +35,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
-import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
+import org.starfall.multigateway.data.adapter.common.awaitLoopbackAuthorizationCode
 import org.starfall.multigateway.data.adapter.AccountProviderAdapter
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.oauthCredentialId
@@ -295,39 +293,18 @@ internal class OpenAICodexAdapter(
     }
 
     private suspend fun exchangeAuthorizationCode(code: String, verifier: String): CodexTokenState {
-        val response = http.submitForm(
-            url = "$ISSUER/oauth/token",
-            formParameters = Parameters.build {
-                val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
-                    mapOf("grant_type" to "authorization_code", "code" to code, "redirect_uri" to REDIRECT_URI, "code_verifier" to verifier))
-                AppAuthTransactions.fields(request).forEach { (name, value) -> append(name, value) }
-            }
-        )
-        val raw = response.bodyAsText()
-        check(response.status.isSuccess()) {
-            "OpenAI Codex token exchange failed: HTTP ${response.status.value}: ${raw.take(2048)}"
-        }
-        return tokenStateFromResponse(raw, previousRefreshToken = null)
+        val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
+            mapOf("grant_type" to "authorization_code", "code" to code, "redirect_uri" to REDIRECT_URI, "code_verifier" to verifier))
+        val payload = AppAuthTransactions.executeToken(appContext, request)
+        return tokenStateFromResponse(payload.toString(), previousRefreshToken = null)
     }
 
     private suspend fun refresh(current: CodexTokenState): CodexTokenState {
-        val response = http.submitForm(
-            url = "$ISSUER/oauth/token",
-            formParameters = Parameters.build {
-                val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
-                    mapOf("grant_type" to "refresh_token", "refresh_token" to current.refreshToken, "scope" to REFRESH_SCOPE))
-                AppAuthTransactions.fields(request).forEach { (name, value) -> append(name, value) }
-            }
-        )
-        val raw = response.bodyAsText()
-        check(response.status.isSuccess()) {
-            "OpenAI Codex token refresh failed: HTTP ${response.status.value}: ${raw.take(2048)}"
-        }
-        val next = tokenStateFromResponse(raw, previousRefreshToken = current.refreshToken)
-        return next.copy(
-            accountId = next.accountId ?: current.accountId,
-            email = next.email ?: current.email
-        )
+        val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
+            mapOf("grant_type" to "refresh_token", "refresh_token" to current.refreshToken, "scope" to REFRESH_SCOPE))
+        val payload = AppAuthTransactions.executeToken(appContext, request)
+        val next = tokenStateFromResponse(payload.toString(), previousRefreshToken = current.refreshToken)
+        return next.copy(accountId = next.accountId ?: current.accountId, email = next.email ?: current.email)
     }
 
     private fun tokenStateFromResponse(
@@ -336,7 +313,7 @@ internal class OpenAICodexAdapter(
     ): CodexTokenState = CodexTokenParser(json).parse(raw, previousRefreshToken)
 
     private suspend fun awaitAuthorizationCode(authorizationUrl: String, expectedState: String): String =
-        awaitOAuthAuthorizationCode(REDIRECT_URI, authorizationUrl, expectedState) { url ->
+        awaitLoopbackAuthorizationCode(REDIRECT_URI, authorizationUrl, expectedState) { url ->
             withContext(Dispatchers.Main) {
                 OAuthBrowser.open(appContext, url)
             }

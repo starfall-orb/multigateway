@@ -1,5 +1,7 @@
 package org.starfall.multigateway.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -26,15 +28,16 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.ui.theme.modalScrimColor
 import kotlin.math.roundToInt
 
-/** List-edge gestures resize through the handle, rather than dismissing the sheet. */
+/** Let downward motion at the list start reach Material; contain overscroll at the list end. */
 internal fun bottomSheetListScrollBoundary(): NestedScrollConnection = object : NestedScrollConnection {
     override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-        if (source == NestedScrollSource.UserInput) Offset(0f, available.y) else Offset.Zero
-    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = Velocity(0f, available.y)
+        if (source == NestedScrollSource.UserInput && available.y < 0f) Offset(0f, available.y) else Offset.Zero
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        if (available.y < 0f) Velocity(0f, available.y) else Velocity.Zero
 }
 
 /** Material owns the dialog, scrim, accessibility, insets and show/hide lifecycle. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AppBottomSheet(
     onDismissRequest: () -> Unit,
@@ -84,7 +87,12 @@ fun AppBottomSheet(
                             }
                         }, contentAlignment = Alignment.Center
                     ) { BottomSheetDefaults.DragHandle(Modifier.width(dragHandleWidth)) }
-                    Column(Modifier.fillMaxWidth().nestedScroll(scrollBoundary), content = content)
+                    // Android stretch overscroll can consume edge deltas before the
+                    // sheet receives them and retain a stretch between gestures.
+                    // Give the list and sheet a single, continuous scroll handoff.
+                    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                        Column(Modifier.fillMaxWidth().nestedScroll(scrollBoundary), content = content)
+                    }
                 }
             }) { measurables, constraints ->
                 val ceiling = bounds.heightFor(bounds.maximum, requestedHeight)

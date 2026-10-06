@@ -12,6 +12,10 @@ import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.SseClientTransport
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpClientTransport
 import io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError
+import io.modelcontextprotocol.kotlin.sdk.shared.Transport
+import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCMessage
+import io.modelcontextprotocol.kotlin.sdk.types.JSONRPCResponse
+import io.modelcontextprotocol.kotlin.sdk.types.InitializeResult
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.ListToolsRequest
@@ -65,8 +69,10 @@ class McpSession(
     private val endpoint = info.resolvedUrl() ?: error("MCP URL is missing")
     private var httpClient: HttpClient? = null
     private var client: Client? = null
+    private var needsReconnect = false
 
     suspend fun initialize() {
+        needsReconnect = false
         if (info.protocol == McpProtocol.SSE) {
             connect(legacy = true)
             return
@@ -96,7 +102,22 @@ class McpSession(
         }
         val mcpClient = Client(Implementation("MultiGateway", "1.0"))
         try {
-            mcpClient.connect(transport)
+            val negotiatedTransport = if (transport is StreamableHttpClientTransport) {
+                // SDK 0.15 exposes protocolVersion but does not populate it from
+                // initialize. Set it before forwarding the reply so the initialized
+                // notification and subsequent requests carry the negotiated header.
+                object : Transport by transport {
+                    override fun onMessage(block: suspend (JSONRPCMessage) -> Unit) {
+                        transport.onMessage { message ->
+                            if (transport.protocolVersion == null && message is JSONRPCResponse) {
+                                transport.protocolVersion = (message.result as? InitializeResult)?.protocolVersion
+                            }
+                            block(message)
+                        }
+                    }
+                }
+            } else transport
+            mcpClient.connect(negotiatedTransport)
             httpClient = ktor
             client = mcpClient
         } catch (error: Throwable) {
@@ -167,8 +188,21 @@ class McpSession(
     }
 
     suspend fun call(name: String, arguments: JsonObject): JsonObject {
+        if (needsReconnect) {
+            close()
+            initialize()
+        }
         val mcp = client ?: error("MCP session is not connected")
-        val result = mcp.callTool(name, arguments.mapValues { it.value.toAny() })
+        val result = try {
+            mcp.callTool(name, arguments.mapValues { it.value.toAny() })
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            // A missing HTTP session requires a new handshake for the next call.
+            // Never replay the failed tool: it may already have produced side effects.
+            needsReconnect = generateSequence<Throwable>(error) { it.cause }
+                .filterIsInstance<StreamableHttpError>().any { it.code == 404 }
+            throw error
+        }
         val raw = Json.encodeToString(CallToolResult.serializer(), result)
         val sanitized = http.files?.sanitize(StringReader(raw)) ?: raw
         return Json.parseToJsonElement(sanitized).jsonObject

@@ -60,11 +60,11 @@ class PackedProviderGridTest {
         assertTrue(regions.any { it.contains(Offset(162f, 170f)) }) // vertical seam
     }
 
-    @Test fun diagonalFolderCellsConnectThroughTheRowGapWithoutCoveringOutsideTiles() {
+    @Test fun diagonalFolderCellsDoNotCreateAnOutsideDropTarget() {
         val cells = listOf(PackedGridCell("root", null), PackedGridCell("folder", "g"), PackedGridCell("a", "g"))
         val regions = packedGroupRegions(cells, bounds(cells)).getValue("g")
-        assertEquals(3, regions.size)
-        assertTrue(regions.any { it.contains(Offset(106f, 170f)) })
+        assertEquals(2, regions.size)
+        assertFalse(regions.any { it.contains(Offset(106f, 170f)) })
         assertFalse(regions.any { it.contains(Offset(50f, 82f)) })
         assertFalse(regions.any { it.contains(Offset(162f, 258f)) })
     }
@@ -76,6 +76,21 @@ class PackedProviderGridTest {
         val regions = packedGroupRegions(cells, positions)
         assertEquals(1, regions.getValue("first").size)
         assertFalse(regions.getValue("first").any { it.contains(positions.getValue("g2").center) })
-        assertEquals(3, regions.getValue("second").size)
+        assertEquals(2, regions.getValue("second").size)
     }
+    @org.junit.Test fun draggedFolderRetainsItsHandleAndRestoresAllMembersAfterCancel() {
+        val cells = listOf(
+            org.starfall.multigateway.ui.providers.PackedGridCell("group_g", "g"),
+            org.starfall.multigateway.ui.providers.PackedGridCell("provider_a", "g"),
+            org.starfall.multigateway.ui.providers.PackedGridCell("provider_b", "g"),
+            org.starfall.multigateway.ui.providers.PackedGridCell("provider_tail", null))
+        val heading = org.starfall.multigateway.ui.providers.providerDragCells(cells, false, "heading_g")
+        org.junit.Assert.assertEquals(listOf("root:start", "heading_g", "provider_tail", "root:end"), heading.map { it.key })
+        val tile = org.starfall.multigateway.ui.providers.providerDragCells(cells, true, "group_g")
+        org.junit.Assert.assertEquals(listOf("root:start", "group_g", "provider_tail", "root:end"), tile.map { it.key })
+        val restored = org.starfall.multigateway.ui.providers.providerDragCells(cells, false, null)
+        org.junit.Assert.assertEquals(listOf("root:start", "heading_g", "group_g", "provider_a", "provider_b", "provider_tail", "root:end"), restored.map { it.key })
+        org.junit.Assert.assertEquals(restored, org.starfall.multigateway.ui.providers.providerDragCells(cells, false, "provider_a"))
+    }
+
 }

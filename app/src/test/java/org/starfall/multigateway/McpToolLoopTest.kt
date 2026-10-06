@@ -29,7 +29,7 @@ class McpToolLoopTest {
     }
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
-    @Test fun allProviderAdaptersExecuteMcpAndReturnToolResultToModel() = runBlocking {
+    @Test(timeout = 60000) fun allProviderAdaptersExecuteMcpAndReturnToolResultToModel() = runBlocking {
         for(type in ProviderType.entries) {
             val server=MockWebServer();server.start()
             val root=Files.createTempDirectory("mcp-loop").toFile()
@@ -38,6 +38,7 @@ class McpToolLoopTest {
             server.dispatcher=object:Dispatcher(){
                 override fun dispatch(request:RecordedRequest):MockResponse {
                     if(request.method=="DELETE") return MockResponse().setResponseCode(204)
+                if(request.method=="GET" && request.path=="/mcp") return MockResponse().setResponseCode(405)
                     if (request.path?.endsWith("/models") == true)
                         return MockResponse().addHeader("Content-Type", "application/json")
                             .setBody("""{"data":[{"id":"chat","supported_endpoints":["/chat/completions"]}]}""")
@@ -47,7 +48,7 @@ class McpToolLoopTest {
                         val method=body["method"]!!.jsonPrimitive.content
                         if(method=="notifications/initialized")return MockResponse().setResponseCode(202)
                         val result=when(method){
-                            "initialize"->buildJsonObject{put("protocolVersion","2025-06-18")}
+                            "initialize"->buildJsonObject{put("protocolVersion","2025-06-18");put("capabilities",buildJsonObject{put("tools",buildJsonObject{})});put("serverInfo",buildJsonObject{put("name","test");put("version","1")})}
                             "tools/list"->buildJsonObject{put("tools",buildJsonArray{add(buildJsonObject{put("name","echo");put("inputSchema",buildJsonObject{put("type","object")})})})}
                             "tools/call"->{calls++;buildJsonObject{put("content",buildJsonArray{add(buildJsonObject{put("type","text");put("text","hello_from_mcp")})})}}
                             else->error(method)

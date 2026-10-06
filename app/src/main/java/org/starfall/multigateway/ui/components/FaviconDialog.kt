@@ -33,10 +33,6 @@ internal fun FaviconDialog(baseUrl: String, onSave: (String) -> Unit, onBusyChan
     var busy by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val currentBusy by rememberUpdatedState(onBusyChange)
-    DisposableEffect(result) {
-        val bitmap = result?.bitmap
-        onDispose { bitmap?.recycle() }
-    }
     DisposableEffect(Unit) { onDispose { currentBusy(false) } }
     AppAlertDialog(
         onDismissRequest = { if (!saving) onDismiss() },

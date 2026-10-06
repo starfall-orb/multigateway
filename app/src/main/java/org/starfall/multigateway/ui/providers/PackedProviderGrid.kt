@@ -1,6 +1,10 @@
 package org.starfall.multigateway.ui.providers
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.zIndex
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
@@ -67,61 +71,129 @@ internal fun packedGroupPath(parts: List<Rect>, cellRects: Set<Rect>, origin: Of
     return outline
 }
 
+/** Fold a dragged folder into its keyed handle so Calvin can keep it alive during edge scrolling. */
+internal fun providerDragCells(cells: List<PackedGridCell>, isGrid: Boolean, draggingKey: String?): List<PackedGridCell> = buildList {
+    val draggedGroup = draggingKey?.takeIf { it.startsWith("group_") || it.startsWith("heading_") }
+        ?.removePrefix("group_")?.removePrefix("heading_")
+    add(PackedGridCell("root:start", null))
+    cells.forEach { cell ->
+        val heading = !isGrid && cell.key.startsWith("group_") && cell.groupId != null
+        if (draggedGroup != null && (cell.groupId == draggedGroup || cell.key == "group_$draggedGroup")) {
+            if (cell.key == draggingKey) add(cell)
+            else if (heading && draggingKey == "heading_$draggedGroup") add(PackedGridCell(draggingKey, draggedGroup))
+        } else {
+            if (heading) add(PackedGridCell("heading_${cell.groupId}", cell.groupId))
+            add(cell)
+        }
+    }
+    add(PackedGridCell("root:end", null))
+}
+
+/** Folder membership changes happen in onMove; Calvin owns one drag/scroll surface in both modes. */
 @Composable
 internal fun PackedProviderGrid(
     cells: List<PackedGridCell>,
+    isGrid: Boolean = true,
+    dragEnabled: Boolean = true,
     onMove: (String, String) -> Unit,
-    onGroupBoundsChanged: (String, List<Rect>) -> Unit,
-    onCellBoundsChanged: (String, Rect?) -> Unit,
-    content: @Composable ReorderableCollectionItemScope.(Int) -> Unit
+    onDragStarted: (String) -> Unit,
+    onDragFinished: (String, Boolean) -> Unit,
+    content: @Composable ReorderableCollectionItemScope.(String, Modifier) -> Unit
 ) {
+    var draggingKey by remember { mutableStateOf<String?>(null) }
+    var draggingSpan by remember { mutableIntStateOf(1) }
+    val displayCells = providerDragCells(cells, isGrid, draggingKey)
     val gridState = rememberLazyGridState()
     val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
         onMove(from.key as String, to.key as String)
     }
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var origin by remember { mutableStateOf(Offset.Zero) }
-    val currentBoundsCallback by rememberUpdatedState(onGroupBoundsChanged)
-    val currentCellBoundsCallback by rememberUpdatedState(onCellBoundsChanged)
-    val regions = packedGroupRegions(cells, bounds)
-    val groupIds = cells.mapNotNull { it.groupId }.toSet()
-    DisposableEffect(groupIds) {
-        onDispose { groupIds.forEach { currentBoundsCallback(it, emptyList()) } }
-    }
-    LaunchedEffect(regions, groupIds) {
-        groupIds.forEach { currentBoundsCallback(it, regions[it].orEmpty()) }
+    val regions = if (isGrid) packedGroupRegions(cells, bounds) else buildMap {
+        displayCells.filter { it.groupId != null }.groupBy { it.groupId!! }.forEach { (group, members) ->
+            val rects = members.mapNotNull { bounds[it.key] }
+            val parts = rects.toMutableList()
+            rects.zipWithNext().forEach { (first, second) ->
+                if (kotlin.math.abs(first.center.y - second.center.y) < 1f) {
+                    parts += Rect(first.center.x, maxOf(first.top, second.top), second.center.x, minOf(first.bottom, second.bottom))
+                } else if (second.top >= first.bottom) {
+                    val left = maxOf(first.left, second.left)
+                    val right = minOf(first.right, second.right)
+                    if (right > left) parts += Rect(left, first.center.y, right, second.center.y)
+                }
+            }
+            put(group, parts)
+        }
     }
     val cellRects = bounds.values.toSet()
     val background = MaterialTheme.colorScheme.surfaceContainerLow
     val border = MaterialTheme.colorScheme.outlineVariant
+    val columns = remember(isGrid) {
+        if (isGrid) GridCells.Fixed(2) else object : GridCells {
+            override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> {
+                val first = 100.dp.roundToPx().coerceAtMost((availableSize - spacing).coerceAtLeast(0))
+                return listOf(first, (availableSize - spacing - first).coerceAtLeast(0))
+            }
+        }
+    }
+    val firstMembers = cells.filter { it.groupId != null && it.key.startsWith("provider_") }
+        .groupBy { it.groupId }.mapValues { it.value.first().key }
     Box(Modifier.fillMaxSize().clipToBounds().onGloballyPositioned { origin = it.positionInRoot() }.drawBehind {
         regions.values.forEach { parts ->
             val outline = packedGroupPath(parts, cellRects, origin, 20.dp.toPx())
             drawPath(outline, background)
-            // Keep the concave transition inside the union envelope. Applying a
-            // stroke corner effect here rounds both sides of the path and makes
-            // the inner join bulge outward.
             drawPath(outline, border, style = Stroke(1.5.dp.toPx()))
         }
     }) {
-        LazyVerticalGrid(state = gridState,
-            columns = GridCells.Fixed(2),
+        LazyVerticalGrid(state = gridState, columns = columns,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().testTag("provider_list")
         ) {
-            itemsIndexed(cells, key = { _, cell -> cell.key }) { index, cell ->
-                DisposableEffect(cell.key) { onDispose { bounds.remove(cell.key); currentCellBoundsCallback(cell.key, null) } }
-                ReorderableItem(reorderState, key = cell.key) { _ ->
-                    Box(Modifier.fillMaxWidth().height(164.dp)
+            items(displayCells, key = { it.key }, span = { cell ->
+                val narrow = cell.groupId != null && (cell.key.startsWith("group_") || firstMembers[cell.groupId] == cell.key)
+                GridItemSpan(if (cell.key == draggingKey) draggingSpan else if (cell.key.startsWith("root:") || (!isGrid && !narrow)) maxLineSpan else 1)
+            }) { cell ->
+                val interaction = remember(cell.key) { MutableInteractionSource() }
+                var active by remember(cell.key) { mutableStateOf(false) }
+                val finish by rememberUpdatedState(onDragFinished)
+                LaunchedEffect(interaction) {
+                    interaction.interactions.collect { event ->
+                        if (active && (event is DragInteraction.Stop || event is DragInteraction.Cancel)) {
+                            active = false
+                            draggingKey = null
+                            finish(cell.key, event is DragInteraction.Cancel)
+                        }
+                    }
+                }
+                DisposableEffect(cell.key) {
+                    onDispose {
+                        bounds.remove(cell.key)
+                        if (active) { draggingKey = null; finish(cell.key, true) }
+                    }
+                }
+                val height = when {
+                    cell.key.startsWith("root:") -> 24.dp
+                    cell.key.startsWith("heading_") -> 52.dp
+                    isGrid -> 164.dp
+                    else -> 100.dp
+                }
+                ReorderableItem(reorderState, key = cell.key) { dragging ->
+                    val handle = Modifier.longPressDraggableHandle(enabled = dragEnabled && !cell.key.startsWith("root:"),
+                        interactionSource = interaction, onDragStarted = {
+                            active = true
+                            val narrow = cell.groupId != null && (cell.key.startsWith("group_") || firstMembers[cell.groupId] == cell.key)
+                            draggingSpan = if (!isGrid && !narrow) 2 else 1
+                            draggingKey = cell.key
+                            onDragStarted(cell.key)
+                        })
+                    Box(Modifier.fillMaxWidth().height(height).zIndex(if (dragging) 100f else 0f)
+                        .testTag(if (dragging && cell.key.startsWith("provider_")) "dragged_provider" else "provider_slot_${cell.key}")
                         .onGloballyPositioned { coordinates ->
                             val position = coordinates.positionInRoot()
-                            val rect = Rect(position, Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
-                            bounds[cell.key] = rect
-                            currentCellBoundsCallback(cell.key, rect)
-                        }
-                        .padding(6.dp)) {
-                        content(index)
+                            bounds[cell.key] = Rect(position, Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
+                        }.padding(6.dp)) {
+                        if (!cell.key.startsWith("root:")) content(cell.key, handle)
                     }
                 }
             }

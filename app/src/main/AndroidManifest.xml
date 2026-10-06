@@ -39,6 +39,7 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/tool_file_paths" />
         </provider>
+        <activity android:name=".ui.auth.AppAuthResultActivity" android:exported="false" />
         <activity android:name=".ui.auth.OAuthBrowserActivity"
             android:exported="false" android:theme="@style/Theme.MultiGateway" />
         <service android:name=".data.adapter.common.OAuthBrowserKeepAliveService"

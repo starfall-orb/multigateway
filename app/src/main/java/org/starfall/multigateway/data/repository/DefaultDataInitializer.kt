@@ -1,6 +1,8 @@
 package org.starfall.multigateway.data.repository
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import org.starfall.multigateway.data.local.preferences.AppPreferencesRepository
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.IconStore
@@ -13,7 +15,7 @@ class DefaultDataInitializer(
     private val prefsRepo: AppPreferencesRepository,
     private val icons: IconStore,
 ) {
-    suspend fun initialize() {
+    suspend fun initialize() = withContext(Dispatchers.IO) {
         llmRepo.allProviders.first().let { currentProviders ->
             llmRepo.rememberExistingModelConfigurations(currentProviders)
             if (currentProviders.isEmpty()) {

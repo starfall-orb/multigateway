@@ -1,6 +1,13 @@
 package org.starfall.multigateway.data.adapter.common
 
 import android.net.Uri
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.serialization.json.*
 import net.openid.appauth.*
 import okhttp3.FormBody
@@ -9,7 +16,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONObject
 import org.starfall.multigateway.data.tools.ToolHttp
 
-/** Standard OAuth requests use AppAuth; provider/MCP discovery and token storage stay in the app. */
+/** AppAuth executes standard form token exchanges; explicit exceptions use CompatibilityOAuth. */
 internal object AppAuthTransactions {
     fun authorization(authorizationEndpoint: String, tokenEndpoint: String, clientId: String,
         redirectUri: String, scope: String?, additional: Map<String, String> = emptyMap()): AuthorizationRequest =
@@ -41,10 +48,47 @@ internal object AppAuthTransactions {
     fun fields(request: TokenRequest, auth: ClientAuthentication = NoClientAuthentication.INSTANCE): Map<String, String> =
         request.requestParameters + auth.getRequestParameters(request.clientId).orEmpty()
 
-    /** Reuse the cancellable HTTP transport, including providers with JSON token endpoints. */
-    suspend fun exchange(http: ToolHttp, request: TokenRequest, auth: ClientAuthentication = NoClientAuthentication.INSTANCE,
+    suspend fun exchange(context: Context, http: ToolHttp, request: TokenRequest,
+        auth: ClientAuthentication = NoClientAuthentication.INSTANCE, jsonBody: Boolean = false): JsonObject =
+        if (jsonBody || request.configuration.tokenEndpoint.scheme != "https") {
+            CompatibilityOAuth.exchangeToken(http, request, auth, jsonBody)
+        } else executeToken(context, request, auth)
+
+    /** AppAuth owns form encoding, response/error parsing and token endpoint execution. */
+    internal suspend fun executeToken(context: Context, request: TokenRequest,
+        auth: ClientAuthentication = NoClientAuthentication.INSTANCE,
+        configuration: AppAuthConfiguration = AppAuthConfiguration.DEFAULT): JsonObject = withContext(Dispatchers.Main.immediate) {
+        val service = AuthorizationService(context.applicationContext, configuration)
+        try {
+            suspendCancellableCoroutine { continuation ->
+                service.performTokenRequest(request, auth) { response, exception ->
+                    if (!continuation.isActive) return@performTokenRequest
+                    if (response == null) continuation.resumeWithException(exception ?: IllegalStateException("OAuth token response is missing"))
+                    else continuation.resume(tokenPayload(response))
+                }
+            }
+        } finally {
+            withContext(NonCancellable + Dispatchers.Main.immediate) { service.dispose() }
+        }
+    }
+
+    internal fun tokenPayload(response: TokenResponse): JsonObject = buildJsonObject {
+        response.additionalParameters.forEach { (key, value) -> put(key, value) }
+        response.accessToken?.let { put("access_token", it) }
+        response.refreshToken?.let { put("refresh_token", it) }
+        response.tokenType?.let { put("token_type", it) }
+        response.idToken?.let { put("id_token", it) }
+        response.scope?.let { put("scope", it) }
+        response.accessTokenExpirationTime?.let { put("expires_in", ((it - System.currentTimeMillis()) / 1000).coerceAtLeast(0)) }
+    }
+}
+
+/** Only protocol exceptions live here; this transport must not become the default OAuth path. */
+internal object CompatibilityOAuth {
+    /** JSON bodies, cleartext MCP endpoints and Bearer fallback are explicit protocol exceptions. */
+    suspend fun exchangeToken(http: ToolHttp, request: TokenRequest, auth: ClientAuthentication = NoClientAuthentication.INSTANCE,
         jsonBody: Boolean = false): JsonObject {
-        val values = fields(request, auth)
+        val values = AppAuthTransactions.fields(request, auth)
         val headers = auth.getRequestHeaders(request.clientId).orEmpty()
         val response = if (jsonBody) http.json(http.request(request.configuration.tokenEndpoint.toString()).apply {
             headers.forEach { (name, value) -> header(name, value) }

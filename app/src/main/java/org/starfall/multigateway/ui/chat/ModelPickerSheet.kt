@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.chat
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
@@ -9,7 +10,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -149,6 +150,7 @@ fun computeModelPickerItems(
 ): List<ModelPickerItem> {
     data class ProviderNode(val provider: LlmProviderInfo, val models: List<String>)
 
+    val defaultConfig = ModelConfiguration()
     val normalizedQuery = query.trim()
     val groupById = providerGroups.associateBy { it.id }
     val visibleProviders = providers.mapNotNull { provider ->
@@ -161,7 +163,7 @@ fun computeModelPickerItems(
         val providerMatches = provider.name.contains(normalizedQuery, ignoreCase = true)
         val models = providerModels(provider, dynamicModelsMap, selectedProviderId, selectedModelId)
             .filter { modelId ->
-                modelFilter(provider, modelId, provider.config.modelConfigs[modelId] ?: ModelConfiguration())
+                modelFilter(provider, modelId, provider.config.modelConfigs[modelId] ?: defaultConfig)
             }
             .filter { modelId ->
                 normalizedQuery.isBlank() ||
@@ -179,7 +181,7 @@ fun computeModelPickerItems(
         selectedProviderId.isNotBlank() &&
             node.provider.id == selectedProviderId &&
             node.models.any { modelId ->
-                val config = node.provider.config.modelConfigs[modelId] ?: ModelConfiguration()
+                val config = node.provider.config.modelConfigs[modelId] ?: defaultConfig
                 matchesModel(selectedModelId, modelId, config.displayName)
             }
     }
@@ -187,7 +189,7 @@ fun computeModelPickerItems(
     val forceExpanded = (normalizedQuery.isNotBlank() && expandSearchResults) || providerFilterId != null
     fun modelItems(node: ProviderNode, depth: Int): List<ModelPickerItem.Model> =
         node.models.map { modelId ->
-            val config = node.provider.config.modelConfigs[modelId] ?: ModelConfiguration()
+            val config = node.provider.config.modelConfigs[modelId] ?: defaultConfig
             val isSelected = if (hasExactProviderMatch) {
                 node.provider.id == selectedProviderId &&
                     matchesModel(selectedModelId, modelId, config.displayName)
@@ -248,6 +250,7 @@ fun ModelPickerSheet(
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
+    var initialPositionApplied by remember { mutableStateOf(false) }
     var expandSearchResults by remember(query) { mutableStateOf(true) }
     val forceExpanded = query.isNotBlank() && expandSearchResults
     var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
@@ -259,10 +262,12 @@ fun ModelPickerSheet(
         collapsedProviderIds = collapsedProviderIdsState
     }
     fun setCollapsedGroups(value: Set<String>) {
+        initialPositionApplied = true
         collapsedGroupIds = value
         onCollapsedGroupIdsChange(value)
     }
     fun setCollapsedProviders(value: Set<String>) {
+        initialPositionApplied = true
         collapsedProviderIds = value
         onCollapsedProviderIdsChange(value)
     }
@@ -307,12 +312,23 @@ fun ModelPickerSheet(
             else -> modelIndex
         }
     }
-    val listState = remember(targetIndex) {
-        LazyListState(firstVisibleItemIndex = targetIndex)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = targetIndex)
+    LaunchedEffect(flatItems) {
+        if (!initialPositionApplied && flatItems.isNotEmpty()) {
+            initialPositionApplied = true
+            if (query.isBlank() && !listState.isScrollInProgress) listState.scrollToItem(targetIndex)
+        }
+    }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }.first { it }
+        initialPositionApplied = true
     }
 
     LaunchedEffect(query) {
-        if (query.isNotBlank()) listState.scrollToItem(0)
+        if (query.isNotBlank()) {
+            initialPositionApplied = true
+            listState.scrollToItem(0)
+        }
     }
     val allCollapsed = !forceExpanded &&
         providerGroups.all { it.id in collapsedGroupIds } &&

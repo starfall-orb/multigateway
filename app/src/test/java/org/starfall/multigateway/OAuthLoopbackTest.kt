@@ -76,7 +76,11 @@ class OAuthLoopbackTest {
             }
             assertEquals(redirect.toString(), fields["redirect_uri"])
             assertEquals("valid-code", fields["code"])
-            assertEquals(43, fields["code_verifier"]!!.length)
+            assertTrue(fields["code_verifier"]!!.length in 43..128)
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(fields.getValue("code_verifier").toByteArray(Charsets.US_ASCII))
+            assertEquals(url.getQueryParameter("code_challenge"),
+                java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(digest))
             ServerSocket().apply {
                 reuseAddress = true
                 bind(java.net.InetSocketAddress("127.0.0.1", port))

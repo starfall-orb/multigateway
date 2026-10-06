@@ -25,13 +25,14 @@ internal abstract class OAuthAccountAdapter(
     private val callbackPath: String,
     private val clientSecret: String? = null,
     private val jsonTokens: Boolean = false,
-    private val callbackHost: String = "localhost"
+    private val callbackHost: String = "localhost",
+    private val registeredRedirectUri: String? = null
 ) : AccountProviderAdapter {
     protected val appContext = context.applicationContext
     protected val http = ToolHttp()
     protected val store = AccountTokenStore(context, providerType.name.lowercase())
     private val refreshLock = Mutex()
-    private val redirectUri get() = "http://$callbackHost:$callbackPort$callbackPath"
+    private val redirectUri get() = registeredRedirectUri ?: "http://$callbackHost:$callbackPort$callbackPath"
     protected val marker get() = "account:${providerType.name.lowercase()}:v1"
 
     protected suspend fun <T> result(block: suspend () -> T): Result<T> = try {
@@ -52,7 +53,15 @@ internal abstract class OAuthAccountAdapter(
             else mapOf("access_type" to "offline", "prompt" to "consent")
         val request = AppAuthTransactions.authorization(authorizationUrl, tokenUrl, clientId, redirectUri, scope, extra)
         OAuthCallbackService.keepAlive(appContext) {
-            val code = awaitCode(request.toUri().toString(), request.state!!)
+            val code = if (request.redirectUri.scheme == "multigateway-oauth") {
+                StandardAppAuthAuthorization.authorize(appContext, request).authorizationCode
+                    ?: error("OAuth authorization code is missing")
+            } else {
+                require(request.redirectUri.scheme == "http" && request.redirectUri.host in setOf("localhost", "127.0.0.1")) {
+                    "Unsupported registered OAuth redirect"
+                }
+                awaitCode(request.toUri().toString(), request.state!!)
+            }
             val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
                 "redirect_uri" to redirectUri, "code_verifier" to request.codeVerifier!!, "state" to request.state!!)))
             withContext(Dispatchers.IO) { store.save(provider.oauthCredentialId, token) }
@@ -78,14 +87,14 @@ internal abstract class OAuthAccountAdapter(
     }
 
     private suspend fun exchange(fields: Map<String, String>, previous: AccountTokenState? = null): AccountTokenState {
-        val payload = AppAuthTransactions.exchange(http, AppAuthTransactions.token(tokenUrl, clientId, fields),
+        val payload = AppAuthTransactions.exchange(appContext, http, AppAuthTransactions.token(tokenUrl, clientId, fields),
             AppAuthTransactions.authentication(if (clientSecret == null) "none" else "client_secret_post", clientSecret),
             jsonBody = jsonTokens)
         return accountTokenFromResponse(payload, previous)
     }
 
     private suspend fun awaitCode(url: String, state: String): String =
-        awaitOAuthAuthorizationCode(redirectUri, url, state, ::openBrowser)
+        awaitLoopbackAuthorizationCode(redirectUri, url, state, ::openBrowser)
 
     override suspend fun testConnection(provider: LlmProviderInfo): Result<String> = result {
         check(fetchModels(provider).isNotEmpty()) { "Provider returned no models" }

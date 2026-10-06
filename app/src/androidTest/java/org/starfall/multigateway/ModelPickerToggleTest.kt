@@ -115,6 +115,44 @@ class ModelPickerToggleTest {
         assertEquals(groupBounds.right, modelBounds.right, 0.5f)
     }
 
+    @Test fun togglingBranchesKeepsTheViewportInsteadOfReturningToTheSelectedModel() {
+        val group = ProviderGroup("folder", "Work")
+        fun provider(id: String, groupId: String? = null, models: List<String> = listOf("model-$id")) =
+            LlmProviderInfo(id, "Provider $id", ProviderType.OPENAI, baseUrl = "", groupId = groupId,
+                config = ProviderConfiguration(modelIds = models))
+        val providers = listOf(provider("first", group.id, (0..29).map { "model-$it" })) +
+            (0..19).map { provider("middle-$it") } + provider("selected")
+        compose.setContent { MaterialTheme {
+            ModelPickerSheet(providers = providers, providerGroups = listOf(group),
+                selectedProviderId = "selected", selectedModelId = "model-selected",
+                conversationReasoningEffort = null, onSelectModel = { _, _ -> }, onSetReasoningEffort = {}, onDismiss = {})
+        } }
+        compose.onNodeWithTag("model-picker-model_selected_model-selected").assertIsDisplayed()
+        val list = compose.onNodeWithTag("model-picker-list")
+        list.performScrollToNode(hasTestTag("model-picker-group_folder"))
+        repeat(2) {
+            compose.onNodeWithTag("model-picker-group_folder").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("model-picker-group_folder").assertIsDisplayed()
+        }
+        repeat(2) {
+            compose.onNodeWithTag("model-picker-provider_first").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("model-picker-provider_first").assertIsDisplayed()
+        }
+    }
+
+    @Test fun lateDynamicDiscoveryAppearsWithoutReopeningThePicker() {
+        val models = mutableStateMapOf<String, List<String>>()
+        compose.setContent { MaterialTheme {
+            ModelPickerSheet(providers = listOf(LlmProviderInfo("local", "Local", ProviderType.OLLAMA, baseUrl = "")),
+                selectedProviderId = "", selectedModelId = "", dynamicModelsMap = models.toMap(),
+                conversationReasoningEffort = null, onSelectModel = { _, _ -> }, onSetReasoningEffort = {}, onDismiss = {})
+        } }
+        compose.runOnIdle { models["local"] = listOf("discovered-model") }
+        compose.onNodeWithTag("model-picker-model_local_discovered-model").assertIsDisplayed()
+    }
+
     private fun assertFolderOutline(rowCount: Int, color: Color) {
         repeat(rowCount) { index ->
             val pixels = compose.onNodeWithTag("model-picker-frame_$index").captureToImage().toPixelMap()

@@ -7,11 +7,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 import org.starfall.multigateway.data.service.MediaPlayers
 
-internal class MediaPlaybackState(val player: ExoPlayer) {
+internal class MediaPlaybackState(val player: Player) {
     var ready by mutableStateOf(false)
     var error by mutableStateOf(false)
     var playing by mutableStateOf(false)
@@ -27,11 +26,11 @@ internal class MediaPlaybackState(val player: ExoPlayer) {
 
     fun toggle() {
         if (!ready || error) return
-        if (player.playWhenReady) player.pause()
-        else {
-            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
+        if (player.playbackState == Player.STATE_ENDED) {
+            player.seekTo(0)
             player.play()
-        }
+        } else if (player.playWhenReady) player.pause()
+        else player.play()
         sync()
     }
 

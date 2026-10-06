@@ -7,7 +7,7 @@ import java.net.ServerSocket
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.*
 
-internal suspend fun awaitOAuthAuthorizationCode(
+internal suspend fun awaitLoopbackAuthorizationCode(
     redirectUri: String,
     url: String,
     state: String,

@@ -15,7 +15,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import org.starfall.multigateway.data.adapter.common.AppAuthTransactions
 import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
-import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
+import org.starfall.multigateway.data.adapter.common.awaitLoopbackAuthorizationCode
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.tools.ToolHttp
 import org.starfall.multigateway.data.tools.text
@@ -82,7 +82,7 @@ class McpOAuthService(
             discovery.metadata.authorizationEndpoint, discovery.metadata.tokenEndpoint,
             registration.clientId, REDIRECT_URI, discovery.scope, mapOf("resource" to resource))
         val code = OAuthCallbackService.keepAlive(appContext) {
-            awaitOAuthAuthorizationCode(REDIRECT_URI, request.toUri().toString(), request.state!!, openBrowser)
+            awaitLoopbackAuthorizationCode(REDIRECT_URI, request.toUri().toString(), request.state!!, openBrowser)
         }
 
         val token = exchangeAuthorizationCode(
@@ -354,7 +354,7 @@ class McpOAuthService(
         fields: Map<String, String>,
         registration: ClientRegistration
     ): JsonObject {
-        return AppAuthTransactions.exchange(http,
+        return AppAuthTransactions.exchange(appContext, http,
             AppAuthTransactions.token(endpoint, registration.clientId, fields),
             AppAuthTransactions.authentication(registration.tokenEndpointAuthMethod, registration.clientSecret))
     }

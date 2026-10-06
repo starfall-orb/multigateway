@@ -1,7 +1,5 @@
 package org.starfall.multigateway.ui.providers
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,21 +43,21 @@ internal fun ProviderModelsPane(models: List<String>, configurations: Map<String
         }
         items(models, key = { it }) { id ->
             ReorderableItem(reorderState, key = id) { _ ->
-            val model = configurations.getValue(id)
-            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()
-                    .longPressDraggableHandle(onDragStopped = onDrop).clickable { onEdit(id) }) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    EntityIcon(model.icon, Modifier.size(42.dp), text = modelInitial(id), matchName = model.displayName.ifBlank { id }, model = true)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(model.displayName.ifBlank { id }, style = MaterialTheme.typography.titleMedium, overflow = TextOverflow.Ellipsis, maxLines = 2)
-                        if (model.displayName.isNotBlank()) Text(id, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        ModelCapabilityBadges(model)
+                val model = configurations.getValue(id)
+                Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()
+                        .longPressDraggableHandle(onDragStopped = onDrop).clickable { onEdit(id) }) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        EntityIcon(model.icon, Modifier.size(42.dp), text = modelInitial(id), matchName = model.displayName.ifBlank { id }, model = true)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(model.displayName.ifBlank { id }, style = MaterialTheme.typography.titleMedium, overflow = TextOverflow.Ellipsis, maxLines = 2)
+                            if (model.displayName.isNotBlank()) Text(id, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ModelCapabilityBadges(model)
+                        }
+                        ItemOverflowMenu(onEdit = { onEdit(id) }, onDelete = { onDelete(id) }, deleteColor = MaterialTheme.colorScheme.error)
                     }
-                    ItemOverflowMenu(onEdit = { onEdit(id) }, onDelete = { onDelete(id) }, deleteColor = MaterialTheme.colorScheme.error)
                 }
-            }
             }
         }
     }

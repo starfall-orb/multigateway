@@ -11,6 +11,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.adapter.AccountProviderAdapterRegistry
 import org.starfall.multigateway.data.model.*
@@ -23,6 +24,8 @@ class LlmService(context: Context) {
     internal suspend fun <T> withOAuthSession(block: suspend () -> T): T =
         org.starfall.multigateway.data.adapter.common.OAuthCallbackService.keepAlive(appContext, block)
 
+    private val ollamaModels = OllamaModelCache(context)
+    private val ollamaDiscoveryLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
     private val attachments = AttachmentResolver(context)
     private val sdk = OfficialLlmSdk(attachments)
     private val accountAdapters = AccountProviderAdapterRegistry(context, attachments)
@@ -251,23 +254,25 @@ class LlmService(context: Context) {
         return models.values.toList()
     }
 
-    suspend fun fetchOllamaModels(baseUrl: String): List<String> {
-        return try {
-            val tagsUrl = resolveOllamaTagsUrl(baseUrl)
-            val response = httpClient.get(tagsUrl)
-            if (response.status.isSuccess()) {
-                val body = response.bodyAsText()
-                val parsed = json.parseToJsonElement(body).jsonObject
-                parsed["models"]?.jsonArray?.mapNotNull {
+    suspend fun fetchOllamaModels(baseUrl: String): List<String> =
+        ollamaDiscoveryLocks.getOrPut(resolveOllamaTagsUrl(baseUrl)) { kotlinx.coroutines.sync.Mutex() }.withLock {
+            val cached = ollamaModels.read(baseUrl)
+            if (cached != null && ollamaModels.isFresh(cached)) return@withLock cached.models
+            try {
+                val response = httpClient.get(resolveOllamaTagsUrl(baseUrl))
+                if (!response.status.isSuccess()) return@withLock cached?.models.orEmpty()
+                val parsed = json.parseToJsonElement(response.bodyAsText()).jsonObject
+                val models = parsed.getValue("models").jsonArray.mapNotNull {
                     it.jsonObject["name"]?.jsonPrimitive?.contentOrNull
-                } ?: emptyList()
-            } else {
-                emptyList()
+                }.distinct()
+                ollamaModels.write(baseUrl, models)
+                models
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                cached?.models.orEmpty()
             }
-        } catch (_: Exception) {
-            emptyList()
         }
-    }
 
     private fun filterAttachmentsForProvider(
         provider: LlmProviderInfo,

@@ -78,10 +78,11 @@ class ToolRuntimeTest {
         server.dispatcher=object:okhttp3.mockwebserver.Dispatcher(){
             override fun dispatch(request:okhttp3.mockwebserver.RecordedRequest):MockResponse {
                 if(request.method=="DELETE") return MockResponse().setResponseCode(204)
+                if(request.method=="GET") return MockResponse().setResponseCode(405)
                 val value=Json.parseToJsonElement(request.body.readUtf8()).jsonObject
                 val id=value["id"]
                 return when(value["method"]?.jsonPrimitive?.content) {
-                    "initialize" -> MockResponse().addHeader("Mcp-Session-Id","test-session").addHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{}}}")
+                    "initialize" -> MockResponse().addHeader("Mcp-Session-Id","test-session").addHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}")
                     "notifications/initialized" -> MockResponse().setResponseCode(202)
                     "tools/list" -> MockResponse().addHeader("Content-Type","text/event-stream").setBody("event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[{\"name\":\"echo\",\"inputSchema\":{\"type\":\"object\"}}]}}\n\n")
                     "tools/call" -> MockResponse().addHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"hello\"}]}}")

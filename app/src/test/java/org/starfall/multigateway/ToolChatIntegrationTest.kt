@@ -36,6 +36,7 @@ class ToolChatIntegrationTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 fun json(value: JsonElement) = MockResponse().setHeader("Content-Type", "application/json").setBody(value.toString())
                 if (request.method == "DELETE") return MockResponse().setResponseCode(204)
+                if (request.method == "GET" && request.path == "/mcp") return MockResponse().setResponseCode(405)
                 if (request.path?.startsWith("/cdn/video") == true) {
                     assertNull(request.getHeader("Authorization"))
                     return MockResponse().setHeader("Content-Type", "video/mp4").setBody(okio.Buffer().write(video))
@@ -44,7 +45,7 @@ class ToolChatIntegrationTest {
                 if (request.path == "/mcp") {
                     val result = when (body.text("method")) {
                         "notifications/initialized" -> return MockResponse().setResponseCode(202)
-                        "initialize" -> obj("protocolVersion" to str("2025-06-18"))
+                        "initialize" -> obj("protocolVersion" to str("2025-06-18"), "capabilities" to obj("tools" to obj()), "serverInfo" to obj("name" to str("test"), "version" to str("1")))
                         "tools/list" -> obj("tools" to JsonArray(listOf(obj("name" to str("extract"), "inputSchema" to obj("type" to str("object"))))))
                         "tools/call" -> obj("content" to JsonArray(listOf(obj("type" to str("text"), "text" to str(obj(
                             "success" to JsonPrimitive(true), "title" to str("Video title"),

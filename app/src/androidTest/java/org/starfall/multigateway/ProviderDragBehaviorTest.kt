@@ -162,6 +162,53 @@ class ProviderDragBehaviorTest {
             compose.onNodeWithTag("provider_p2").assertExists()
         }
     }
+    @Test fun libraryAutoscrollCrossesFolderBoundaryAndCancellationRestoresListOrder() = checkEdgeTransfer(false)
+    @Test fun libraryAutoscrollCrossesFolderBoundaryAndCancellationRestoresGridOrder() = checkEdgeTransfer(true)
+
+    private fun checkEdgeTransfer(grid: Boolean) {
+        val initial = listOf(LlmProviderInfo("outside", "Outside", ProviderType.OPENAI, baseUrl = "", sortOrder = 0)) +
+            (0..35).map { LlmProviderInfo("member-$it", "Member $it", ProviderType.OPENAI,
+                baseUrl = "", groupId = "long", sortOrder = it) } +
+            LlmProviderInfo("tail", "Tail", ProviderType.OPENAI, baseUrl = "", sortOrder = 2)
+        val writes = mutableListOf<org.starfall.multigateway.data.model.ProviderPlacement>()
+        compose.setContent { MaterialTheme {
+            ProviderScreen(providers = initial, providerGroups = listOf(ProviderGroup("long", "Long folder", 1)),
+                isGridView = grid, onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                onDeleteProvider = {}, onReorderProviders = {}, onBack = {}, onPlaceProvider = {
+                    writes += it; Result.success(Unit)
+                })
+        } }
+        compose.waitForIdle()
+        val surface = compose.onNodeWithTag("provider_list")
+        val root = surface.fetchSemanticsNode().boundsInRoot
+        val source = bounds("provider_outside").center - root.topLeft
+        fun scrollPosition() = surface.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
+        val before = scrollPosition()
+        compose.mainClock.autoAdvance = false
+        surface.performTouchInput {
+            down(source)
+            advanceEventTime(650)
+            moveTo(Offset(source.x, height - 20f))
+        }
+        repeat(15) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle() }
+        val forward = scrollPosition()
+        assertTrue("Library must scroll through folder members while the finger stays at the edge", forward > before)
+        assertTrue("Autoscroll preview must not persist", writes.isEmpty())
+        surface.performTouchInput { moveTo(Offset(source.x, 20f)) }
+        repeat(15) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle() }
+        assertTrue("Reversing at the edge must reverse autoscroll", scrollPosition() < forward)
+        surface.performTouchInput { cancel() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertTrue("Cancellation must not save membership or order", writes.isEmpty())
+        surface.performScrollToNode(hasTestTag("provider_outside"))
+        compose.onNodeWithTag("provider_outside").assertIsDisplayed()
+        compose.onNodeWithTag("dragged_provider").assertDoesNotExist()
+        val outside = bounds("provider_outside")
+        val folder = bounds("provider_group_long")
+        assertTrue("Cancelled provider must return before its original folder", outside.top <= folder.top)
+    }
+
     @get:Rule val compose = createComposeRule()
     private val providers = mutableStateOf(emptyList<LlmProviderInfo>())
     private val moves = mutableListOf<Pair<String, String?>>()

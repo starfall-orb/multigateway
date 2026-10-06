@@ -19,11 +19,11 @@ class BottomSheetScrollBoundaryTest {
         }
     }
 
-    @Test fun bothListEdgesKeepUnusedScrollAndFlingInsideTheList() = runBlocking {
+    @Test fun listStartPassesUnusedDownwardScrollAndFlingToTheSheet() = runBlocking {
         val boundary = bottomSheetListScrollBoundary()
 
         assertEquals(
-            Offset(0f, 48f),
+            Offset.Zero,
             boundary.onPostScroll(Offset.Zero, Offset(5f, 48f), NestedScrollSource.UserInput)
         )
         assertEquals(
@@ -31,7 +31,7 @@ class BottomSheetScrollBoundaryTest {
             boundary.onPostScroll(Offset.Zero, Offset(5f, -48f), NestedScrollSource.UserInput)
         )
         assertEquals(
-            Velocity(0f, 2_000f),
+            Velocity.Zero,
             boundary.onPostFling(Velocity.Zero, Velocity(50f, 2_000f))
         )
         assertEquals(

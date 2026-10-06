@@ -98,11 +98,12 @@ class ToolHardeningTest {
         server.dispatcher=object:Dispatcher() {
             override fun dispatch(request:RecordedRequest):MockResponse {
                 if(request.method=="DELETE") return MockResponse().setResponseCode(204)
+                if(request.method=="GET") return MockResponse().setResponseCode(405)
                 val v=json(request.body.readUtf8());val id=v["id"]
                 return when(v.text("method")) {
-                    "initialize" -> {inits++; MockResponse().addHeader("Mcp-Session-Id","session$inits").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\"}}")}
+                    "initialize" -> {inits++; MockResponse().addHeader("Mcp-Session-Id","session$inits").setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}")}
                     "notifications/initialized" -> MockResponse().setResponseCode(204)
-                    "tools/call" -> {calls++;if(calls==1) MockResponse().setResponseCode(404) else MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{}}")}
+                    "tools/call" -> {calls++;if(calls==1) MockResponse().setResponseCode(404) else MockResponse().setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"content\":[]}}")}
                     else -> MockResponse().setResponseCode(400)
                 }
             }
@@ -120,24 +121,25 @@ class ToolHardeningTest {
             server.dispatcher=object:Dispatcher() {
                 override fun dispatch(request:RecordedRequest):MockResponse {
                     if(request.method=="DELETE") return MockResponse().setResponseCode(204)
+                if(request.method=="GET") return MockResponse().setResponseCode(405)
                     val v=json(request.body.readUtf8());val id=v["id"]
                     return when(v.text("method")) {
-                        "initialize" -> MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\"}}")
+                        "initialize" -> MockResponse().setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{\"tools\":{}},\"serverInfo\":{\"name\":\"test\",\"version\":\"1\"}}}")
                         "notifications/initialized" -> MockResponse().setResponseCode(202)
                         else -> when(mode) {
-                            "id" -> MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":\"wrong\",\"result\":{}}")
-                            "error" -> MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"message\":\"denied\"}}")
+                            "id" -> MockResponse().setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":\"wrong\",\"result\":{\"content\":[]}}")
+                            "error" -> MockResponse().setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"error\":{\"message\":\"denied\"}}")
                             "empty" -> MockResponse().setResponseCode(204)
                             "sse-end" -> MockResponse().addHeader("Content-Type","text/event-stream").setBody(": keepalive\n\n")
                             "malformed" -> MockResponse().addHeader("Content-Type","text/event-stream").setBody("data: {broken}\n\n")
-                            else -> MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[],\"nextCursor\":\"same\"}}")
+                            else -> MockResponse().setHeader("Content-Type","application/json").setBody("{\"jsonrpc\":\"2.0\",\"id\":$id,\"result\":{\"tools\":[],\"nextCursor\":\"same\"}}")
                         }
                     }
                 }
             }
             try {
                 val session=McpService().session(McpInfo("s","s",McpProtocol.STREAMABLE_HTTP,server.url("/mcp").toString()))
-                try {assertTrue(mode,runCatching { session.tools() }.isFailure)} finally {session.close()}
+                try {assertTrue(mode,runCatching { withTimeout(3000) { session.tools() } }.isFailure)} finally {session.close()}
             } finally {server.shutdown()}
         }
     }

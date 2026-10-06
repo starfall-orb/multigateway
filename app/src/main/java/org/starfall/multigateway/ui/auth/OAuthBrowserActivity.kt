@@ -12,7 +12,7 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.adapter.common.OAuthBrowserKeepAliveService
 
-/** Hosts a browser Custom Tab in the app's task, so completing OAuth can close it automatically. */
+/** Compatibility browser host for registered HTTP loopback and device-code polling sessions. */
 class OAuthBrowserActivity : Activity() {
     private var sessionId = ""
     private var authorizationService: AuthorizationService? = null

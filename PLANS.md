@@ -405,7 +405,10 @@ Extract generic OAuth transaction mechanics behind an abstraction, then migrate 
 
 The migration is complete when:
 
-- The old custom infrastructure for each migrated subsystem is removed.
+- Old generic subsystem engines are removed. Narrow compatibility adapters are permitted only for a documented product/protocol requirement that the selected library cannot reproduce.
+- Provider dragging, positioning, move targeting and edge autoscroll use Calvin on one keyed lazy surface across folder/root boundaries; the app owns membership, persistence and cancellation rollback.
+- Arbitrary sheet height remains a product requirement. AppBottomSheet may retain the content-height/handle adapter and directional scroll boundary, while Material exclusively owns its dialog, insets, scrim and lifecycle. Direct Window/system-bar ownership is prohibited.
+- Registered HTTP loopback redirects, JSON token bodies, cleartext MCP endpoints and device-code/provider-specific protocols may retain explicit OAuth compatibility paths. Standard HTTPS form code exchange/refresh uses AppAuth; registered app-scheme redirects use AppAuth browser/redirect handling. No provider redirect registration is silently changed.
 - Existing product behavior is preserved.
 - Relevant unit/instrumentation tests pass.
 - UI interactions remain non-blocking.

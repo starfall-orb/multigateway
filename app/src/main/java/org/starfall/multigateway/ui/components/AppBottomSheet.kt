@@ -1,8 +1,11 @@
 package org.starfall.multigateway.ui.components
 
 import android.os.Build
+import android.view.Gravity
+import android.view.ViewGroup
 import android.view.View
 import android.view.WindowManager
+import android.widget.FrameLayout
 import android.graphics.drawable.ColorDrawable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -50,6 +53,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.R
 import org.starfall.multigateway.ui.theme.modalScrimColor
@@ -84,6 +89,7 @@ fun AppBottomSheet(
     dragHandleWidth: Dp = 32.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val hostView = LocalView.current
     val scrollBoundary = remember { bottomSheetListScrollBoundary() }
     val scope = rememberCoroutineScope()
     val currentDismiss by rememberUpdatedState(onDismissRequest)
@@ -104,12 +110,17 @@ fun AppBottomSheet(
     val resizeLabel = stringResource(R.string.sheet_resize)
     val dismissLabel = stringResource(R.string.sheet_dismiss)
     val scrimColor = modalScrimColor(BottomSheetDefaults.ScrimColor)
+    val statusBarBackground = scrimColor.compositeOver(MaterialTheme.colorScheme.background)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        HostStatusBarScrim(hostView, statusBarBackground)
+    }
 
     Dialog(
         onDismissRequest = ::dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-         ConfigureBottomSheetDialogWindow(scrimColor.compositeOver(MaterialTheme.colorScheme.background))
+        ConfigureBottomSheetDialogWindow(statusBarBackground)
         BoxWithConstraints(Modifier.fillMaxSize().testTag("bottom-sheet-window")) {
             val fullHeight = constraints.maxHeight
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = entrance.value }
@@ -181,6 +192,47 @@ fun AppBottomSheet(
 }
 
 @Composable
+private fun HostStatusBarScrim(hostView: View, color: Color) {
+    DisposableEffect(hostView, color) {
+        val decor = hostView.rootView as? ViewGroup ?: return@DisposableEffect onDispose { }
+        val scrim = View(hostView.context).apply {
+            setBackgroundColor(color.toArgb())
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        fun updateHeight(insets: WindowInsetsCompat?) {
+            val height = insets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
+            val params = scrim.layoutParams as? FrameLayout.LayoutParams ?: return
+            if (params.height != height) {
+                params.height = height
+                scrim.layoutParams = params
+            }
+        }
+
+        decor.addView(
+            scrim,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewCompat.getRootWindowInsets(hostView)
+                    ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0,
+                Gravity.TOP
+            )
+        )
+        ViewCompat.setOnApplyWindowInsetsListener(scrim) { _, insets ->
+            updateHeight(insets)
+            insets
+        }
+        ViewCompat.requestApplyInsets(scrim)
+
+        onDispose {
+            ViewCompat.setOnApplyWindowInsetsListener(scrim, null)
+            decor.removeView(scrim)
+        }
+    }
+}
+
+@Composable
 private fun ConfigureBottomSheetDialogWindow(statusBarBackground: Color = Color.Transparent) {
     val view = LocalView.current
     var current: View? = view
@@ -236,7 +288,9 @@ private fun ConfigureBottomSheetDialogWindow(statusBarBackground: Color = Color.
         // Dialog windows on some Android builds keep the activity's status-bar
         // surface instead of compositing the edge-to-edge scrim. Paint the same
         // composited scrim there so it remains visually continuous.
-        window.statusBarColor = statusBarBackground.toArgb()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            window.statusBarColor = statusBarBackground.toArgb()
+        }
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false

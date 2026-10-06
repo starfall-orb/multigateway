@@ -12,51 +12,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.roundToInt
 
-internal val reasoningEfforts = listOf<String?>(null, "low", "medium", "high", "xhigh")
-internal val reasoningEffortLabels = listOf("Default", "Low", "Med", "High", "X-High")
+internal val reasoningEfforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
+internal val reasoningEffortLabels = listOf("Off", "Default", "Low", "Med", "High", "X-High")
 
 internal fun reasoningEffortEnabled(effort: String?): Boolean =
     effort?.trim()?.lowercase() !in listOf("none", "off")
 
 internal fun reasoningEffortIndex(effort: String?): Int =
-    reasoningEfforts.indexOf(effort?.trim()?.lowercase()).coerceAtLeast(0)
+    if (!reasoningEffortEnabled(effort)) 0 else reasoningEfforts.indexOf(effort?.trim()?.lowercase()).takeIf { it >= 0 } ?: 1
 
 /** Changes only the conversation override; model capabilities remain untouched. */
 @Composable
 internal fun ReasoningEffortControl(effort: String?, onEffortChange: (String?) -> Unit) {
     val enabled = reasoningEffortEnabled(effort)
-    var lastEnabledEffort by remember { mutableStateOf(effort.takeIf { enabled }) }
-    LaunchedEffect(effort) {
-        if (enabled) lastEnabledEffort = effort
-    }
-    var sliderValue by remember(effort, lastEnabledEffort) {
-        mutableFloatStateOf(reasoningEffortIndex(if (enabled) effort else lastEnabledEffort).toFloat())
+    var sliderValue by remember(effort) {
+        mutableFloatStateOf(reasoningEffortIndex(effort).toFloat())
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(
-            checked = enabled,
-            onCheckedChange = { onEffortChange(if (it) lastEnabledEffort else "none") },
-            modifier = Modifier.testTag("reasoning-enabled")
-                .semantics { contentDescription = "Enable reasoning for this conversation" }
-        )
         Column(Modifier.weight(1f)) {
             Slider(
                 value = sliderValue,
                 onValueChange = {
                     sliderValue = it
-                    val selected = reasoningEfforts[it.roundToInt().coerceIn(reasoningEfforts.indices)]
-                    lastEnabledEffort = selected
-                    onEffortChange(selected)
                 },
-                enabled = enabled,
-                valueRange = 0f..4f,
-                steps = 3,
+                onValueChangeFinished = {
+                    onEffortChange(reasoningEfforts[sliderValue.roundToInt().coerceIn(reasoningEfforts.indices)])
+                },
+                valueRange = 0f..5f,
+                steps = 4,
                 modifier = Modifier.fillMaxWidth().testTag("reasoning-slider")
             )
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 reasoningEffortLabels.forEach { label ->
                     Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f))
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

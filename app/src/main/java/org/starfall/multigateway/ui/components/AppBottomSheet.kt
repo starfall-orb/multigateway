@@ -118,8 +118,13 @@ fun AppBottomSheet(
                 val drag = rememberDraggableState { delta ->
                     requestedHeight = bounds.resizedHeight(requestedHeight ?: measuredHeight.toFloat(), delta)
                 }
-                Surface(
+                    Surface(
                     modifier = modifier.align(Alignment.BottomCenter).widthIn(max = BottomSheetDefaults.SheetMaxWidth)
+                        // Keep the sheet itself above the system navigation bar. The dialog
+                        // is edge-to-edge, so padding only the content still lets the surface
+                        // and its last rows extend into the navbar on gesture/navigation-bar
+                        // configurations.
+                        .navigationBarsPadding()
                         .fillMaxWidth().testTag("app-bottom-sheet")
                         .onSizeChanged { measuredHeight = it.height }
                         .graphicsLayer { translationY = size.height * (1f - entrance.value) }

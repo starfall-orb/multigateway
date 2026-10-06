@@ -3,6 +3,9 @@ import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -392,6 +395,12 @@ fun ModelPickerSheet(
                             val last = folderId != null && flatItems.getOrNull(index + 1)?.folderId != folderId
                         Box(
                             Modifier.fillMaxWidth()
+                                .animateItem(
+                                    placementSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
                                 .testTag("model-picker-frame_$index")
                                     .then(if (folderId != null) Modifier.folderOutline(
                                         first, last, MaterialTheme.colorScheme.outline
@@ -472,7 +481,9 @@ private fun ModelPickerGroupRow(
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.fillMaxWidth().testTag("model-picker-group_${group.id}")
+        modifier = Modifier.fillMaxWidth().animateContentSize(
+            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+        ).testTag("model-picker-group_${group.id}")
             .semantics { contentDescription = toggleDescription }
             .clickable(onClick = onToggle)
     ) {
@@ -513,6 +524,9 @@ private fun ModelPickerProviderRow(
         contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+            )
             .testTag("model-picker-provider_${provider.id}")
             .clickable(onClick = onToggle)
     ) {

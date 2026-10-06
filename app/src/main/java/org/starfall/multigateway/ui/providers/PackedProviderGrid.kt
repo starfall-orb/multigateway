@@ -58,7 +58,8 @@ internal fun packedGroupPath(parts: List<Rect>, cellRects: Set<Rect>, origin: Of
     parts.forEach { rect ->
         val local = rect.translate(-origin)
         val part = Path().apply {
-            addRoundRect(RoundRect(local, CornerRadius(if (rect in cellRects) corner else corner / 2f)))
+            if (rect in cellRects) addRoundRect(RoundRect(local, CornerRadius(corner)))
+            else addRect(local)
         }
         outline = Path.combine(PathOperation.Union, outline, part)
     }

@@ -34,7 +34,10 @@ internal fun packedGroupRegions(cells: List<PackedGridCell>, bounds: Map<String,
                 // The end of one row and start of the next share the inter-row gap.
                 // This connects the stepped frame without including either outside tile.
                 if (other.top >= rect.bottom && other.left < rect.left)
-                    parts += Rect(other.left, rect.bottom, rect.right, other.top)
+                    // Only bridge the gap between the two diagonal cells. Using
+                    // the full right-hand cell here makes the outline jut out
+                    // into the next column and creates sharp zig-zag corners.
+                    parts += Rect(other.right, rect.bottom, rect.left, other.top)
                 continue
             }
             val horizontal = nextIndex == index + 1

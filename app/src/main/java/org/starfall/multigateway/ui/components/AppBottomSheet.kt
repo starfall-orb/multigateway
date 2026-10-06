@@ -3,6 +3,7 @@ package org.starfall.multigateway.ui.components
 import android.os.Build
 import android.view.View
 import android.view.WindowManager
+import android.graphics.drawable.ColorDrawable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -41,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -76,6 +80,8 @@ fun AppBottomSheet(
     modifier: Modifier = Modifier,
     shape: Shape = BottomSheetDefaults.ExpandedShape,
     containerColor: Color = BottomSheetDefaults.ContainerColor,
+    dragHandleHeight: Dp = 48.dp,
+    dragHandleWidth: Dp = 32.dp,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scrollBoundary = remember { bottomSheetListScrollBoundary() }
@@ -103,7 +109,7 @@ fun AppBottomSheet(
         onDismissRequest = ::dismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        ConfigureBottomSheetDialogWindow()
+         ConfigureBottomSheetDialogWindow(scrimColor.compositeOver(MaterialTheme.colorScheme.background))
         BoxWithConstraints(Modifier.fillMaxSize().testTag("bottom-sheet-window")) {
             val fullHeight = constraints.maxHeight
             Box(Modifier.fillMaxSize().graphicsLayer { alpha = entrance.value }
@@ -118,13 +124,13 @@ fun AppBottomSheet(
                 val drag = rememberDraggableState { delta ->
                     requestedHeight = bounds.resizedHeight(requestedHeight ?: measuredHeight.toFloat(), delta)
                 }
-                    Surface(
+                val navigationBarBottom = with(androidx.compose.ui.platform.LocalDensity.current) {
+                    WindowInsets.navigationBars.getBottom(this).toDp()
+                }
+                Surface(
                     modifier = modifier.align(Alignment.BottomCenter).widthIn(max = BottomSheetDefaults.SheetMaxWidth)
-                        // Keep the sheet itself above the system navigation bar. The dialog
-                        // is edge-to-edge, so padding only the content still lets the surface
-                        // and its last rows extend into the navbar on gesture/navigation-bar
-                        // configurations.
-                        .navigationBarsPadding()
+                        // The dialog is edge-to-edge; keep the surface background continuous
+                        // behind the transparent navbar while padding the content below.
                         .fillMaxWidth().testTag("app-bottom-sheet")
                         .onSizeChanged { measuredHeight = it.height }
                         .graphicsLayer { translationY = size.height * (1f - entrance.value) }
@@ -139,7 +145,7 @@ fun AppBottomSheet(
                         CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
                             Column(Modifier.fillMaxWidth()) {
                                 Box(
-                                    Modifier.fillMaxWidth().height(48.dp).testTag("bottom-sheet-drag-handle")
+                                     Modifier.fillMaxWidth().height(dragHandleHeight).testTag("bottom-sheet-drag-handle")
                                         .semantics {
                                             contentDescription = resizeLabel
                                             stateDescription = "${(measuredHeight * 100f / fullHeight.coerceAtLeast(1)).roundToInt()}%"
@@ -153,10 +159,11 @@ fun AppBottomSheet(
                                             }
                                         },
                                     contentAlignment = Alignment.Center
-                                ) { BottomSheetDefaults.DragHandle() }
+                                ) { BottomSheetDefaults.DragHandle(modifier = Modifier.width(dragHandleWidth)) }
                                 Column(
                                     Modifier.fillMaxWidth().nestedScroll(scrollBoundary)
-                                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
+                                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                                         .padding(bottom = navigationBarBottom),
                                     content = content
                                 )
                             }
@@ -174,7 +181,7 @@ fun AppBottomSheet(
 }
 
 @Composable
-private fun ConfigureBottomSheetDialogWindow() {
+private fun ConfigureBottomSheetDialogWindow(statusBarBackground: Color = Color.Transparent) {
     val view = LocalView.current
     var current: View? = view
     var dialogWindow: android.view.Window? = null
@@ -195,6 +202,8 @@ private fun ConfigureBottomSheetDialogWindow() {
         val oldAnimations = window.attributes.windowAnimations
         val oldNavigationBarColor = window.navigationBarColor
         val oldStatusBarColor = window.statusBarColor
+        val oldBackground = window.decorView.background
+        val oldSystemUiVisibility = window.decorView.systemUiVisibility
         val oldNavigationContrast =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isNavigationBarContrastEnforced
@@ -210,6 +219,11 @@ private fun ConfigureBottomSheetDialogWindow() {
 
         // The app owns the scrim and keyboard padding in this edge-to-edge dialog.
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+        window.decorView.systemUiVisibility = oldSystemUiVisibility or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
         window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
         window.setDimAmount(0f)
         window.setWindowAnimations(0)
@@ -219,7 +233,11 @@ private fun ConfigureBottomSheetDialogWindow() {
         )
 
         window.navigationBarColor = Color.Transparent.toArgb()
-        window.statusBarColor = Color.Transparent.toArgb()
+        // Dialog windows on some Android builds keep the activity's status-bar
+        // surface instead of compositing the edge-to-edge scrim. Paint the same
+        // composited scrim there so it remains visually continuous.
+        window.statusBarColor = statusBarBackground.toArgb()
+        window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
             window.isStatusBarContrastEnforced = false
@@ -231,6 +249,8 @@ private fun ConfigureBottomSheetDialogWindow() {
             window.setWindowAnimations(oldAnimations)
             window.navigationBarColor = oldNavigationBarColor
             window.statusBarColor = oldStatusBarColor
+            window.decorView.background = oldBackground
+            window.decorView.systemUiVisibility = oldSystemUiVisibility
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 oldNavigationContrast?.let { window.isNavigationBarContrastEnforced = it }
                 oldStatusContrast?.let { window.isStatusBarContrastEnforced = it }

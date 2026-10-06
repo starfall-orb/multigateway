@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -34,6 +35,7 @@ fun ChatAppBar(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .size(48.dp)
+                .clip(CircleShape)
                 .clickable(onClick = onOpenDrawer),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
@@ -74,6 +76,7 @@ fun ChatAppBar(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .size(48.dp)
+                .clip(CircleShape)
                 .clickable(onClick = onOpenSettings),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),

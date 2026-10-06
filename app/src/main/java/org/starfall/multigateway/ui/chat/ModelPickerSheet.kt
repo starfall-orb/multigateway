@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
@@ -95,24 +96,29 @@ private fun Modifier.folderOutline(first: Boolean, last: Boolean, color: Color):
     val top = if (first) stroke / 2 else -4.dp.toPx()
     val bottom = if (last) size.height - stroke / 2 else size.height + 4.dp.toPx()
     val radius = 18.dp.toPx().coerceAtMost((bottom - top) / 2)
-    val path = Path().apply {
-        moveTo(left, top + if (first) radius else 0f)
-        lineTo(left, bottom - if (last) radius else 0f)
-        if (last) {
-            quadraticBezierTo(left, bottom, left + radius, bottom)
-            lineTo(right - radius, bottom)
-            quadraticBezierTo(right, bottom, right, bottom - radius)
-        } else {
-            moveTo(right, bottom)
+    // Draw the two sides independently. Joining the open segments with moveTo()
+    // makes visible diagonal/kinked corners when LazyColumn spacing is present.
+    drawLine(color, Offset(left, top + if (first) radius else 0f),
+        Offset(left, bottom - if (last) radius else 0f), strokeWidth = stroke)
+    drawLine(color, Offset(right, top + if (first) radius else 0f),
+        Offset(right, bottom - if (last) radius else 0f), strokeWidth = stroke)
+    if (first || last) {
+        val path = Path().apply {
+            if (first) {
+                moveTo(left, top + radius)
+                quadraticBezierTo(left, top, left + radius, top)
+                lineTo(right - radius, top)
+                quadraticBezierTo(right, top, right, top + radius)
+            }
+            if (last) {
+                moveTo(left, bottom - radius)
+                quadraticBezierTo(left, bottom, left + radius, bottom)
+                lineTo(right - radius, bottom)
+                quadraticBezierTo(right, bottom, right, bottom - radius)
+            }
         }
-        lineTo(right, top + if (first) radius else 0f)
-        if (first) {
-            quadraticBezierTo(right, top, right - radius, top)
-            lineTo(left + radius, top)
-            quadraticBezierTo(left, top, left, top + radius)
-        }
+        drawPath(path, color, style = Stroke(stroke))
     }
-    drawPath(path, color, style = Stroke(stroke))
 }
 
 fun matchesModel(selectedModelId: String, itemModelId: String, itemDisplayName: String): Boolean {
@@ -314,14 +320,16 @@ fun ModelPickerSheet(
 
     AppBottomSheet(
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        shape = RoundedCornerShape(topStart = 56.dp, topEnd = 56.dp),
+        dragHandleHeight = 32.dp,
+        dragHandleWidth = 160.dp
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -369,7 +377,7 @@ fun ModelPickerSheet(
                 if (flatItems.isEmpty()) {
                     item(key = "empty") {
                         Box(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(

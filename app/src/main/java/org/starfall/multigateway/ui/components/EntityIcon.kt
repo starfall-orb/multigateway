@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,12 +72,16 @@ fun EntityIcon(
 }
 
 @Composable
-fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = null, fallback: ImageVector? = null, onBusyChange: (Boolean) -> Unit = {}, matchName: String? = null, model: Boolean = false) {
+fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = null, fallback: ImageVector? = null, onBusyChange: (Boolean) -> Unit = {}, matchName: String? = null, model: Boolean = false, faviconBaseUrl: String = "") {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentOnChange by rememberUpdatedState(onChange)
     val currentOnBusy by rememberUpdatedState(onBusyChange)
     var importing by remember { mutableStateOf(false) }
+    var showFavicon by remember { mutableStateOf(false) }
+    if (showFavicon) FaviconDialog(faviconBaseUrl, onSave = { id ->
+        currentOnChange(id); showFavicon = false
+    }, onBusyChange = { importing = it; currentOnBusy(it) }, onDismiss = { showFavicon = false })
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
             importing = true
@@ -96,12 +101,17 @@ fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = n
         EntityIcon(image, Modifier.size(56.dp), text, fallback, matchName, model)
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.entity_icon), style = MaterialTheme.typography.titleSmall)
-            TextButton(enabled = !importing, onClick = {
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }) {
-                Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(if (importing) R.string.icon_importing else R.string.choose_icon))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(enabled = !importing, onClick = {
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) {
+                    Icon(Icons.Outlined.Image, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(if (importing) R.string.icon_importing else R.string.choose_icon))
+                }
+                IconButton(enabled = !importing, onClick = { showFavicon = true }) {
+                    Icon(Icons.Outlined.Download, stringResource(R.string.favicon_get_logo))
+                }
             }
         }
         if (image != null) IconButton(enabled = !importing, onClick = { currentOnChange(null) }) {

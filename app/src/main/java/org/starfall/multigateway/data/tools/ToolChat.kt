@@ -28,7 +28,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 "Video generation accepts one reference image. Remove extra attachments."
             }
             require(attachments.size <= 16) { "Image generation accepts at most 16 reference images." }
-            val maxBytes = if (kind == ModelType.IMAGE_GENERATION && provider.type.isOpenAi) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES
+            val maxBytes = if (kind == ModelType.IMAGE_GENERATION && provider.type.isOpenAi && !isAgnesProvider(provider)) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES
             val inputs = llm.importToolAttachments(attachments, http.requireFiles(), maxBytes)
             if (inputs.isNotEmpty()) {
                 activity = activity.copy(arguments = buildJsonObject {

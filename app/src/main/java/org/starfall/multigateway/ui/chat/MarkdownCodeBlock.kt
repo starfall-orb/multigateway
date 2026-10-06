@@ -14,6 +14,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.WrapText
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.starfall.multigateway.R
+import org.starfall.multigateway.data.local.preferences.AppPreferences
+import org.starfall.multigateway.data.local.preferences.WordWrapMode
+import org.starfall.multigateway.ui.preview.CodePreviewActivity
+import org.starfall.multigateway.ui.preview.canPreviewCode
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,10 +39,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
+internal val LocalCodeRenderingPreferences = staticCompositionLocalOf { AppPreferences() }
+
+/** Width of the text area, excluding code block padding. Null means no wrapping. */
+internal fun codeWrapWidth(mode: WordWrapMode, viewport: Float, column: Float): Float? = when (mode) {
+    WordWrapMode.OFF -> null
+    WordWrapMode.VIEWPORT -> viewport
+    WordWrapMode.COLUMN -> column
+    WordWrapMode.BOUNDED -> minOf(viewport, column)
+}
+
 @Composable
 internal fun RenderCodeBlock(language: String, code: String, isStreaming: Boolean) {
     val context = LocalContext.current
-    var wrapCode by remember(language) { mutableStateOf(true) }
+    val preferences = LocalCodeRenderingPreferences.current
+    var sessionWrap by remember(language) { mutableStateOf(false) }
+    val mode = if (preferences.wordWrapMode == WordWrapMode.OFF && sessionWrap) WordWrapMode.VIEWPORT else preferences.wordWrapMode
+    val wrapCode = mode != WordWrapMode.OFF
+    val textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 18.sp)
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val characterWidth = remember(textStyle, density) { (measurer.measure("0".repeat(100), textStyle, softWrap = false).size.width / 100f).coerceAtLeast(1f) }
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    val highlighted by produceState(AnnotatedString(code), code, language, dark) {
+        value = withContext(Dispatchers.Default) { highlightedCode(language, code, dark) }
+    }
     var copied by remember { mutableStateOf(false) }
     val codeScrollState = rememberScrollState()
     val codePresentation = rememberStreamingTextPresentation(code)
@@ -53,9 +87,17 @@ internal fun RenderCodeBlock(language: String, code: String, isStreaming: Boolea
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = { wrapCode = !wrapCode }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Outlined.WrapText, if (wrapCode) "Disable wrapping" else "Enable wrapping",
-                            tint = if (wrapCode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                    if (preferences.wordWrapMode == WordWrapMode.OFF) {
+                        IconButton(onClick = { sessionWrap = !sessionWrap }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Outlined.WrapText, stringResource(if (sessionWrap) R.string.code_wrap_disable else R.string.code_wrap_enable),
+                                tint = if (sessionWrap) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    if (preferences.codePreviewEnabled && canPreviewCode(language)) {
+                        IconButton(onClick = { CodePreviewActivity.open(context, language, code) }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Outlined.Visibility, stringResource(R.string.preview_code),
+                                tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(16.dp))
+                        }
                     }
                     IconButton(onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -68,10 +110,15 @@ internal fun RenderCodeBlock(language: String, code: String, isStreaming: Boolea
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().then(if (wrapCode) Modifier else Modifier.horizontalScroll(codeScrollState))) {
-                Text(code, style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 18.sp),
-                    softWrap = wrapCode, modifier = Modifier.padding(12.dp).then(if (wrapCode) Modifier.fillMaxWidth() else Modifier)
-                        .then(codePresentation.modifier), onTextLayout = codePresentation.onTextLayout, color = MaterialTheme.colorScheme.onSurface)
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val viewport = with(density) { (maxWidth - 24.dp).coerceAtLeast(1.dp).toPx() }
+                val target = codeWrapWidth(mode, viewport, (characterWidth * preferences.wordWrapColumn).coerceAtMost(200_000f))
+                val bodyModifier = if (target == null) Modifier else Modifier.width(with(density) { target.toDp() } + 24.dp)
+                Box(Modifier.fillMaxWidth().then(if (mode == WordWrapMode.OFF || mode == WordWrapMode.COLUMN) Modifier.horizontalScroll(codeScrollState) else Modifier)) {
+                    Text(highlighted, style = textStyle,
+                        softWrap = wrapCode, modifier = bodyModifier.padding(12.dp).then(codePresentation.modifier),
+                        onTextLayout = codePresentation.onTextLayout, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
     }

@@ -23,6 +23,91 @@ import kotlin.math.abs
 import org.starfall.multigateway.ui.providers.ProviderScreen
 
 class ProviderDragBehaviorTest {
+    @Test fun gridPreviewChangesMembershipAndFolderFrameBeforeRelease() {
+        val items = mutableStateOf(listOf(
+            LlmProviderInfo("p1", "Outside", ProviderType.OPENAI, baseUrl = "", sortOrder = 0),
+            LlmProviderInfo("a", "A", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 0),
+            LlmProviderInfo("b", "B", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 1)))
+        val placements = mutableListOf<org.starfall.multigateway.data.model.ProviderPlacement>()
+        compose.setContent { MaterialTheme {
+            ProviderScreen(providers = items.value, providerGroups = listOf(ProviderGroup("g", "Folder", 1)),
+                isGridView = true, onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                onDeleteProvider = {}, onReorderProviders = {}, onBack = {}, onPlaceProvider = { placement ->
+                    placements += placement
+                    items.value = items.value.map { p ->
+                        val group = if (p.id == placement.providerId) placement.groupId else p.groupId
+                        p.copy(groupId = group, sortOrder = placement.groupOrders[group]?.indexOf(p.id)
+                            ?: placement.rootOrder.indexOfFirst { !it.isGroup && it.id == p.id })
+                    }.sortedBy { it.sortOrder }
+                    Result.success(Unit)
+                })
+        } }
+        compose.waitForIdle()
+        val heading = bounds("provider_group_g")
+        assertEquals(bounds("provider_p1").width, bounds("provider_a").width, 1f)
+        dragTo(bounds("provider_a").center) {
+            assertTrue("The frame must expand into the former root slot", bounds("provider_group_g").left < heading.left)
+            assertTrue("Preview must not write storage", placements.isEmpty())
+        }
+        assertEquals(1, placements.size)
+        assertEquals("g", placements.single().groupId)
+        assertEquals(listOf("a", "p1", "b"), placements.single().groupOrders["g"])
+    }
+
+    @Test fun gridFolderFillsPreviousRowAndSharesLastRowWithFollowingProvider() {
+        val items = listOf(
+            LlmProviderInfo("before", "Before", ProviderType.OPENAI, baseUrl = "", sortOrder = 0),
+            LlmProviderInfo("a", "A", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 0),
+            LlmProviderInfo("b", "B", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 1),
+            LlmProviderInfo("c", "C", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 2),
+            LlmProviderInfo("after", "After", ProviderType.OPENAI, baseUrl = "", sortOrder = 2)
+        )
+        compose.setContent { MaterialTheme {
+            ProviderScreen(providers = items, providerGroups = listOf(ProviderGroup("g", "Folder", 1)),
+                isGridView = true, onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                onDeleteProvider = {}, onReorderProviders = {}, onBack = {})
+        } }
+        compose.waitForIdle()
+        assertEquals(bounds("provider_before").top, bounds("provider_group_g").top, 1f)
+        assertTrue(bounds("provider_group_g").left > bounds("provider_before").right)
+        assertEquals(bounds("provider_a").top, bounds("provider_b").top, 1f)
+        assertEquals(bounds("provider_c").top, bounds("provider_after").top, 1f)
+        assertTrue(bounds("provider_after").left > bounds("provider_c").right)
+        compose.onNodeWithTag("provider_group_icon_g").performClick()
+        compose.onNodeWithTag("provider_a").assertDoesNotExist()
+        compose.onNodeWithTag("provider_before").assertExists()
+        compose.onNodeWithTag("provider_after").assertExists()
+    }
+
+    @Test fun providersToolbarSearchFiltersCollapsedFoldersAndRestoresThemWhenClosed() {
+        show(grid = false, grouped = true, collapsed = true)
+        compose.onNodeWithText("Providers").assertIsDisplayed()
+        val search = compose.onNodeWithContentDescription("Search providers")
+        val layout = compose.onNodeWithContentDescription("Switch to Grid View")
+        val folder = compose.onNodeWithContentDescription("Add provider group")
+        val add = compose.onNodeWithContentDescription("Add Provider")
+        assertTrue(search.fetchSemanticsNode().boundsInRoot.right <= layout.fetchSemanticsNode().boundsInRoot.left)
+        assertTrue(layout.fetchSemanticsNode().boundsInRoot.right <= folder.fetchSemanticsNode().boundsInRoot.left)
+        assertTrue(folder.fetchSemanticsNode().boundsInRoot.right <= add.fetchSemanticsNode().boundsInRoot.left)
+        search.performClick()
+        compose.onNodeWithContentDescription("Back").assertIsDisplayed()
+        layout.assertDoesNotExist()
+        folder.assertDoesNotExist()
+        add.assertDoesNotExist()
+        compose.onNodeWithTag("provider_search").performTextReplacement("first")
+        compose.onNodeWithTag("provider_p1").assertExists()
+        compose.onNodeWithTag("provider_p2").assertDoesNotExist()
+        compose.onNodeWithTag("provider_group_g2").assertDoesNotExist()
+        compose.onNodeWithTag("provider_search").performTextReplacement("no-such-provider")
+        compose.onNodeWithText("No matching providers or folders").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Close search").performClick()
+        compose.onNodeWithTag("provider_search").assertDoesNotExist()
+        compose.onNodeWithTag("provider_group_g1").assertExists()
+        compose.onNodeWithTag("provider_p1").assertDoesNotExist()
+        compose.onNodeWithTag("provider_p2").assertExists()
+        compose.runOnIdle { assertTrue(rootOrders.isEmpty()); assertTrue(memberOrders.isEmpty()) }
+    }
+
     @Test fun onlyFirstProviderInListFolderIsIndentedAndFolderCanToggleRepeatedly() {
         show(grid = false, grouped = true, bothGrouped = true)
         val first = bounds("provider_p1")
@@ -83,9 +168,11 @@ class ProviderDragBehaviorTest {
     private val rootOrders = mutableListOf<List<ProviderRootOrderItem>>()
     private val memberOrders = mutableListOf<List<String>>()
     private var cardColor = Color.Unspecified
+    private var gridMode = false
 
     private fun show(grid: Boolean, grouped: Boolean, collapsed: Boolean = false, bothGrouped: Boolean = false,
         includeFolders: Boolean = true, rootProviderBetweenFolders: Boolean = false) {
+        gridMode = grid
         providers.value = listOf(
             LlmProviderInfo("p1", "First", ProviderType.OPENAI, baseUrl = "", sortOrder = 1,
                 groupId = if (grouped) "g1" else null),
@@ -114,7 +201,16 @@ class ProviderDragBehaviorTest {
         compose.waitForIdle()
     }
 
-    private fun bounds(tag: String): Rect = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+    private fun bounds(tag: String): Rect {
+        val own = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+        if (!gridMode || !tag.startsWith("provider_group_") || tag.startsWith("provider_group_icon_")) return own
+        val groupId = tag.removePrefix("provider_group_")
+        val members = providers.value.filter { it.groupId == groupId }.flatMap {
+            compose.onAllNodesWithTag("provider_${it.id}").fetchSemanticsNodes().map { node -> node.boundsInRoot }
+        }
+        val parts = members + own
+        return Rect(parts.minOf { it.left }, parts.minOf { it.top }, parts.maxOf { it.right }, parts.maxOf { it.bottom })
+    }
 
     @Test fun providerListRetainsScrollPositionAfterReturningFromEditor() = checkReturnPosition(grid = false)
     @Test fun providerGridRetainsScrollPositionAfterReturningFromEditor() = checkReturnPosition(grid = true)
@@ -208,8 +304,8 @@ class ProviderDragBehaviorTest {
             assertTrue(rootOrders.isEmpty())
         }
         assertEquals(listOf("p1" to "g1"), moves)
-        assertTrue(rootOrders.isEmpty())
-        if (collapsed) compose.onNodeWithTag("provider_p1").assertDoesNotExist()
+        if (grid) assertEquals(1, rootOrders.size) else assertTrue(rootOrders.isEmpty())
+        if (collapsed && !grid) compose.onNodeWithTag("provider_p1").assertDoesNotExist()
         else assertEquals("g1", providers.value.first { it.id == "p1" }.groupId)
     }
 
@@ -245,7 +341,8 @@ class ProviderDragBehaviorTest {
         compose.waitForIdle()
         assertEquals(next.x, bounds("dragged_provider").center.x, 1f)
         assertEquals(next.y, bounds("dragged_provider").center.y, 1f)
-        assertEquals(folder, bounds("provider_group_g1"))
+        if (grid) assertTrue(bounds("provider_group_g1").width <= folder.width)
+        else assertEquals(folder, bounds("provider_group_g1"))
         source.performTouchInput { cancel() }
         compose.waitForIdle()
         compose.onNodeWithTag("dragged_provider").assertDoesNotExist()
@@ -258,7 +355,8 @@ class ProviderDragBehaviorTest {
         val folder = bounds("provider_group_g1")
         val last = bounds("provider_p2")
         dragTo(Offset(last.center.x, last.bottom + 24f)) {
-            assertEquals(folder, bounds("provider_group_g1"))
+            if (grid) assertTrue(bounds("provider_group_g1").width <= folder.width)
+            else assertEquals(folder, bounds("provider_group_g1"))
             assertTrue(memberOrders.isEmpty())
             assertTrue("Dragged card must be visible outside the clipped folder",
                 bounds("dragged_provider").center.y > folder.bottom)
@@ -270,7 +368,10 @@ class ProviderDragBehaviorTest {
     @Test fun providerTransfersBetweenFoldersWithoutReorderingRoot() {
         show(grid = true, grouped = true)
         val other = bounds("provider_group_g2")
-        dragTo(other.center) { assertEquals(other, bounds("provider_group_g2")) }
+        dragTo(other.center) {
+            assertTrue("Do not persist during the preview", moves.isEmpty())
+            compose.onNodeWithTag("provider_group_icon_g2").assertExists()
+        }
         assertEquals(listOf("p1" to "g2"), moves)
         assertTrue(rootOrders.isEmpty())
     }

@@ -3,6 +3,7 @@ import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem as DropdownMenuItem
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -10,6 +11,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import org.starfall.multigateway.ui.chat.RenderCodeBlock
 import androidx.compose.material.icons.outlined.Audiotrack
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Videocam
@@ -47,7 +53,11 @@ fun ModelEditScreen(
     var iconImporting by remember { mutableStateOf(false) }
     var typeExpanded by remember { mutableStateOf(false) }
     var showSampling by remember { mutableStateOf(false) }
+    var modelJsonExpanded by remember { mutableStateOf(false) }
     val trimmedId = modelId.trim()
+    val modelJson = if (initialModelId.isNotBlank() && trimmedId == initialModelId) config.modelJson else JsonObject(emptyMap())
+    val prettyJson = remember { Json { prettyPrint = true } }
+    val modelJsonCode = remember(modelJson) { prettyJson.encodeToString(JsonObject.serializer(), modelJson) }
     LaunchedEffect(trimmedId) {
         if (initialModelId.isBlank()) modelMemory.get(trimmedId)?.let { remembered ->
             config = remembered.copy(displayName = config.displayName, icon = config.icon)
@@ -72,9 +82,10 @@ fun ModelEditScreen(
                 trimmedId,
                 config.copy(
                     contextWindowTokens = contextWindow!!,
+                    modelJson = modelJson,
                     displayName = config.displayName.trim(),
                     reasoningEffort = config.reasoningEffort?.trim()?.ifEmpty { null }
-                )
+                ).normalizedForStorage()
             )
             onBack()
         }
@@ -111,7 +122,8 @@ fun ModelEditScreen(
                 text = org.starfall.multigateway.ui.chat.modelInitial(modelId),
                 onBusyChange = { iconImporting = it },
                 matchName = config.displayName.ifBlank { modelId },
-                model = true
+                model = true,
+                faviconBaseUrl = provider.baseUrl
             )
             SelectableOutlinedTextField(
                 value = modelId,
@@ -264,6 +276,27 @@ fun ModelEditScreen(
                 }
                 OutlinedButton(onClick = { showSampling = true }, modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.sampling_settings))
+                }
+            }
+            Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().testTag("model-json-toggle")
+                            .clickable { modelJsonExpanded = !modelJsonExpanded }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (modelJsonExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.model_json), style = MaterialTheme.typography.titleMedium)
+                    }
+                    if (modelJsonExpanded) {
+                        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 12.dp).testTag("model-json-code")) {
+                            RenderCodeBlock(language = "json", code = modelJsonCode, isStreaming = false)
+                        }
+                    }
                 }
             }
         }

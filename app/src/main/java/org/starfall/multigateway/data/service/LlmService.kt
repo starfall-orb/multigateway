@@ -201,7 +201,7 @@ class LlmService(context: Context) {
         fetchProviderModelCatalog(provider).map { it.id }
 
     suspend fun fetchProviderModelCatalog(provider: LlmProviderInfo): List<DiscoveredModel> {
-        accountAdapters.get(provider.type)?.let { return it.fetchModels(provider).map { id -> DiscoveredModel(id) } }
+        accountAdapters.get(provider.type)?.let { return it.fetchModelCatalog(provider) }
 
         var base = provider.baseUrl.trim().trimEnd('/')
         for (suffix in listOf("/chat/completions", "/responses", "/messages", "/models", "/chat", "/tags", "/generate")) {

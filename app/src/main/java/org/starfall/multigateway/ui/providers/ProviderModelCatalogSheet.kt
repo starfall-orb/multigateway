@@ -14,7 +14,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -29,7 +28,6 @@ import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
-import org.starfall.multigateway.ui.components.bottomSheetListScrollBoundary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,12 +40,14 @@ internal fun ProviderModelCatalogSheet(
     onSetSelection: (List<String>, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var models by remember { mutableStateOf<List<DiscoveredModel>>(emptyList()) }
+    val discoveryIdentity = listOf(provider.id, provider.type, provider.baseUrl, provider.auth,
+        provider.config.customListModelsUrl, provider.config.headers)
+    var models by remember(discoveryIdentity) { mutableStateOf<List<DiscoveredModel>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableStateOf(0) }
     var query by remember { mutableStateOf("") }
-    LaunchedEffect(refresh) {
+    LaunchedEffect(refresh, discoveryIdentity) {
         loading = true
         loadError = null
         try {
@@ -64,9 +64,8 @@ internal fun ProviderModelCatalogSheet(
         it.contains(query, ignoreCase = true) || modelsById[it]?.displayName?.contains(query, ignoreCase = true) == true
     }
     val allVisibleSelected = visibleModels.isNotEmpty() && visibleModels.all { it in selectedModels }
-    val listScrollBoundary = remember { bottomSheetListScrollBoundary() }
-    AppBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight().imePadding().padding(horizontal = 16.dp)) {
+    AppBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 IconButton(onClick = { refresh++ }, enabled = !loading) {
@@ -95,9 +94,8 @@ internal fun ProviderModelCatalogSheet(
             LazyColumn(
                 Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .testTag("provider-model-catalog-list")
-                    .nestedScroll(listScrollBoundary),
+                    .weight(1f, fill = false)
+                    .testTag("provider-model-catalog-list"),
                 contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (visibleModels.isEmpty() && !loading && loadError == null) {

@@ -2,6 +2,8 @@ package org.starfall.multigateway.ui.providers
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
@@ -12,6 +14,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material.icons.outlined.NetworkCheck
@@ -21,6 +25,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,11 +64,23 @@ fun ProviderEditScreen(
     var iconImporting by remember { mutableStateOf(false) }
     var type by remember { mutableStateOf(initialProvider.type) }
     var baseUrl by remember { mutableStateOf(initialProvider.baseUrl) }
-    var authMethod by remember { mutableStateOf(initialProvider.auth.editMethod()) }
+    var authMethod by remember { mutableStateOf(if (initialProvider.type.isAccountProvider) AuthMethod.OAUTH else initialProvider.auth.editMethod()) }
     var authName by remember { mutableStateOf(initialProvider.auth.key.orEmpty().takeIf {
         initialProvider.auth.method in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.CUSTOM_HEADER, AuthMethod.QUERY_PARAM)
     }.orEmpty().ifBlank { if (initialProvider.auth.method == AuthMethod.QUERY_PARAM) "key" else "Authorization" }) }
-    var apiKey by remember { mutableStateOf(initialProvider.auth.token) }
+    val apiKeys = remember(initialProvider.id) { ProviderApiKeysState(initialProvider.auth.token,
+        initialProvider.config.multipleApiKeys, initialProvider.config.apiKeys) }
+    var apiKey by apiKeys::currentKey
+    var showApiKeys by remember { mutableStateOf(false) }
+    fun keyIdentity(value: String) = when {
+        authMethod == AuthMethod.BEARER_TOKEN -> bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, value)
+        authMethod == AuthMethod.PLATFORM_DEFAULT && type !in listOf(ProviderType.GOOGLE, ProviderType.ANTHROPIC) -> bearerHeaderValue("Authorization", value)
+        else -> value.trim()
+    }
+
+    var oauthAccounts by remember(initialProvider.id) { mutableStateOf(initialProvider.oauthAccountsWithCurrent()) }
+    var oauthAccountId by remember(initialProvider.id) { mutableStateOf(initialProvider.auth.oauthAccountId) }
+    var showOAuthAccounts by remember { mutableStateOf(false) }
     var oauthAuthorized by remember(initialProvider.id) { mutableStateOf(initialProvider.auth.method == AuthMethod.OAUTH && initialProvider.auth.value?.isNotBlank() == true) }
     var oauthIdentity by remember(initialProvider.id) { mutableStateOf(initialProvider.auth.key?.takeIf { oauthAuthorized }) }
     var oauthMarker by remember(initialProvider.id) { mutableStateOf(initialProvider.auth.value.orEmpty().takeIf { oauthAuthorized }.orEmpty()) }
@@ -70,7 +89,7 @@ fun ProviderEditScreen(
     var oauthClearing by remember { mutableStateOf(false) }
     var oauthAuthError by remember { mutableStateOf<String?>(null) }
     var activeOAuthRequest by remember { mutableStateOf<LlmProviderInfo?>(null) }
-    fun authorization() = if (authMethod == AuthMethod.OAUTH) Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = if (oauthAuthorized) oauthMarker else "")
+    fun authorization() = if (authMethod == AuthMethod.OAUTH) Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = if (oauthAuthorized) oauthMarker else "", oauthAccountId = oauthAccountId)
         else Authorization(authMethod, if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) authName.trim() else null,
             if (authMethod == AuthMethod.BEARER_TOKEN) bearerHeaderValue(authName.ifBlank { "Authorization" }, apiKey) else apiKey.trim())
     var showTestDialog by remember { mutableStateOf(false) }
@@ -83,6 +102,7 @@ fun ProviderEditScreen(
     LaunchedEffect(initialProvider.id) { initialProvider.config.modelConfigs.forEach { (id, config) -> memory.remember(id, config, onlyIfMissing = true) } }
     var typeExpanded by remember { mutableStateOf(false) }
     var supportStream by remember { mutableStateOf(initialProvider.config.supportStream) }
+    var headersExpanded by rememberSaveable { mutableStateOf(false) }
     val headerRows = remember { mutableStateListOf<Pair<String, String>>().apply { addAll(initialProvider.config.headers.entries.map { it.key to it.value }) } }
     val pager = rememberPagerState(pageCount = { 2 })
     // This state outlives the nested model editor, retaining its scroll position.
@@ -97,13 +117,63 @@ fun ProviderEditScreen(
     val headersValid = activeHeaders.all { (key, value) -> key.isNotBlank() && key.none { it <= ' ' || it == ':' || it.code >= 127 } && value.none { it == '\r' || it == '\n' } } &&
         activeHeaders.map { it.first.lowercase() }.distinct().size == activeHeaders.size
     val parsedHeaders = if (headersValid) activeHeaders.associate { it.first.trim() to it.second } else null
-    val urlValid = baseUrl.isBlank() || runCatching { providerBase(initialProvider.copy(baseUrl = baseUrl)) }.isSuccess
+    val urlValid = type.isAccountProvider || baseUrl.isBlank() || runCatching { providerBase(initialProvider.copy(baseUrl = baseUrl)) }.isSuccess
     val authValid = apiKey.isBlank() || authMethod !in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM) || authName.isBlank() || authName.none { it <= ' ' || it == ':' || it.code >= 127 }
     val valid = urlValid && authValid && headersValid
     fun requestConfig() = initialProvider.config.copy(supportStream = supportStream, headers = parsedHeaders ?: initialProvider.config.headers,
+        multipleApiKeys = apiKeys.enabled, apiKeys = apiKeys.entries, oauthAccounts = oauthAccounts,
         modelConfigs = order.associateWith { models.getValue(it) }, modelIds = order)
-    fun draft() = initialProvider.copy(name = name.trim().ifEmpty { type.defaultName }, icon = providerIcon, type = type,
-        baseUrl = baseUrl.trim(), auth = authorization(), config = requestConfig())
+    fun draft(): LlmProviderInfo {
+        if (apiKeys.enabled && authMethod !in listOf(AuthMethod.OAUTH, AuthMethod.NONE, AuthMethod.OTHER)) apiKeys.ensureCurrent(::keyIdentity)
+        return initialProvider.copy(name = name.trim().ifEmpty { type.defaultName }, icon = providerIcon, type = type,
+            baseUrl = if (type.isAccountProvider) type.defaultBaseUrl else baseUrl.trim(), auth = authorization(), config = requestConfig())
+    }
+    fun selectOAuthAccount(account: ProviderOAuthAccount) {
+        oauthAccountId = account.id; oauthIdentity = account.identity; oauthMarker = account.marker
+        oauthAuthorized = true; oauthAuthError = null
+    }
+    suspend fun authorizeOAuth(accountId: String? = oauthAccountId, label: String? = null): Result<LlmProviderInfo> {
+        oauthAuthorizing = true; oauthAuthError = null
+        var request = draft().copy(auth = Authorization(AuthMethod.OAUTH, oauthIdentity, oauthMarker, accountId))
+        if (label != null) {
+            // Carry the draft label into the successful sign-in write alongside the token reference.
+            val entry = ProviderOAuthAccount(request.oauthCredentialId, label.trim(), oauthIdentity, oauthMarker)
+            request = request.copy(config = request.config.copy(oauthAccounts =
+                request.config.oauthAccounts.filterNot { it.id == entry.id } + entry))
+        }
+        activeOAuthRequest = request
+        try {
+            val result = onAuthorizeProvider?.invoke(request)
+                ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
+            result.onSuccess { signedIn ->
+                val authorized = signedIn.recordOAuthAccount(label)
+                providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key
+                oauthMarker = authorized.auth.value.orEmpty(); oauthAccountId = authorized.auth.oauthAccountId
+                oauthAccounts = authorized.config.oauthAccounts; baseUrl = authorized.baseUrl
+            }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
+            return result
+        } catch (e: CancellationException) {
+            oauthAuthError = context.getString(R.string.oauth_sign_in_cancelled)
+            throw e
+        } finally { activeOAuthRequest = null; oauthAuthorizing = false }
+    }
+    suspend fun removeOAuthAccount(accountId: String): Result<LlmProviderInfo> {
+        val originalAuth = authorization()
+        val account = oauthAccounts.firstOrNull { it.id == accountId }
+        oauthAuthorizing = true; oauthClearing = true; oauthAuthError = null
+        try {
+            val request = draft().copy(auth = account?.authorization() ?: originalAuth)
+            val result = onClearOAuthCredentials?.invoke(request)
+                ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
+            result.onSuccess { cleared ->
+                oauthAccounts = cleared.config.oauthAccounts
+                val auth = if ((originalAuth.oauthAccountId ?: initialProvider.id) != accountId) originalAuth else cleared.auth
+                oauthAccountId = auth.oauthAccountId; oauthIdentity = auth.key; oauthMarker = auth.value.orEmpty()
+                oauthAuthorized = !auth.value.isNullOrBlank()
+            }.onFailure { oauthAuthError = it.message ?: "Could not remove OAuth credentials." }
+            return result
+        } finally { oauthClearing = false; oauthAuthorizing = false }
+    }
     fun updateModels(updated: Map<String, ModelConfiguration>) {
         val existing = order.toSet()
         order = order.filter { it in updated } + updated.keys.filterNot { it in existing }
@@ -124,8 +194,13 @@ fun ProviderEditScreen(
                         if (pager.currentPage == 0) Button(enabled = valid && !oauthAuthorizing && !iconImporting,
                             onClick = { onSave(draft()) }, modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.common_save)) }
                         else {
-                            IconButton(onClick = { showTestDialog = true }, enabled = onTestConnection != null && baseUrl.isNotBlank() && valid && models.isNotEmpty()) {
-                                Icon(Icons.Outlined.NetworkCheck, stringResource(R.string.test_connection_lower))
+                            val testingConnection = tests.batchRunning.value || tests.running.values.any { it }
+                            IconButton(onClick = { showTestDialog = true },
+                                enabled = testingConnection || (onTestConnection != null && (type.isAccountProvider || baseUrl.isNotBlank()) && valid && models.isNotEmpty())) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    if (testingConnection && !showTestDialog) CircularProgressIndicator(Modifier.size(36.dp), strokeWidth = 2.dp)
+                                    Icon(Icons.Outlined.NetworkCheck, stringResource(R.string.test_connection_lower))
+                                }
                             }
                             IconButton(onClick = { editingModel = "" }) { Icon(Icons.Default.Add, stringResource(R.string.add_model_manually)) }
                             IconButton(onClick = { showCatalog = true }) { Icon(Icons.Outlined.FormatListBulleted, stringResource(R.string.open_model_catalog)) }
@@ -139,7 +214,7 @@ fun ProviderEditScreen(
                     }
                     HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
                         if (page == 0) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            IconPickerRow(providerIcon, { providerIcon = it }, text = providerInitials(name), onBusyChange = { iconImporting = it }, matchName = name)
+                            IconPickerRow(providerIcon, { providerIcon = it }, text = providerInitials(name), onBusyChange = { iconImporting = it }, matchName = name, faviconBaseUrl = baseUrl)
                             ExposedDropdownMenuBox(typeExpanded, { typeExpanded = !typeExpanded }, modifier = Modifier.fillMaxWidth()) {
                                 SelectableOutlinedTextField(type.displayName, {}, readOnly = true, label = { Text(stringResource(R.string.common_type)) },
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(typeExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
@@ -150,15 +225,15 @@ fun ProviderEditScreen(
                                             name = updated.name; baseUrl = updated.baseUrl; type = updated.type
                                             val auth = next.defaultAuthorization()
                                             authMethod = auth.method; authName = auth.key.orEmpty(); apiKey = auth.value.orEmpty()
-                                            oauthAuthorized = false; oauthIdentity = null; oauthMarker = ""; oauthAuthError = null
+                                            oauthAuthorized = false; oauthIdentity = null; oauthMarker = ""; oauthAccountId = null; oauthAccounts = emptyList(); oauthAuthError = null
                                         }
                                         typeExpanded = false
                                     }) }
                                 }
                             }
                             SelectableOutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                            ProviderBaseUrlField(type, baseUrl, urlValid) { baseUrl = it }
-                            if (baseUrl.trim().startsWith("http://", true)) Text(stringResource(R.string.http_unencrypted_provider_warning),
+                            if (!type.isAccountProvider) ProviderBaseUrlField(type, baseUrl, urlValid) { baseUrl = it }
+                            if (!type.isAccountProvider && baseUrl.trim().startsWith("http://", true)) Text(stringResource(R.string.http_unencrypted_provider_warning),
                                 color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             if (authMethod in listOf(AuthMethod.BEARER_TOKEN, AuthMethod.QUERY_PARAM)) SelectableOutlinedTextField(authName, { authName = it },
                                 label = { Text(if (authMethod == AuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
@@ -166,45 +241,52 @@ fun ProviderEditScreen(
                             if (!type.isAccountProvider || authMethod != AuthMethod.OAUTH) ProviderAuthField(authMethod, apiKey, !type.isAccountProvider,
                                 onMethodChange = { authMethod = it; authName = if (it == AuthMethod.QUERY_PARAM) "key" else "Authorization"; oauthAuthError = null },
                                 onValueChange = { apiKey = it }, onFocusLost = { if (authMethod == AuthMethod.BEARER_TOKEN) apiKey = bearerHeaderValue(authName.trim().ifBlank { "Authorization" }, apiKey) })
+                            if (authMethod !in listOf(AuthMethod.OAUTH, AuthMethod.NONE, AuthMethod.OTHER)) {
+                                Row(Modifier.fillMaxWidth().toggleable(value = apiKeys.enabled, role = Role.Checkbox, onValueChange = {
+                                    apiKeys.enabled = it
+                                    if (it) apiKeys.ensureCurrent(::keyIdentity)
+                                }), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = apiKeys.enabled, onCheckedChange = null)
+                                    Text(stringResource(R.string.provider_multiple_api_keys), Modifier.padding(start = 8.dp))
+                                }
+                                if (apiKeys.enabled) OutlinedButton(onClick = {
+                                    apiKeys.ensureCurrent(::keyIdentity); showApiKeys = true
+                                }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.provider_manage_api_keys)) }
+                            }
                             if (authMethod == AuthMethod.OAUTH) OAuthAccountCard(signedIn = oauthAuthorized, identity = oauthIdentity,
                                 signingIn = oauthAuthorizing && !oauthClearing, signingOut = oauthClearing, canSignIn = onAuthorizeProvider != null,
                                 canSignOut = onClearOAuthCredentials != null, canCancelSignIn = onCancelProviderAuthorization != null, error = oauthAuthError,
                                 onSignIn = rememberOAuthStart { scope.launch {
-                                    oauthAuthorizing = true; oauthAuthError = null
-                                    val request = draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }, auth = Authorization(AuthMethod.OAUTH, key = oauthIdentity, value = oauthMarker))
-                                    activeOAuthRequest = request
-                                    try {
-                                        val result = onAuthorizeProvider?.invoke(request)
-                                            ?: Result.failure(IllegalStateException("OAuth is unavailable for this provider."))
-                                        result.onSuccess { authorized -> providerPersisted = true; oauthAuthorized = true; oauthIdentity = authorized.auth.key;
-                                            oauthMarker = authorized.auth.value.orEmpty(); baseUrl = authorized.baseUrl
-                                        }.onFailure { oauthAuthError = it.message ?: "OAuth authorization failed." }
-                                    } catch (_: CancellationException) {
-                                    } finally {
-                                        activeOAuthRequest = null
-                                        oauthAuthorizing = false
-                                    }
+                                    try { authorizeOAuth() } catch (_: CancellationException) { }
                                 } }, onCancelSignIn = {
                                     activeOAuthRequest?.let { onCancelProviderAuthorization?.invoke(it) }
-                                }, onSignOut = { scope.launch {
-                                    oauthAuthorizing = true; oauthClearing = true; oauthAuthError = null
-                                    val result = onClearOAuthCredentials?.invoke(draft().copy(baseUrl = baseUrl.trim().ifEmpty { type.defaultBaseUrl }))
-                                        ?: Result.failure(IllegalStateException("OAuth credential removal is unavailable."))
-                                    result.onSuccess { oauthAuthorized = false; oauthIdentity = null; oauthMarker = "" }
-                                        .onFailure { oauthAuthError = it.message ?: "Could not remove OAuth credentials." }
-                                    oauthClearing = false; oauthAuthorizing = false
-                                } })
+                                }, onSignOut = { scope.launch { removeOAuthAccount(oauthAccountId ?: initialProvider.id) } })
+                            if (authMethod == AuthMethod.OAUTH) {
+                                Row(Modifier.fillMaxWidth().toggleable(value = apiKeys.enabled, role = Role.Checkbox,
+                                    enabled = !oauthAuthorizing, onValueChange = { apiKeys.enabled = it }),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = apiKeys.enabled, onCheckedChange = null, enabled = !oauthAuthorizing)
+                                    Text(stringResource(R.string.provider_multiple_accounts), Modifier.padding(start = 8.dp))
+                                }
+                                if (apiKeys.enabled) OutlinedButton(onClick = { showOAuthAccounts = true },
+                                    enabled = !oauthAuthorizing, modifier = Modifier.fillMaxWidth()) {
+                                    Text(stringResource(R.string.provider_manage_accounts))
+                                }
+                            }
                             HorizontalDivider()
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(stringResource(R.string.stream), Modifier.weight(1f).padding(end = 12.dp))
                                 Switch(supportStream, onCheckedChange = { supportStream = it })
                             }
                             HorizontalDivider()
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(Modifier.fillMaxWidth().clickable { headersExpanded = !headersExpanded }
+                                .semantics { stateDescription = if (headersExpanded) "Expanded" else "Collapsed" }, verticalAlignment = Alignment.CenterVertically) {
+                                Icon(if (headersExpanded) Icons.Default.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                                 Text(stringResource(R.string.custom_headers), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                IconButton(onClick = { headerRows.add("" to "") }) { Icon(Icons.Default.Add, stringResource(R.string.add_header)) }
+                                if (headersExpanded) IconButton(onClick = { headerRows.add("" to "") }) { Icon(Icons.Default.Add, stringResource(R.string.add_header)) }
                             }
-                            headerRows.forEachIndexed { index, row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            if (headersExpanded) headerRows.forEachIndexed { index, row -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 SelectableOutlinedTextField(row.first, { headerRows[index] = it to headerRows[index].second }, label = { Text(stringResource(R.string.common_key)) }, singleLine = true, modifier = Modifier.weight(1f))
                                 SelectableOutlinedTextField(row.second, { headerRows[index] = headerRows[index].first to it }, label = { Text(stringResource(R.string.common_value)) }, singleLine = true, modifier = Modifier.weight(1f))
@@ -217,14 +299,25 @@ fun ProviderEditScreen(
                     }
                 }
             }
+            if (showOAuthAccounts) ProviderOAuthAccountsDialog(
+                accounts = oauthAccounts, selectedId = (oauthAccountId ?: initialProvider.id).takeIf { oauthAuthorized },
+                canAuthorize = onAuthorizeProvider != null, canDelete = onClearOAuthCredentials != null,
+                onSelect = { selectOAuthAccount(it); showOAuthAccounts = false },
+                onSaveLabel = { id, label -> oauthAccounts = oauthAccounts.map { if (it.id == id) it.copy(label = label.trim()) else it } },
+                onAuthorize = { id, label -> authorizeOAuth(id ?: "${initialProvider.id}:${java.util.UUID.randomUUID()}", label) },
+                onCancelAuthorization = { activeOAuthRequest?.let { onCancelProviderAuthorization?.invoke(it) } },
+                onDelete = { removeOAuthAccount(it) }, onDismiss = { showOAuthAccounts = false }
+            )
+            if (showApiKeys) ProviderApiKeysDialog(apiKeys, ::keyIdentity, onDismiss = { showApiKeys = false })
             if (showTestDialog) ModelConnectionDialog(draft().copy(name = name.trim().ifEmpty { "Provider" }), tests, onTestConnection != null,
                 onRemoveModels = { updateModels(models - it) }, onDismiss = { showTestDialog = false })
             if (showCatalog) ProviderModelCatalogSheet(initialProvider.copy(name = name, type = type, baseUrl = baseUrl.trim(), auth = authorization(), config = requestConfig()),
                 models.keys, onFetchModels, onCatalogLoaded = { discovered ->
                     catalog = discovered.associateBy { it.id }
                     updateModels(models.mapValues { (id, config) -> val metadata = catalog[id]
-                        config.copy(contextWindowTokens = metadata?.contextWindowTokens ?: config.contextWindowTokens,
-                            displayName = config.displayName.ifBlank { metadata?.displayName.orEmpty() }) })
+                        config.copy(modelJson = metadata?.metadata ?: config.modelJson,
+                            contextWindowTokens = metadata?.contextWindowTokens ?: config.contextWindowTokens,
+                            displayName = config.displayName.ifBlank { metadata?.displayName.orEmpty() }).normalizedForStorage() })
                 }, onToggle = { id -> updateModels(if (id in models) models - id else models + (id to memory.configurationFor(catalog[id] ?: DiscoveredModel(id)))) },
                 onSetSelection = { ids, selected -> updateModels(if (selected) models + ids.associateWith { models[it] ?: memory.configurationFor(catalog[it] ?: DiscoveredModel(it)) } else models - ids.toSet()) },
                 onDismiss = { showCatalog = false })

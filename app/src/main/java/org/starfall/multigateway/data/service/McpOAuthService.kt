@@ -1,7 +1,6 @@
 package org.starfall.multigateway.data.service
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -16,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
 import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
 import org.starfall.multigateway.data.model.*
@@ -27,9 +27,7 @@ class McpOAuthService(
     private val http: ToolHttp = ToolHttp(),
     private val openBrowser: suspend (String) -> Unit = { url ->
         withContext(Dispatchers.Main) {
-            context.applicationContext.startActivity(
-                Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+            OAuthBrowser.open(context.applicationContext, url)
         }
     }
 ) {

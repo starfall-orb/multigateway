@@ -42,6 +42,19 @@ not make a remote MCP server able to read an app-private file.
   streamed image edit completions. GPT image inputs are capped below 50 MiB each.
   DALL·E 2 uses one square PNG under 4 MiB and the `image` part; DALL·E 3 editing
   is rejected. See the [image edits reference](https://developers.openai.com/api/reference/resources/images/methods/edit).
+- Agnes Image [2.0 Flash](https://wiki.agnes-ai.com/en/docs/agnes-image-20-flash),
+  [2.1 Flash](https://wiki.agnes-ai.com/en/docs/agnes-image-21-flash), and
+  [2.5 Flash](https://wiki.agnes-ai.com/en/docs/agnes-image-25-flash) use JSON
+  `/v1/images/generations` for generation, editing, and composition. Attached
+  images are encoded as Data URIs in `extra_body.image`; public HTTPS references
+  can also be set there through Advanced JSON. The complete inline request is
+  capped at 20 MiB before reading attachment bytes into memory (an app limit).
+  `size` defaults to `1024x1024`; image settings expose resolution tiers, `ratio`,
+  `return_base64` for text-to-image, and `extra_body.response_format` (`url` or
+  `b64_json`). The output format stays nested inside `extra_body`. URL downloads
+  and Base64 results both become stored tool files. Attachments and configured
+  reference URLs cannot be supplied together. Both direct image mode and the
+  default image tool share this adapter.
 - Gemini image editing uses `contents[].parts[].inlineData` alongside the prompt,
   preserving image configuration and output modalities. The complete inline
   request is capped at 20 MiB, with an aggregate size check before reading image
@@ -49,18 +62,7 @@ not make a remote MCP server able to read an app-private file.
   images. See the [Gemini image editing guide](https://ai.google.dev/gemini-api/docs/image-generation?hl=en).
 - OpenAI-compatible `/videos` requests send the resolved image as the multipart
   `input_reference` file part, with a storage filename and verified MIME type.
-  Gateways implementing this multipart interface (including `MiniMax-H3` aliases)
-  keep using this adapter. See the [H3-compatible endpoint reference](https://docs.aiupnode.com/api/video/hailuo.html).
-- The [standalone H3 API](https://h3video.cc.cd/docs#/Videos/create_video_v1_videos_post)
-  uses JSON `POST /v1/videos`, with an HTTPS or base64 data-URL `image`.
-  Models `h3-6s`, `h3-10s`, and `h3-15s` select their matching duration and `9:16`
-  output. A source image is required. Attached images become data URLs; no local
-  filesystem path is sent. Large attached images are reduced to the advertised
-  0.35 MiB upload budget (up to 1280 pixels) without modifying the original file.
-  Tasks are polled via `/v1/videos/{id}` and downloaded
-  through the authenticated `/content` endpoint. Configure an API password with
-  Bearer authorization or the custom `X-API-Password` header. If the server enables
-  Turnstile, a valid human verification token is still required (`cf_token`).
+  Gateways implementing this multipart interface use this adapter.
 - [Agnes Video 2.5](https://wiki.agnes-ai.com/en/docs/agnes-video-25) and
   [2.5 Flash](https://wiki.agnes-ai.com/en/docs/agnes-video-25-flash) use JSON
   `POST /v1/videos`, with `mode` (`text`, `keyframe`, or `reference`). Agnes tasks
@@ -69,24 +71,25 @@ not make a remote MCP server able to read an app-private file.
   never forwarded to a different download origin. Set an OpenAI-compatible
   provider base URL to `https://apihub.agnes-ai.com/v1` and select
   `agnes-video-2.5` or `agnes-video-2.5-flash` with video generation model type.
-  The retired v2.0 model is rejected with a migration message.
   **Agnes currently requires public media URLs:** local attachments are rejected
   before task submission, rather than sent as unsupported base64/multipart.
   Set first/last-frame URLs in Video settings, reference arrays in Advanced JSON,
   or pass the optional `input_image_url` tool argument. Do not supply both
-  `input_image` and `input_image_url`. H3 also accepts `input_image_url`.
+  `input_image` and `input_image_url`.
   Video settings are saved separately per provider/model and used by both direct
   video mode and the default video tool. Defaults are 5 seconds, 720P, 16:9;
   Flash supports only 720P. Frame/reference fields infer their matching mode.
 
-Video protocol selection is automatic: standalone H3 model IDs and Agnes video
-model IDs work through custom proxy hosts; the known H3 and Agnes hosts are also
-recognized. No manual protocol selector is required. Video settings are optional
-generation options, not adapter configuration.
+Agnes image and video protocols are selected only when the provider URL host is
+`apihub.agnes-ai.com`; the model name never selects the adapter. Other hosts use
+their configured provider protocol even when a model has an Agnes name. The model
+ID still specifies the requested model and its documented limits (for example,
+Video 2.5 Flash only accepts 720P). Configure `https://apihub.agnes-ai.com/v1`;
+a bare Agnes origin also gets `/v1` automatically.
+
 - Google/Veo requests include `instances[].image.inlineData` containing `mimeType`
   and base64 `data`. See the [Gemini Veo REST examples](https://ai.google.dev/gemini-api/docs/veo).
-- Omitting `input_image` preserves text-to-video requests except for standalone
-  H3, which requires a source image. Other provider protocols
+- Omitting `input_image` preserves text-to-video requests. Other provider protocols
   return an image-to-video capability error before attempting an upload. Compatible
   servers can still reject inputs their selected video model does not support;
   those API errors return to the model as normal tool errors.
@@ -108,9 +111,16 @@ remains 256 MiB for generated/downloaded files.
 ## Verification
 
 `MediaInputReferenceTest` covers schema/argument validation, MIME and size checks,
-path and symlink rejection, OpenAI-compatible and H3 multipart uploads,
+path and symlink rejection, OpenAI-compatible multipart uploads,
 text-to-video, Google payload/upload behavior, unsupported providers, and retained
 references in shortened tool results.
+
+`AgnesMediaTest` checks URL-based protocol selection, JSON generation/editing
+payloads for all three documented image models and custom model IDs, URL/Base64
+outputs, CDN credential isolation, and input/settings validation. `VideoProtocolTest`
+checks Agnes task creation and polling using `video_id` and `model_name`, Flash
+limits, mode validation, cancellation, and generic routing for Agnes-named models
+on other hosts. `DirectMediaAttachmentTest` covers the direct Agnes image/video modes.
 
 `MediaToolChainingTest` runs both attachment-to-video and
 image-generation-to-video through the real tool loop with a mock HTTP server. It

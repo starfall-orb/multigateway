@@ -10,6 +10,7 @@ import org.starfall.multigateway.data.adapter.common.*
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.AttachmentResolver
 import org.starfall.multigateway.data.tools.text
+import org.starfall.multigateway.data.service.discoveredModel
 
 internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentResolver) : OAuthAccountAdapter(
     context, attachments, ProviderType.GITHUB_COPILOT, CLIENT_ID, "", "", "read:user", 0, ""
@@ -50,7 +51,7 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
                 }
             }
             val authorizedToken = token ?: error("GitHub authorization timed out")
-            withContext(Dispatchers.IO) { store.save(provider.id, authorizedToken) }
+            withContext(Dispatchers.IO) { store.save(provider.oauthCredentialId, authorizedToken) }
             authorized(provider, authorizedToken)
         }
     }
@@ -62,27 +63,27 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
                 "User-Agent" to "opencode/1.2.27", "Openai-Intent" to "conversation-edits",
                 "X-GitHub-Api-Version" to "2026-06-01", "x-initiator" to "user")))
     }
-    private val endpoints = java.util.concurrent.ConcurrentHashMap<String, ProviderType>()
-
     override suspend fun prepareModelProvider(provider: LlmProviderInfo, modelName: String): LlmProviderInfo {
-        if (!endpoints.containsKey(provider.id + ":" + modelName)) fetchModels(provider)
+        // Resolve against the current account's live catalog; never reuse another account's routing.
+        val catalog = fetchModelCatalog(provider)
+        val model = catalog.firstOrNull { it.id == modelName }
+            ?: error("Copilot model '$modelName' is unavailable for the selected account or disabled by its policy. Refresh models and select an available model.")
+        val supported = (model.metadata["supported_endpoints"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         val wire = prepareAuthenticatedProvider(provider)
-        val type = endpoints[provider.id + ":" + modelName] ?: ProviderType.OPENAI
+        val type = copilotProtocol(modelName, supported)
         return wire.copy(type = type,
             auth = if (type == ProviderType.ANTHROPIC) Authorization(AuthMethod.CUSTOM_HEADER, "Authorization", "Bearer ${wire.auth.token}") else wire.auth,
             config = wire.config.copy(headers = wire.config.headers + mapOf("anthropic-beta" to "interleaved-thinking-2025-05-14")))
     }
 
-    override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
+    override suspend fun fetchModels(provider: LlmProviderInfo): List<String> = fetchModelCatalog(provider).map { it.id }
+
+    override suspend fun fetchModelCatalog(provider: LlmProviderInfo): List<DiscoveredModel> {
         val wire = prepareAuthenticatedProvider(provider)
-        val models = (http.json(http.request(wire.baseUrl.trimEnd('/') + "/models", wire).get().build())["data"] as? JsonArray).orEmpty()
-        return models.mapNotNull {
-            val item = it.jsonObject
-            val id = item.text("id").takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val supported = (item["supported_endpoints"] as? JsonArray).orEmpty().map { endpoint -> endpoint.jsonPrimitive.content }
-            endpoints[provider.id + ":" + id] = copilotProtocol(id, supported)
-            id
-        }
+        val response = http.json(http.request(wire.baseUrl.trimEnd('/') + "/models", wire).get().build())
+        val models = response["data"] as? JsonArray ?: error("Copilot returned an unsupported model catalog")
+        return models.mapNotNull { (it as? JsonObject)?.let(::copilotDiscoveredModel) }.distinctBy { it.id }
     }
     override fun normalizeToolRequest(sourceProvider: LlmProviderInfo, wireProvider: LlmProviderInfo,
         body: JsonObject, systemPrompt: String): JsonObject {
@@ -118,11 +119,6 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
         return wireProvider.copy(config = wireProvider.config.copy(headers = headers))
     }
 
-    override fun clearCredentials(providerId: String) {
-        super.clearCredentials(providerId)
-        endpoints.keys.removeAll { it.startsWith("$providerId:") }
-    }
-
     private companion object { const val CLIENT_ID = "Ov23li8tweQw6odWQebz" }
 }
 
@@ -130,7 +126,17 @@ internal class GitHubCopilotAdapter(context: Context, attachments: AttachmentRes
 internal fun copilotProtocol(id: String, supported: List<String>): ProviderType = when {
     "/v1/messages" in supported || (supported.isEmpty() && id.contains("claude")) -> ProviderType.ANTHROPIC
     ("/responses" in supported && "/chat/completions" !in supported) ||
-        (Regex("^gpt-(\\d+)(?:[.-]|$)").find(id)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 5 } == true &&
+        (supported.isEmpty() && Regex("^gpt-(\\d+)(?:[.-]|$)").find(id)?.groupValues?.get(1)?.toIntOrNull()?.let { it >= 5 } == true &&
             !id.startsWith("gpt-5-mini")) -> ProviderType.OPENAI_RESPONSES
     else -> ProviderType.OPENAI
+}
+
+internal fun copilotDiscoveredModel(item: JsonObject): DiscoveredModel? {
+    val id = item.text("id").takeIf(String::isNotBlank) ?: return null
+    val policy = item["policy"] as? JsonObject
+    if (policy?.text("state")?.lowercase() in listOf("disabled", "blocked", "unavailable")) return null
+    if ((item["model_picker_enabled"] as? JsonPrimitive)?.booleanOrNull == false) return null
+    val capabilities = item["capabilities"] as? JsonObject
+    if (capabilities?.text("type")?.lowercase() in listOf("embeddings", "embedding")) return null
+    return discoveredModel(id, item)
 }

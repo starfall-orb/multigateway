@@ -2,11 +2,19 @@ package org.starfall.multigateway.data.tools
 
 import kotlinx.serialization.json.*
 import org.starfall.multigateway.data.model.ProviderType
+import org.starfall.multigateway.data.model.LlmProviderInfo
 
 data class ImageOptionField(
     val path: String, val label: String, val kind: String = "string",
     val choices: List<String> = emptyList(), val min: Double? = null, val max: Double? = null
 )
+
+fun imageOptionFields(provider: LlmProviderInfo, model: String): List<ImageOptionField> =
+    if (isAgnesProvider(provider)) agnesImageOptionFields() else imageOptionFields(provider.type, model)
+
+fun validateImageOptions(provider: LlmProviderInfo, model: String, options: JsonObject) {
+    if (isAgnesProvider(provider)) validateAgnesImageOptions(options) else validateImageOptions(provider.type, model, options)
+}
 
 // Endpoint body names, not SDK-specific aliases.
 // https://developers.openai.com/api/reference/resources/images/methods/generate

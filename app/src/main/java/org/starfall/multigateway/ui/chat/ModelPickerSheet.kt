@@ -1,6 +1,5 @@
 package org.starfall.multigateway.ui.chat
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
-import org.starfall.multigateway.ui.components.bottomSheetListScrollBoundary
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -36,7 +35,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -46,7 +44,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.DEFAULT_CONTEXT_WINDOW_TOKENS
@@ -124,6 +121,10 @@ fun matchesModel(selectedModelId: String, itemModelId: String, itemDisplayName: 
         m.substringAfterLast('/') == s.substringAfterLast('/')
 }
 
+internal val chatModelPickerFilter: (LlmProviderInfo, String, ModelConfiguration) -> Boolean = { _, _, config ->
+    config.modelType == org.starfall.multigateway.data.model.ModelType.TEXT_GENERATION
+}
+
 fun computeModelPickerItems(
     providers: List<LlmProviderInfo>,
     providerGroups: List<ProviderGroup>,
@@ -175,7 +176,7 @@ fun computeModelPickerItems(
     }
 
     val forceExpanded = (normalizedQuery.isNotBlank() && expandSearchResults) || providerFilterId != null
-    fun modelItems(node: ProviderNode, depth: Int): List<ModelPickerItem> =
+    fun modelItems(node: ProviderNode, depth: Int): List<ModelPickerItem.Model> =
         node.models.map { modelId ->
             val config = node.provider.config.modelConfigs[modelId] ?: ModelConfiguration()
             val isSelected = if (hasExactProviderMatch) {
@@ -194,12 +195,14 @@ fun computeModelPickerItems(
                 if (nodes.isEmpty()) return@forEach
 
                 add(ModelPickerItem.Group(group, nodes.size))
-                if (!forceExpanded && group.id in collapsedGroupIds) return@forEach
-
+                val groupCollapsed = !forceExpanded && group.id in collapsedGroupIds
                 nodes.forEach { node ->
-                    add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 1))
-                    if (forceExpanded || node.provider.id !in collapsedProviderIds) {
-                        addAll(modelItems(node, depth = 2))
+                    val models = modelItems(node, depth = 2)
+                    if (!groupCollapsed || models.any { it.isSelected }) {
+                        add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 1))
+                        addAll(if (groupCollapsed || (!forceExpanded && node.provider.id in collapsedProviderIds)) {
+                            models.filter { it.isSelected }
+                        } else models)
                     }
                 }
             }
@@ -208,9 +211,10 @@ fun computeModelPickerItems(
             .filter { it.provider.groupId == null || it.provider.groupId !in groupById }
             .forEach { node ->
                 add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 0))
-                if (forceExpanded || node.provider.id !in collapsedProviderIds) {
-                    addAll(modelItems(node, depth = 1))
-                }
+                val models = modelItems(node, depth = 1)
+                addAll(if (!forceExpanded && node.provider.id in collapsedProviderIds) {
+                    models.filter { it.isSelected }
+                } else models)
             }
     }
 }
@@ -281,14 +285,22 @@ fun ModelPickerSheet(
     }
 
     val targetIndex = remember(flatItems, selectedProviderId, selectedModelId) {
-        flatItems.indexOfFirst {
+        val modelIndex = flatItems.indexOfFirst {
             it is ModelPickerItem.Model && it.isSelected
-        }.takeIf { it >= 0 } ?: 0
+        }
+        // Keep the selected model's visible parent headers in view when opening the picker.
+        when {
+            modelIndex < 0 -> 0
+            flatItems.getOrNull(modelIndex - 1) is ModelPickerItem.Provider -> {
+                if (flatItems.getOrNull(modelIndex - 2) is ModelPickerItem.Group) modelIndex - 2
+                else modelIndex - 1
+            }
+            else -> modelIndex
+        }
     }
     val listState = remember(targetIndex) {
         LazyListState(firstVisibleItemIndex = targetIndex)
     }
-    val listScrollBoundary = remember { bottomSheetListScrollBoundary() }
 
     LaunchedEffect(query) {
         if (query.isNotBlank()) listState.scrollToItem(0)
@@ -299,14 +311,11 @@ fun ModelPickerSheet(
 
     AppBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight()
-                .imePadding()
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
@@ -349,16 +358,15 @@ fun ModelPickerSheet(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .testTag("model-picker-list")
-                    .nestedScroll(listScrollBoundary),
+                    .weight(1f, fill = false)
+                    .testTag("model-picker-list"),
                 contentPadding = PaddingValues(start = 20.dp, top = 10.dp, end = 20.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (flatItems.isEmpty()) {
                     item(key = "empty") {
                         Box(
-                            modifier = Modifier.fillParentMaxSize(),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -605,15 +613,11 @@ private fun ModelPickerCard(
                 }
             }
 
-            // Expanded section for currently selected model: Reasoning Effort (only if reasoning is supported/enabled)
+            // Keep the control available when the conversation disables reasoning on a thinking model.
             if (showReasoningEffort && isSelected && config.supportsThinking) {
-                val efforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
-                val labels = listOf("Off", "Auto", "Low", "Medium", "High", "Extra high")
-                val currentEffortNormalized = conversationReasoningEffort?.lowercase()?.trim()
-                val initialIndex = efforts.indexOfFirst { it == currentEffortNormalized }.takeIf { it >= 0 } ?: 1
-                var sliderValue by remember(conversationReasoningEffort) { mutableFloatStateOf(initialIndex.toFloat()) }
-                val activeIndex = sliderValue.roundToInt().coerceIn(0, efforts.size - 1)
-                val activeLabel = labels[activeIndex]
+                val activeLabel = if (reasoningEffortEnabled(conversationReasoningEffort)) {
+                    reasoningEffortLabels[reasoningEffortIndex(conversationReasoningEffort)]
+                } else "Off"
 
                 Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
@@ -656,41 +660,10 @@ private fun ModelPickerCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Slider(
-                    value = sliderValue,
-                    onValueChange = {
-                        sliderValue = it
-                        val step = it.roundToInt().coerceIn(0, efforts.size - 1)
-                        onSetReasoningEffort(efforts[step])
-                    },
-                    valueRange = 0f..5f,
-                    steps = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                    )
+                ReasoningEffortControl(
+                    effort = conversationReasoningEffort,
+                    onEffortChange = onSetReasoningEffort
                 )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    labels.forEach { label ->
-                        Text(
-                            text = when (label) {
-                                "Extra high" -> "X-High"
-                                "Medium" -> "Med"
-                                else -> label
-                            },
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
         }
     }

@@ -1,7 +1,6 @@
 package org.starfall.multigateway.data.adapter.common
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -45,7 +44,7 @@ internal abstract class OAuthAccountAdapter(
     catch (e: Exception) { Result.failure(e) }
 
     protected open suspend fun openBrowser(url: String) = withContext(Dispatchers.Main) {
-        appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        OAuthBrowser.open(appContext, url)
     }
 
     override suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo> = result {
@@ -69,13 +68,13 @@ internal abstract class OAuthAccountAdapter(
             val code = awaitCode(url, state)
             val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
                 "redirect_uri" to redirectUri, "code_verifier" to verifier, "state" to state)))
-            withContext(Dispatchers.IO) { store.save(provider.id, token) }
+            withContext(Dispatchers.IO) { store.save(provider.oauthCredentialId, token) }
             authorized(provider, token)
         }
     }
 
     protected fun authorized(provider: LlmProviderInfo, token: AccountTokenState) = provider.copy(
-        auth = Authorization(AuthMethod.OAUTH, key = token.email, value = marker))
+        auth = Authorization(AuthMethod.OAUTH, key = token.email, value = marker, oauthAccountId = provider.auth.oauthAccountId))
 
     protected open suspend fun enrichToken(token: AccountTokenState): AccountTokenState = token
 
@@ -83,11 +82,11 @@ internal abstract class OAuthAccountAdapter(
         require(provider.type == providerType && provider.auth.method == AuthMethod.OAUTH && provider.auth.value == marker) {
             "${providerType.displayName} is not authorized. Sign in from Provider settings."
         }
-        val current = store.load(provider.id) ?: error("Credentials are missing. Sign in again.")
+        val current = store.load(provider.oauthCredentialId) ?: error("Credentials are missing. Sign in again.")
         if (current.expiresAt != null && current.expiresAt <= System.currentTimeMillis() + 60_000) {
             require(current.refreshToken.isNotBlank()) { "Authorization expired. Sign in again." }
             exchange(mapOf("grant_type" to "refresh_token", "refresh_token" to current.refreshToken), current)
-                .also { store.save(provider.id, it) }
+                .also { store.save(provider.oauthCredentialId, it) }
         } else current
     }
 

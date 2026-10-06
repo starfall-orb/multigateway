@@ -25,7 +25,7 @@ class ModelConfigurationMemoryTest {
             temperature = 0.3, topP = 0.8, supportStream = false, contextWindowTokens = 64000)
         store.remember("first-provider/Speech-Model", config)
         assertEquals("speech-model", rememberedModelName("second-provider/Speech-Model"))
-        assertEquals(config, ModelConfigurationMemory(context).get("second-provider/speech-model"))
+        assertEquals(config.normalizedForStorage(), ModelConfigurationMemory(context).get("second-provider/speech-model"))
         val discovered = DiscoveredModel("third-provider/speech-model", contextWindowTokens = 32000,
             displayName = "API voice model", metadata = buildJsonObject { put("owned_by", "vendor") })
         val restored = store.configurationFor(discovered)
@@ -33,9 +33,22 @@ class ModelConfigurationMemoryTest {
         assertFalse(restored.supportsToolCalls)
         assertFalse(restored.supportsThinking)
         assertTrue(restored.supportsAudioInput)
-        assertEquals(32000, restored.contextWindowTokens)
+        assertEquals(DEFAULT_CONTEXT_WINDOW_TOKENS, restored.contextWindowTokens)
+        assertEquals(discovered.metadata, restored.modelJson)
         assertEquals("API voice model", restored.displayName)
         assertEquals(0.3, restored.temperature!!, 0.0)
+    }
+
+    @Test fun portableMemoryDoesNotCopyRawJsonFromAnotherProvider() {
+        val store = ModelConfigurationMemory(context)
+        val raw = buildJsonObject { put("owned_by", "first-provider"); put("context_window", 262144) }
+        store.remember("first-provider/raw-model", ModelConfiguration(modelJson = raw, contextWindowTokens = 262144))
+        val manual = store.get("raw-model")!!
+        assertTrue(manual.modelJson.isEmpty())
+        assertEquals(262144, manual.contextWindowTokens)
+        val nextRaw = buildJsonObject { put("owned_by", "second-provider") }
+        val restored = store.configurationFor(DiscoveredModel("second-provider/raw-model", metadata = nextRaw))
+        assertEquals(nextRaw, restored.modelJson)
     }
 
     @Test fun editsOverrideMemoryButSeedingDoesNotOverwriteIt() {

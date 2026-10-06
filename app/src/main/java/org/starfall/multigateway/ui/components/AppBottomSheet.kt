@@ -3,136 +3,168 @@ package org.starfall.multigateway.ui.components
 import android.os.Build
 import android.view.View
 import android.view.WindowManager
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetState
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.launch
+import org.starfall.multigateway.R
 import org.starfall.multigateway.ui.theme.modalScrimColor
+import kotlin.math.roundToInt
 
 /**
- * Keeps unused downward list scroll/fling velocity from being handed to a modal sheet. Without
- * this boundary, a fast gesture toward the first item can continue into the sheet and dismiss it.
+ * Keep unused list movement at both ends inside the list. A fling must not transfer
+ * to the sheet's drag/settle animation after the list has reached an edge.
+ * Fling deltas remain unconsumed so the list can detect its real edge and stop;
+ * only the leftover velocity is absorbed afterwards.
  */
 internal fun bottomSheetListScrollBoundary(): NestedScrollConnection = object : NestedScrollConnection {
     override fun onPostScroll(
         consumed: Offset,
         available: Offset,
         source: NestedScrollSource
-    ): Offset = Offset(0f, available.y.coerceAtLeast(0f))
+    ): Offset = if (source == NestedScrollSource.UserInput) Offset(0f, available.y) else Offset.Zero
 
     override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
-        Velocity(0f, available.y.coerceAtLeast(0f))
+        Velocity(0f, available.y)
 }
 
-/**
- * Shared modal bottom sheet with exactly two inset rules:
- *
- * 1. The sheet surface is edge-to-edge at the bottom, including behind the navigation bar.
- * 2. Interactive sheet content keeps the navigation-bar safe area, while the expanded sheet
- *    surface never rises above the bottom edge of the status bar / display cutout.
- *
- * Do not add navigationBarsPadding/safeDrawing padding around AppBottomSheet itself.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Surface includes the navbar; content avoids it. Dragging keeps any height in bounds. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AppBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     shape: Shape = BottomSheetDefaults.ExpandedShape,
     containerColor: Color = BottomSheetDefaults.ContainerColor,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val hostView = LocalView.current
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val context = LocalContext.current
-    val statusTopPx = WindowInsets.statusBars.union(WindowInsets.displayCutout).getTop(density)
-    val statusTop = with(density) { statusTopPx.toDp() }
-    var dragHandleHeight by remember(density) { mutableStateOf(0.dp) }
-
-    val windowHeightPx = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        context.getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.height()
-    } else {
-        hostView.rootView.height
+    val scrollBoundary = remember { bottomSheetListScrollBoundary() }
+    val scope = rememberCoroutineScope()
+    val currentDismiss by rememberUpdatedState(onDismissRequest)
+    val entrance = remember { Animatable(0f) }
+    var dismissing by remember { mutableStateOf(false) }
+    var requestedHeight by remember { mutableStateOf<Float?>(null) }
+    var measuredHeight by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) { entrance.animateTo(1f, tween(220, easing = FastOutSlowInEasing)) }
+    fun dismiss() {
+        if (!dismissing) {
+            dismissing = true
+            scope.launch {
+                entrance.animateTo(0f, tween(150))
+                currentDismiss()
+            }
+        }
     }
-    val windowHeight = if (windowHeightPx > 0) {
-        with(density) { windowHeightPx.toDp() }
-    } else {
-        configuration.screenHeightDp.dp
-    }
-    val maxSheetHeight = (windowHeight - statusTop).coerceAtLeast(1.dp)
+    val resizeLabel = stringResource(R.string.sheet_resize)
+    val dismissLabel = stringResource(R.string.sheet_dismiss)
+    val scrimColor = modalScrimColor(BottomSheetDefaults.ScrimColor)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        // Keep the surface's constraints at the full dialog height: Material3 uses them
-        // to calculate its bottom anchor. A heightIn here also raises that anchor.
-        modifier = modifier,
-        sheetState = sheetState,
-        shape = shape,
-        containerColor = containerColor,
-        scrimColor = modalScrimColor(BottomSheetDefaults.ScrimColor),
-        dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                modifier = Modifier.onSizeChanged {
-                    dragHandleHeight = with(density) { it.height.toDp() }
-                }
-            )
-        },
-        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
+    Dialog(
+        onDismissRequest = ::dismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
         ConfigureBottomSheetDialogWindow()
-        // Material3's dialog pads its outer layout for the IME. Match that reduced
-        // anchor space while keeping the expanded surface below the status bar.
-        val keyboardHeight = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                // The handle and this content together fit below the status bar.
-                .heightIn(max = (maxSheetHeight - keyboardHeight - dragHandleHeight).coerceAtLeast(0.dp))
-                // Only content avoids system bars; the surface still covers the navbar.
-                .windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
-                ),
-            content = content
-        )
+        BoxWithConstraints(Modifier.fillMaxSize().testTag("bottom-sheet-window")) {
+            val fullHeight = constraints.maxHeight
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = entrance.value }
+                .background(scrimColor).clickable(onClickLabel = dismissLabel, onClick = ::dismiss))
+            BoxWithConstraints(
+                Modifier.fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
+                    // Consume the keyboard here so content does not pad for it a second time.
+                    .windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
+            ) {
+                val bounds = bottomSheetHeightBounds(fullHeight, constraints.maxHeight)
+                val drag = rememberDraggableState { delta ->
+                    requestedHeight = bounds.resizedHeight(requestedHeight ?: measuredHeight.toFloat(), delta)
+                }
+                Surface(
+                    modifier = modifier.align(Alignment.BottomCenter).widthIn(max = BottomSheetDefaults.SheetMaxWidth)
+                        .fillMaxWidth().testTag("app-bottom-sheet")
+                        .onSizeChanged { measuredHeight = it.height }
+                        .graphicsLayer { translationY = size.height * (1f - entrance.value) }
+                        .semantics { paneTitle = resizeLabel }
+                        .draggable(drag, Orientation.Vertical, enabled = !dismissing),
+                    shape = shape, color = containerColor,
+                    tonalElevation = BottomSheetDefaults.Elevation
+                ) {
+                    // Measure once with a finite ceiling. Unforced content reports its natural
+                    // height; resizable list/scroll viewports shrink to the user's chosen height.
+                    Layout(content = {
+                        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Box(
+                                    Modifier.fillMaxWidth().height(48.dp).testTag("bottom-sheet-drag-handle")
+                                        .semantics {
+                                            contentDescription = resizeLabel
+                                            stateDescription = "${(measuredHeight * 100f / fullHeight.coerceAtLeast(1)).roundToInt()}%"
+                                            val range = (bounds.maximum - bounds.minimum).coerceAtLeast(1).toFloat()
+                                            progressBarRangeInfo = ProgressBarRangeInfo(
+                                                ((measuredHeight - bounds.minimum) / range).coerceIn(0f, 1f), 0f..1f
+                                            )
+                                            setProgress { fraction ->
+                                                requestedHeight = bounds.minimum + range * fraction.coerceIn(0f, 1f)
+                                                true
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) { BottomSheetDefaults.DragHandle() }
+                                Column(
+                                    Modifier.fillMaxWidth().nestedScroll(scrollBoundary)
+                                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)),
+                                    content = content
+                                )
+                            }
+                        }
+                    }) { measurables, constraints ->
+                        val ceiling = bounds.heightFor(bounds.maximum, requestedHeight)
+                        val placeable = measurables.single().measure(constraints.copy(minHeight = 0, maxHeight = ceiling))
+                        val height = bounds.heightFor(placeable.height, requestedHeight)
+                        layout(placeable.width, height) { placeable.placeRelative(0, 0) }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -153,6 +185,9 @@ private fun ConfigureBottomSheetDialogWindow() {
     val window = dialogWindow ?: return
 
     DisposableEffect(window) {
+        val oldDimAmount = window.attributes.dimAmount
+        val oldSoftInputMode = window.attributes.softInputMode
+        val oldAnimations = window.attributes.windowAnimations
         val oldNavigationBarColor = window.navigationBarColor
         val oldStatusBarColor = window.statusBarColor
         val oldNavigationContrast =
@@ -168,8 +203,15 @@ private fun ConfigureBottomSheetDialogWindow() {
                 null
             }
 
-        // This is the only window-layout override we need.
+        // The app owns the scrim and keyboard padding in this edge-to-edge dialog.
         WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+        window.setDimAmount(0f)
+        window.setWindowAnimations(0)
+        window.setSoftInputMode(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            else WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+        )
 
         window.navigationBarColor = Color.Transparent.toArgb()
         window.statusBarColor = Color.Transparent.toArgb()
@@ -179,6 +221,9 @@ private fun ConfigureBottomSheetDialogWindow() {
         }
 
         onDispose {
+            window.setDimAmount(oldDimAmount)
+            window.setSoftInputMode(oldSoftInputMode)
+            window.setWindowAnimations(oldAnimations)
             window.navigationBarColor = oldNavigationBarColor
             window.statusBarColor = oldStatusBarColor
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {

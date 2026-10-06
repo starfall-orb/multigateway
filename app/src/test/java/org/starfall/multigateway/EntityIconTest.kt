@@ -81,7 +81,7 @@ class EntityIconTest {
         val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
         try {
             val provider = LlmProviderInfo("p", "Provider", ProviderType.OPENAI,
-                baseUrl = "https://example.test/v1", icon = "icon-a.png", config = ProviderConfiguration(
+                baseUrl = "https://example.test/v1", icon = "icon-a.png", sortOrder = 0, config = ProviderConfiguration(
                     modelConfigs = mapOf("model" to ModelConfiguration(icon = "icon-b.png", temperature = 0.4))))
             LlmRepository(db, LlmService(context)).saveProvider(provider)
             val llm = LlmRepository(db, LlmService(context))
@@ -126,9 +126,12 @@ class EntityIconTest {
             mcp.saveServer(McpInfo("s", "Tool Server", icon = "icon-c.png"))
             mcp.deleteServer("s")
             McpRepository(db, McpService(), IconStore(context)).saveServer(McpInfo("s2", " tool server "))
-            assertNull(mcp.getById("s2")!!.icon)
-            assertNull(IconStore(context).find(mcp.getById("s2")!!.name))
-            mcp.saveServer(mcp.getById("s2")!!.copy(icon = null))
+            // Read a server saved by another repository through a fresh repository,
+            // rather than the older instance's immediate local state.
+            val reloadedServer = McpRepository(db, McpService(), IconStore(context)).getById("s2")!!
+            assertNull(reloadedServer.icon)
+            assertNull(IconStore(context).find(reloadedServer.name))
+            mcp.saveServer(reloadedServer.copy(icon = null))
             mcp.saveServer(McpInfo("s3", "tool server"))
             assertNull(mcp.getById("s3")!!.icon)
             assertNull(IconStore(context).find("tool server"))
@@ -150,6 +153,14 @@ class EntityIconTest {
         assertEquals("icon-c.png", store.find(" Google "))
         assertEquals(listOf("claude", "claude-sonnet", "vendor"), iconMatchNames("vendor/claude-sonnet", true))
         assertNull(store.find("somethingelse", model = true))
+        store.saveRules(store.rules() + IconRule(pattern = "ollama", image = "ollama.png"))
+        assertEquals("ollama.png", store.find("Ollama"))
+        assertEquals("ollama.png", store.find(" Ollama Cloud "))
+        assertEquals("ollama.png", store.find("ollama cloud"))
+        assertEquals("ollama.png", store.find("Ollama Cloud Other"))
+        store.saveRules(store.rules() + IconRule(pattern = "Ollama Cloud", image = "custom-cloud.png"))
+        assertEquals("custom-cloud.png", store.find("Ollama Cloud"))
+        assertEquals("ollama.png", store.find("Ollama"))
         assertThrows(IllegalArgumentException::class.java) { store.saveRules(listOf(IconRule(pattern = "[", image = "icon-d.png"))) }
         store.saveRules(store.rules().map { if (it.pattern == "claude") it.copy(image = "icon-d.png") else it })
         assertEquals("icon-d.png", IconStore(context).find("claude-haiku", true))
@@ -168,15 +179,48 @@ class EntityIconTest {
         assertEquals("specific.png", store.find("vendor/claude-sonnet-4", true))
         assertEquals("vendor.png", store.find("vendor/unknown-v2", true))
         assertNull(store.find("claude-sonnet", false))
-        assertEquals(listOf("vendor/claude-sonnet"), iconMatchNames("vendor/claude-sonnet", false))
+        assertEquals("vendor/claude-sonnet", iconMatchNames("vendor/claude-sonnet", false).first())
     }
 
     @Test fun catalogMatchingUsesRealFilesAndPrefersColorWithoutPartialBrandMatches() {
         val files = setOf("openai.png", "claude.png", "claude-color.png", "claudecode.png")
         assertEquals("claude-color.png", LobeIconSource.match("Claude", files))
         assertEquals("openai.png", LobeIconSource.match("Open AI", files))
+        assertEquals("openai.png", LobeIconSource.match("My OpenAI Provider", files))
+        assertEquals("claudecode.png", LobeIconSource.match("Claude Code Cloud", files))
+        assertEquals("claude-color.png", LobeIconSource.match("My Claude API", files))
         assertEquals("openai.png", LobeIconSource.match("gpt", files))
+        val ollamaFiles = setOf("ollama.png")
+        assertEquals("ollama.png", LobeIconSource.match("Ollama Cloud", ollamaFiles))
+        assertNull(LobeIconSource.match("Ollamaish Cloud", ollamaFiles))
+        assertEquals("ollama.png", iconMatchNames("Ollama Cloud", false).firstNotNullOfOrNull { LobeIconSource.match(it, ollamaFiles) })
         assertNull(LobeIconSource.match("claud", files))
+    }
+
+    @Test fun allProviderBrandsMatchCompleteWordsWithDescriptionsAndPreferSpecificNames() {
+        val store = IconStore(context)
+        val brands = listOf("Ollama", "OpenAI", "Google", "Anthropic", "DeepSeek", "GitHub Copilot", "Open AI")
+        store.saveRules(brands.mapIndexed { index, brand -> IconRule(pattern = Regex.escape(brand), image = "brand-$index.png") })
+        brands.forEachIndexed { index, brand ->
+            val expected = "brand-$index.png"
+            for (name in listOf("$brand Cloud", "My $brand", "My $brand API Server", "  ${brand.lowercase()}  Cloud  ", "$brand / Production")) {
+                assertEquals(name, expected, store.find(name))
+            }
+            assertNull(store.find("${brand.replace(" ", "")}Other"))
+        }
+        store.saveRules(store.rules() + listOf(
+            IconRule(pattern = "GitHub", image = "github.png"),
+            IconRule(pattern = "My GitHub Copilot Cloud", image = "exact.png")))
+        assertEquals("brand-5.png", store.find("GitHub Copilot Cloud"))
+        assertEquals("exact.png", store.find("My GitHub Copilot Cloud"))
+        assertEquals("brand-5.png", store.find("GitHub-Copilot Cloud"))
+
+        val files = setOf("ollama.png", "openai.png", "github.png", "githubcopilot.png", "claude.png", "claudecode.png")
+        for ((name, expected) in listOf("Ollama Cloud" to "ollama.png", "Open AI Responses" to "openai.png",
+            "My GitHub Copilot" to "githubcopilot.png", "Claude Code API" to "claudecode.png")) {
+            assertEquals(name, expected, iconMatchNames(name, false).firstNotNullOfOrNull { LobeIconSource.match(it, files) })
+        }
+        assertNull(iconMatchNames("OpenAIish Cloud", false).firstNotNullOfOrNull { LobeIconSource.match(it, files) })
     }
 
     @Test fun officialLobeModelMappingsResolveBrandBeforeAssetLookup() {
@@ -256,6 +300,32 @@ class EntityIconTest {
             assertNull(store.find("special"))
             assertTrue(store.entries().isEmpty())
             assertEquals("custom.png", store.find("claude"))
+        } finally { server.shutdown() }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun providerNameWithExtraWordsDownloadsTheBrandLogoFile() = runBlocking {
+        listOf("named-entity-icons", "automatic-entity-icons").forEach {
+            context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()
+        }
+        File(context.filesDir, "entity-icons").listFiles().orEmpty().forEach { it.delete() }
+        val server = okhttp3.mockwebserver.MockWebServer().apply { start() }
+        try {
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(
+                """{"files":[{"name":"/light/ollama.png"}]}"""))
+            val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+            bitmap.recycle()
+            server.enqueue(okhttp3.mockwebserver.MockResponse().setBody(okio.Buffer().write(bytes)))
+            val source = LobeIconSource(server.url("/index").toString(), server.url("/images/").toString())
+            val store = IconStore(context)
+            val image = store.resolve("Ollama Cloud", iconSource = source)
+            assertEquals("lobe-ollama.png", image)
+            assertNotNull(store.loadIcon(image))
+            assertEquals("/index", server.takeRequest().path)
+            assertEquals("/images/ollama.png", server.takeRequest().path)
+            assertEquals(image, store.resolve("Ollama", iconSource = source))
+            assertEquals(2, server.requestCount)
         } finally { server.shutdown() }
     }
 

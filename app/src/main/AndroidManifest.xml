@@ -10,6 +10,9 @@
 
     <queries>
         <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
@@ -36,6 +39,14 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/tool_file_paths" />
         </provider>
+        <activity android:name=".ui.auth.OAuthBrowserActivity"
+            android:exported="false" android:theme="@style/Theme.MultiGateway" />
+        <service android:name=".data.adapter.common.OAuthBrowserKeepAliveService"
+            android:exported="true" />
+        <activity
+            android:name=".ui.preview.CodePreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MultiGateway" />
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTask"

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.IconPickerRow
+import org.starfall.multigateway.ui.components.providerInitials
 import org.starfall.multigateway.ui.components.RoundedDropdownMenuItem
 
 @Composable
@@ -47,7 +48,8 @@ internal fun McpConnectionSettings(
 ) {
     var oauthAdvancedExpanded by remember { mutableStateOf(false) }
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        IconPickerRow(icon, onIconChange, fallback = Icons.Outlined.Extension, onBusyChange = onIconBusyChange, matchName = name)
+        IconPickerRow(icon, onIconChange, text = providerInitials(name), fallback = Icons.Outlined.Extension,
+            onBusyChange = onIconBusyChange, matchName = name, faviconBaseUrl = url)
         Text(stringResource(R.string.display_name), style = MaterialTheme.typography.titleSmall)
         SelectableOutlinedTextField(name, onNameChange, placeholder = { Text(stringResource(R.string.common_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
         HorizontalDivider()

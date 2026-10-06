@@ -33,7 +33,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
     val parsed = runCatching { Json.parseToJsonElement(draft).jsonObject }.getOrNull()
     val error = if (parsed == null) "Enter a valid JSON object." else runCatching {
         if (video) validateVideoOptions(provider, config.modelId, parsed)
-        else validateImageOptions(provider.type, config.modelId, parsed)
+        else validateImageOptions(provider, config.modelId, parsed)
     }.exceptionOrNull()?.message
     val dirty = parsed != savedOptions
     fun back() { if (dirty) confirmDiscard = true else onBack() }
@@ -55,11 +55,13 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
                 Text("Only set options supported by this model. Empty fields use provider defaults. Settings are saved separately for each model.",
                     style = MaterialTheme.typography.bodySmall)
             }
-            if (video) item {
-                Text(when {
-                    config.modelId.startsWith("agnes-video-", true) -> "Agnes reference images require public HTTPS URLs. Files attached in chat cannot be uploaded to this API. Use frame URLs below, or reference media in Advanced JSON."
-                    else -> "H3 requires an image attached in chat or a public image URL. Duration follows the selected model (6, 10, or 15 seconds); output is portrait 9:16."
-                }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (video && videoApi(provider) == VideoApi.AGNES) item {
+                Text("Agnes reference images require public HTTPS URLs. Files attached in chat cannot be uploaded to this API. Use frame URLs below, or reference media in Advanced JSON.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (!video && isAgnesProvider(provider)) item {
+                Text("Agnes supports attached reference images. Public reference-image URLs can be supplied as extra_body.image in Advanced JSON. For editing, select the response format below; return_base64 applies to text-to-image.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item { ToolSwitch("Advanced JSON", advanced) { advanced = it } }
             if (advanced) item {
@@ -70,7 +72,7 @@ fun ImageToolSettingsScreen(provider: LlmProviderInfo, config: SystemToolConfig,
                     isError = error != null, minLines = 8, maxLines = 18, modifier = Modifier.fillMaxWidth()
                 )
             } else if (parsed != null) {
-                items(if (video) videoOptionFields(provider, config.modelId) else imageOptionFields(provider.type, config.modelId), key = { it.path }) { field ->
+                items(if (video) videoOptionFields(provider, config.modelId) else imageOptionFields(provider, config.modelId), key = { it.path }) { field ->
                     ImageOptionInput(field, parsed.optionAt(field.path)) { value ->
                         draft = format.encodeToString(JsonObject.serializer(), parsed.withOption(field.path, value))
                     }

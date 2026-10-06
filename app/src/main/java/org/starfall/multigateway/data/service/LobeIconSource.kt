@@ -62,15 +62,19 @@ internal class LobeIconSource(
         private fun normalized(name: String) = name.lowercase(java.util.Locale.ROOT).replace(Regex("[^a-z0-9]"), "")
 
         internal fun match(candidate: String, files: Set<String>): String? {
-            val key = normalized(candidate)
-            if (key.isEmpty()) return null
-            // Exact normalized brand names first; aliases only cover model family names.
             val aliases = mapOf("gpt" to "openai", "chatgpt" to "openai", "o1" to "openai",
                 "o3" to "openai", "o4" to "openai", "glm" to "chatglm")
-            for (name in listOfNotNull(key, aliases[key]).distinct()) {
-                files.sorted().firstOrNull { it.endsWith("-color.png") && normalized(it.removeSuffix("-color.png")) == name }
+            // A provider name can contain a brand plus descriptive words. Look up
+            // the actual brand filename rather than requiring a filename for the full name.
+            val names = iconMatchNames(candidate, model = false).flatMap { part ->
+                val key = normalized(part)
+                listOfNotNull(key.takeIf { it.isNotEmpty() }, aliases[key])
+            }.distinct()
+            val sortedFiles = files.sorted()
+            for (name in names) {
+                sortedFiles.firstOrNull { it.endsWith("-color.png") && normalized(it.removeSuffix("-color.png")) == name }
                     ?.let { return it }
-                files.sorted().firstOrNull { normalized(it.removeSuffix(".png")) == name }
+                sortedFiles.firstOrNull { normalized(it.removeSuffix(".png")) == name }
                     ?.let { return it }
             }
             return null

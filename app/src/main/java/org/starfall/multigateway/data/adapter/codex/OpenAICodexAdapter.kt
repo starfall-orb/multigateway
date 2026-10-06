@@ -1,13 +1,13 @@
 package org.starfall.multigateway.data.adapter.codex
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.get
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
@@ -42,6 +42,9 @@ import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
 import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
 import org.starfall.multigateway.data.adapter.AccountProviderAdapter
 import org.starfall.multigateway.data.model.AuthMethod
+import org.starfall.multigateway.data.model.oauthCredentialId
+import org.starfall.multigateway.data.model.DiscoveredModel
+import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.model.Authorization
 import org.starfall.multigateway.data.model.ChatRole
 import org.starfall.multigateway.data.model.GenerationEvent
@@ -96,7 +99,7 @@ internal class OpenAICodexAdapter(
         OAuthCallbackService.keepAlive(appContext) {
             val code = awaitAuthorizationCode(authorizationUrl, state)
             val exchanged = exchangeAuthorizationCode(code, verifier)
-            withContext(Dispatchers.IO) { tokenStore.save(provider.id, exchanged) }
+            withContext(Dispatchers.IO) { tokenStore.save(provider.oauthCredentialId, exchanged) }
 
             provider.copy(
                 name = provider.name.ifBlank { ProviderType.OPENAI_CODEX.defaultName },
@@ -104,15 +107,39 @@ internal class OpenAICodexAdapter(
                 auth = Authorization(
                     method = AuthMethod.OAUTH,
                     key = exchanged.email ?: exchanged.accountId,
-                    value = AUTH_MARKER
+                    value = AUTH_MARKER,
+                    oauthAccountId = provider.auth.oauthAccountId
                 )
             )
         }
     }
 
     override suspend fun fetchModels(provider: LlmProviderInfo): List<String> {
-        ensureToken(provider)
-        return SUPPORTED_MODELS
+        return fetchModelCatalog(provider).map { it.id }
+    }
+
+    override suspend fun fetchModelCatalog(provider: LlmProviderInfo): List<DiscoveredModel> {
+        val token = ensureToken(provider)
+        return try {
+            val response = http.get("https://chatgpt.com/backend-api/codex/models?client_version=$CLIENT_VERSION") {
+                header("Authorization", "Bearer ${token.accessToken}")
+                token.accountId?.takeIf { it.isNotBlank() }?.let { header("Chatgpt-Account-Id", it) }
+                header("Originator", CODEX_ORIGINATOR)
+                header("User-Agent", CODEX_USER_AGENT)
+            }
+            check(response.status.isSuccess()) { "Codex model catalog returned HTTP ${response.status.value}" }
+            val models = json.parseToJsonElement(response.bodyAsText()).jsonObject["models"] as? JsonArray
+                ?: error("Codex returned an unsupported model catalog")
+            models.mapNotNull { value ->
+                val item = value as? JsonObject ?: return@mapNotNull null
+                val id = item["slug"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                if (item["visibility"]?.jsonPrimitive?.contentOrNull?.lowercase() in listOf("hidden", "internal")) null
+                else DiscoveredModel(id, displayName = item["display_name"]?.jsonPrimitive?.contentOrNull.orEmpty(), metadata = item)
+            }
+        } catch (e: Exception) {
+            // Keep existing installations usable if the private catalog is unavailable.
+            SUPPORTED_MODELS.map { DiscoveredModel(it) }
+        }
     }
 
     override suspend fun testConnection(provider: LlmProviderInfo): Result<String> = runCatching {
@@ -275,7 +302,7 @@ internal class OpenAICodexAdapter(
         require(provider.auth.method == AuthMethod.OAUTH && provider.auth.value == AUTH_MARKER) {
             "OpenAI Codex is not authorized. Open OAuth in the browser from Provider settings."
         }
-        val current = tokenStore.load(provider.id)
+        val current = tokenStore.load(provider.oauthCredentialId)
             ?: error("OpenAI Codex credentials are missing. Sign in again.")
 
         val expiresAt = current.expiresAt
@@ -284,7 +311,7 @@ internal class OpenAICodexAdapter(
         }
 
         val refreshed = refresh(current)
-        tokenStore.save(provider.id, refreshed)
+        tokenStore.save(provider.oauthCredentialId, refreshed)
         return refreshed
     }
 
@@ -335,8 +362,7 @@ internal class OpenAICodexAdapter(
     private suspend fun awaitAuthorizationCode(authorizationUrl: String, expectedState: String): String =
         awaitOAuthAuthorizationCode(REDIRECT_URI, authorizationUrl, expectedState) { url ->
             withContext(Dispatchers.Main) {
-                appContext.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                OAuthBrowser.open(appContext, url)
             }
         }
 
@@ -465,6 +491,8 @@ internal class OpenAICodexAdapter(
         private const val ISSUER = "https://auth.openai.com"
         private const val CALLBACK_PORT = 1455
         private const val REDIRECT_URI = "http://localhost:1455/auth/callback"
+        private const val CLIENT_VERSION = "0.1.0"
+        private const val CODEX_ORIGINATOR = "codex-tui"
         private const val AUTH_SCOPE = "openid email profile offline_access"
         private const val REFRESH_SCOPE = "openid profile email"
         private const val AUTH_TIMEOUT_MS = 5 * 60 * 1000L

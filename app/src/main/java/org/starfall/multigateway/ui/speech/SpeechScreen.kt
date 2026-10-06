@@ -54,9 +54,12 @@ import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.AdaptiveCardLayout
+import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.components.IconPickerRow
 import org.starfall.multigateway.ui.components.FadeGridListContent
 import org.starfall.multigateway.ui.components.longPressReorder
 import org.starfall.multigateway.ui.components.moved
+import org.starfall.multigateway.ui.components.providerInitials
 
 private data class SpeechEditor(val service: SpeechService, val isNew: Boolean)
 
@@ -120,6 +123,7 @@ fun SpeechScreen(
                             editor = SpeechEditor(SpeechService(
                                 id = UUID.randomUUID().toString(),
                                 name = "Custom TTS",
+                                icon = null,
                                 provider = "system",
                                 modelId = null,
                                 voice = "Default",
@@ -280,20 +284,8 @@ private fun SpeechServiceUnifiedCard(
                 .fillMaxWidth()
                 .padding(14.dp),
             icon = {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.RecordVoiceOver,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                EntityIcon(service.icon, Modifier.size(42.dp), text = providerInitials(service.name),
+                    fallback = Icons.Outlined.RecordVoiceOver, matchName = service.name)
             },
             actions = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -391,6 +383,8 @@ private fun AddOrEditSpeechDialog(
     }
 
     var name by remember(initialService.id) { mutableStateOf(initialService.name) }
+    var serviceIcon by remember(initialService.id) { mutableStateOf(initialService.icon) }
+    var iconImporting by remember { mutableStateOf(false) }
     var providerId by remember(initialService.id) {
         mutableStateOf(
             initialService.provider
@@ -413,6 +407,7 @@ private fun AddOrEditSpeechDialog(
     val availableModels = ttsModelsByProvider[providerId].orEmpty()
     val system = providerId.equals("system", true)
     val google = providers.find { it.id == providerId }?.type == ProviderType.GOOGLE
+    val providerBaseUrl = providers.find { it.id == providerId }?.baseUrl.orEmpty()
     val supportsInstructions = google || modelId !in listOf("tts-1", "tts-1-hd")
     val extraBody = remember(extraBodyText) { runCatching { Json.parseToJsonElement(extraBodyText.ifBlank { "{}" }) as? JsonObject }.getOrNull() }
     LaunchedEffect(providerId) {
@@ -428,11 +423,10 @@ private fun AddOrEditSpeechDialog(
 
     fun currentService() = initialService.copy(
         name = name.trim(),
+        icon = serviceIcon,
         provider = providerId,
         modelId = modelId,
-        voice = voice.trim().ifEmpty {
-            if (system) "Default" else if (google) "Kore" else "alloy"
-        },
+        voice = voice.trim(),
         speed = speed,
         pitch = pitch,
         instructions = if (supportsInstructions) instructions else "",
@@ -460,6 +454,9 @@ private fun AddOrEditSpeechDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                IconPickerRow(serviceIcon, { serviceIcon = it }, text = providerInitials(name), fallback = Icons.Outlined.RecordVoiceOver,
+                    onBusyChange = { iconImporting = it }, matchName = name, faviconBaseUrl = providerBaseUrl)
 
                 Box {
                     OutlinedButton(
@@ -554,6 +551,11 @@ private fun AddOrEditSpeechDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+                if (voice.isBlank()) Text(
+                    "Voice is optional, but this service may not work without a voice.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
 
                 if (!google) {
                 Text("Speed: ${String.format("%.1f", speed)}x")
@@ -639,7 +641,7 @@ private fun AddOrEditSpeechDialog(
         confirmButton = {
             Button(
                 onClick = { onSave(currentService()) },
-                enabled = canSave
+                enabled = canSave && !iconImporting
             ) {
                 Text("Save")
             }

@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 data class SpeechService(
     val id: String,
     val name: String,
+    val icon: String? = null,
     val provider: String = "system", // "system" or LlmProviderInfo.id
     val modelId: String? = null,
     val voice: String = "Default",

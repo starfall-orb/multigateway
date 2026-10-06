@@ -7,9 +7,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.NetworkCheck
 import androidx.compose.material.icons.outlined.Restore
@@ -39,13 +41,15 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
     val hasRemovals = removals.pending.isNotEmpty()
     fun close() = removals.close(remove = { ids -> tests.forget(ids); onRemoveModels(ids) }, dismiss = onDismiss)
     AlertDialog(onDismissRequest = ::close,
-        title = {
+         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.test_connection), Modifier.weight(1f))
-                IconButton(onClick = { tests.testAll(provider, testableModels) },
-                    enabled = testableModels.isNotEmpty() && !testingAny && available) {
-                    Icon(Icons.Outlined.NetworkCheck, "Test all text models")
+                IconButton(onClick = { if (testingAny) tests.cancelAll() else tests.testAll(provider, testableModels) },
+                     enabled = (testingAny || testableModels.isNotEmpty()) && available) {
+                     if (testingAny) Icon(Icons.Outlined.Close, stringResource(R.string.common_cancel))
+                     else Icon(Icons.Outlined.NetworkCheck, "Test all text models")
                 }
+                IconButton(onClick = ::close) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.common_close)) }
                 IconButton(onClick = { if (hasRemovals) removals.restoreAll() else removals.mark(unavailable) },
                     enabled = hasRemovals || unavailable.isNotEmpty()) {
                     Icon(if (hasRemovals) Icons.Outlined.Restore else Icons.Outlined.DeleteSweep,
@@ -70,8 +74,8 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
                                     if (config.displayName.isNotBlank()) Text(id, style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-                                IconButton(enabled = !removed && !testingAny && available, onClick = { tests.test(provider, id) }) {
-                                    if (testing) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                 IconButton(enabled = available && (testing || (!removed && !testingAny)), onClick = { if (testing) tests.cancel(id) else tests.test(provider, id) }) {
+                                     if (testing) Icon(Icons.Outlined.Close, stringResource(R.string.common_cancel))
                                     else Icon(Icons.Outlined.NetworkCheck, stringResource(R.string.test_model, id))
                                 }
                                 IconButton(onClick = { removals.toggle(id) }) {
@@ -98,5 +102,5 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
                     }
                 }
             }
-        }, confirmButton = { TextButton(onClick = ::close) { Text(stringResource(R.string.common_close)) } })
+        }, confirmButton = {})
 }

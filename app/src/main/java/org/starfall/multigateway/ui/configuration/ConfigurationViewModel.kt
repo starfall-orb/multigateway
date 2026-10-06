@@ -154,6 +154,15 @@ class ConfigurationViewModel(
         viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.deleteGroup(groupId) }
     }
 
+    suspend fun placeProvider(placement: ProviderPlacement): Result<Unit> = try {
+        llmRepo.placeProvider(placement)
+        Result.success(Unit)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (failure: Exception) {
+        Result.failure(failure)
+    }
+
     fun moveProviderToGroup(providerId: String, groupId: String?) {
         viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.moveProviderToGroup(providerId, groupId) }
     }

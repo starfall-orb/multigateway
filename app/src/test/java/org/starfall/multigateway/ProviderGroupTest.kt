@@ -1,9 +1,15 @@
 package org.starfall.multigateway
 
 import android.content.Context
+import kotlinx.serialization.json.*
+import org.starfall.multigateway.data.local.db.SecretCipher
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -22,6 +28,57 @@ import org.starfall.multigateway.ui.providers.newProviderId
 @Config(sdk = [28])
 class ProviderGroupTest {
     private val context: Context get() = ApplicationProvider.getApplicationContext()
+
+    @Test fun repositoryOmitsSmallContextOverridesAndPersistsRawModelJson() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            val raw = Json.parseToJsonElement("""{"id":"small","context_window":32000,"vendor":{"extra":true}}""").jsonObject
+            repo.saveProvider(LlmProviderInfo("json-test", "Provider", ProviderType.OPENAI, baseUrl = "",
+                config = ProviderConfiguration(modelConfigs = mapOf(
+                    "small" to ModelConfiguration(contextWindowTokens = 32000, modelJson = raw),
+                    "default" to ModelConfiguration(contextWindowTokens = 128000),
+                    "large" to ModelConfiguration(contextWindowTokens = 128001)
+                ))))
+            val entity = db.llmProviderDao().getProviderById("json-test")!!
+            val stored = Json.parseToJsonElement(SecretCipher.decrypt(entity.configJson)).jsonObject.getValue("modelConfigs").jsonObject
+            assertFalse(stored.getValue("small").jsonObject.containsKey("contextWindowTokens"))
+            assertFalse(stored.getValue("default").jsonObject.containsKey("contextWindowTokens"))
+            assertEquals(128001, stored.getValue("large").jsonObject.getValue("contextWindowTokens").jsonPrimitive.int)
+            val reopened = LlmRepository(db, LlmService(context)).getProviderById("json-test")!!
+            assertEquals(raw, reopened.config.modelConfigs.getValue("small").modelJson)
+            assertEquals(DEFAULT_CONTEXT_WINDOW_TOKENS, reopened.config.modelConfigs.getValue("small").contextWindowTokens)
+        } finally { db.close() }
+    }
+
+    @Test fun dragPlacementPersistsMembershipAndExactOrdersTogether() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            repo.saveGroup(ProviderGroup("g", "Folder", 1))
+            for ((id, group) in listOf("outside" to null, "a" to "g", "b" to "g", "tail" to null))
+                repo.saveProvider(LlmProviderInfo(id, id, ProviderType.OPENAI, baseUrl = "", groupId = group))
+            val root = listOf(ProviderRootOrderItem("g", true), ProviderRootOrderItem("tail", false))
+            repo.placeProvider(ProviderPlacement("outside", "g", root, mapOf("g" to listOf("a", "outside", "b"))))
+            assertEquals("g", repo.getProviderById("outside")!!.groupId)
+            val visible = repo.allProviders.first()
+            assertEquals(listOf("a", "outside", "b"), visible.filter { it.groupId == "g" }.map { it.id })
+            val persisted = LlmRepository(db, LlmService(context))
+            assertEquals(listOf("a", "outside", "b"), persisted.allProviders.first().filter { it.groupId == "g" }.map { it.id })
+            repo.placeProvider(ProviderPlacement("a", null,
+                listOf(ProviderRootOrderItem("a", false)) + root, mapOf("g" to listOf("outside", "b"))))
+            assertNull(repo.getProviderById("a")!!.groupId)
+            assertEquals(0, repo.getProviderById("a")!!.sortOrder)
+            assertEquals(1, repo.allGroups.first().first().sortOrder)
+            assertEquals(2, repo.getProviderById("tail")!!.sortOrder)
+            assertEquals(listOf("outside", "b"), repo.allProviders.first().filter { it.groupId == "g" }.map { it.id })
+            val before = repo.allProviders.first()
+            repo.placeProvider(ProviderPlacement("outside", "missing", emptyList(), emptyMap()))
+            assertEquals(before, repo.allProviders.first())
+        } finally { db.close() }
+    }
 
     @Test
     fun repositoryPersistsMembershipAndDeletingGroupUngroupsProviders() = runBlocking {
@@ -51,6 +108,62 @@ class ProviderGroupTest {
         } finally {
             db.close()
         }
+    }
+
+    @Test
+    fun newAndMovedProvidersAppendInCreationOrderAndStayThereAfterReload() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            repo.saveGroup(ProviderGroup("g", "Work", 0))
+            fun provider(id: String, group: String? = "g") = LlmProviderInfo(id, id, ProviderType.OPENAI,
+                baseUrl = "https://example.test/v1", groupId = group)
+            repo.saveProvider(provider("z-first"))
+            repo.saveProvider(provider("a-second"))
+            repo.saveProvider(provider("0-moved", null))
+            val expected = listOf("z-first", "a-second", "0-moved")
+            val emissions = java.util.Collections.synchronizedList(mutableListOf<List<String>>())
+            val collector = launch(Dispatchers.Unconfined) {
+                repo.allProviders.collect { providers ->
+                    val members = providers.filter { it.groupId == "g" }.map { it.id }
+                    if ("0-moved" in members) emissions.add(members)
+                }
+            }
+            repo.moveProviderToGroup("0-moved", "g")
+            collector.cancelAndJoin()
+            assertTrue(emissions.isNotEmpty())
+            emissions.forEach { assertEquals(expected, it) }
+            repo.saveProvider(provider("0-new"))
+            val finalOrder = expected + "0-new"
+            assertEquals(finalOrder, repo.allProviders.first().filter { it.groupId == "g" }.map { it.id })
+            repo.moveProviderToGroup("a-second", "g")
+            assertEquals(finalOrder, repo.allProviders.first().filter { it.groupId == "g" }.map { it.id })
+            val reloaded = LlmRepository(db, LlmService(context)).allProviders.first()
+            assertEquals(finalOrder, reloaded.filter { it.groupId == "g" }.map { it.id })
+            assertEquals(listOf(0, 1, 2, 3), reloaded.filter { it.groupId == "g" }.map { it.sortOrder })
+        } finally { db.close() }
+    }
+
+    @Test
+    fun legacyMaximumRanksAreCompactedWithoutOverflowWhenMovingIntoFolder() = runBlocking {
+        installTestAndroidKeyStore()
+        val db = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+        try {
+            val repo = LlmRepository(db, LlmService(context))
+            repo.saveGroup(ProviderGroup("g", "Work", 0))
+            for (id in listOf("z-legacy", "a-legacy")) {
+                db.llmProviderDao().insertOrUpdate(org.starfall.multigateway.data.local.db.entities.LlmProviderEntity(
+                    id, id, ProviderType.OPENAI.name, "https://example.test/v1", "{}", "{}", null, Int.MAX_VALUE, "g"))
+            }
+            repo.saveProvider(LlmProviderInfo("moving", "Moving", ProviderType.OPENAI, baseUrl = "https://example.test/v1"))
+            repo.moveProviderToGroup("moving", "g")
+            val members = LlmRepository(db, LlmService(context)).allProviders.first().filter { it.groupId == "g" }
+            assertEquals(listOf("a-legacy", "z-legacy", "moving"), members.map { it.id })
+            assertEquals(listOf(0, 1, 2), members.map { it.sortOrder })
+            repo.moveProviderToGroup("moving", null)
+            assertTrue(repo.getProviderById("moving")!!.sortOrder > repo.allGroups.first().single().sortOrder)
+        } finally { db.close() }
     }
 
     @Test

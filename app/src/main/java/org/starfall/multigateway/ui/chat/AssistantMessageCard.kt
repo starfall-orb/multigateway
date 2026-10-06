@@ -7,15 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -27,13 +22,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.data.model.MessageVersion
 import org.starfall.multigateway.data.model.StoredMessage
 import org.starfall.multigateway.data.model.ToolActivity
@@ -303,58 +295,6 @@ private fun StreamingProcessingPreview(version: MessageVersion) {
                     is ProcessingTimelineItem.Tool -> ToolActivityCards(listOf(item.activity))
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun LiveThinkingBlock(
-    reasoning: String,
-    active: Boolean
-) {
-    val scrollState = rememberScrollState()
-    val previewHeight = with(LocalDensity.current) { 48.sp.toDp() }
-    LaunchedEffect(reasoning, scrollState.maxValue, active) {
-        if (active && scrollState.maxValue > 0) {
-            scrollState.scrollTo(scrollState.maxValue)
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 8.dp, end = 8.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (active) androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.thinking_streaming) else androidx.compose.ui.res.stringResource(org.starfall.multigateway.R.string.processed),
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-            )
-            if (active) {
-                Spacer(Modifier.width(6.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(12.dp),
-                    strokeWidth = 1.5.dp
-                )
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = previewHeight)
-                .verticalScroll(scrollState)
-        ) {
-            Text(
-                text = reasoning,
-                style = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
-            )
         }
     }
 }

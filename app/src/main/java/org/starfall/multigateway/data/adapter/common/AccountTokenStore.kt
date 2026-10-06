@@ -22,7 +22,8 @@ internal data class AccountTokenState(
     val expiresAt: Long? = null,
     val accountId: String? = null,
     val email: String? = null,
-    val projectId: String? = null
+    val projectId: String? = null,
+    val codeAssistBaseUrl: String? = null
 )
 
 internal class AccountTokenStore(context: Context, namespace: String) {

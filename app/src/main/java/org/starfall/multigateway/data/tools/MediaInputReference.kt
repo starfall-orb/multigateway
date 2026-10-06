@@ -59,7 +59,7 @@ internal fun mediaToolSchema(name: String): JsonObject = obj(
         ))
         if (name == "generate_video") put("input_image_url", obj(
             "type" to str("string"),
-            "description" to str("Optional public HTTPS source-image URL for Agnes Video or standalone H3. Agnes requires public URLs and does not accept local tool-file uploads. Use either input_image or input_image_url, not both.")
+            "description" to str("Optional public HTTPS source-image URL for Agnes Video. Agnes requires public URLs and does not accept local tool-file uploads. Use either input_image or input_image_url, not both.")
         ))
         if (name == "generate_image") put("input_images", obj(
             "type" to str("array"),

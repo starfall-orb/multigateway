@@ -103,7 +103,7 @@ fun MainScreen(
     }
 
 
-    CompositionLocalProvider(LocalChatAttachmentSelection provides chatAttachments, LocalToolControls provides ToolControls(
+    CompositionLocalProvider(org.starfall.multigateway.ui.chat.LocalCodeRenderingPreferences provides appPrefs, LocalChatAttachmentSelection provides chatAttachments, LocalToolControls provides ToolControls(
         servers = mcpServers,
         settings = toolSettings,
         providers = providers,
@@ -116,6 +116,7 @@ fun MainScreen(
             drawerContent = {
                 ConversationsDrawer(
                     conversations = conversations,
+                    providers = providers,
                     currentConversationId = currentConv?.id,
                     isOpen = drawerState.isOpen,
                     generatingConversationId = generatingConversationId,
@@ -281,6 +282,7 @@ fun MainScreen(
                                 settingsViewModel.setModelPickerCollapsedGroups(appPrefs.modelPickerCollapsedGroups - groupId)
                             },
                             onMoveProviderToGroup = configurationViewModel::moveProviderToGroup,
+                            onPlaceProvider = configurationViewModel::placeProvider,
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
                             onReorderModels = configurationViewModel::reorderProviderModels,
                             onDeleteProvider = { providerId ->
@@ -374,6 +376,9 @@ fun MainScreen(
                                 settingsViewModel.setPersistChatSelection(value)
                             },
                             onAutoScrollChange = settingsViewModel::setAutoScroll,
+                            onWordWrapModeChange = settingsViewModel::setWordWrapMode,
+                            onWordWrapColumnChange = settingsViewModel::setWordWrapColumn,
+                            onCodePreviewEnabledChange = settingsViewModel::setCodePreviewEnabled,
                             onTtsReadCodeBlocksChange = settingsViewModel::setTtsReadCodeBlocks,
                             onEnableVibrationChange = { value ->
                                 settingsViewModel.setEnableVibration(value)

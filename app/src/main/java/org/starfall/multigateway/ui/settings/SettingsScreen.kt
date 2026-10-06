@@ -42,6 +42,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
+import org.starfall.multigateway.data.local.preferences.WordWrapMode
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 import org.starfall.multigateway.ui.theme.ThemePresets
@@ -79,7 +80,10 @@ fun SettingsScreen(
     onNavigateToSpeech: () -> Unit = {},
     onNavigateToSystemTools: () -> Unit = {},
     onNavigateToStorage: () -> Unit = {},
-    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
+    onWordWrapModeChange: (WordWrapMode) -> Unit = {},
+    onWordWrapColumnChange: (Int) -> Unit = {},
+    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     BackHandler(enabled = selectedCategory != null) {
@@ -169,7 +173,10 @@ fun SettingsScreen(
                             onEnableVibrationChange = onEnableVibrationChange,
                             onHideStatusBarChange = onHideStatusBarChange,
                             onDebugModeChange = onDebugModeChange,
-                            onLatexModeChange = onLatexModeChange
+                            onLatexModeChange = onLatexModeChange,
+                            onWordWrapModeChange = onWordWrapModeChange,
+                            onWordWrapColumnChange = onWordWrapColumnChange,
+                            onCodePreviewEnabledChange = onCodePreviewEnabledChange
                         )
                     }
 
@@ -208,7 +215,10 @@ fun AppearanceSettingsView(
     onAmoledChange: (Boolean) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onColorSchemeChange: (String) -> Unit,
-    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
+    onWordWrapModeChange: (WordWrapMode) -> Unit = {},
+    onWordWrapColumnChange: (Int) -> Unit = {},
+    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -276,7 +286,10 @@ fun PreferencesSettingsView(
     onEnableVibrationChange: (Boolean) -> Unit,
     onHideStatusBarChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
-    onLatexModeChange: (String) -> Unit
+    onLatexModeChange: (String) -> Unit,
+    onWordWrapModeChange: (WordWrapMode) -> Unit = {},
+    onWordWrapColumnChange: (Int) -> Unit = {},
+    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -302,6 +315,8 @@ fun PreferencesSettingsView(
         }
         item {
             SettingsSection("Rendering") {
+                CodeRenderingPreferences(appPreferences, onWordWrapModeChange, onWordWrapColumnChange, onCodePreviewEnabledChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 Text("LaTeX Equation Rendering", style = MaterialTheme.typography.titleMedium)
                 Text("Auto-detect renders formulas while leaving prices as plain text.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

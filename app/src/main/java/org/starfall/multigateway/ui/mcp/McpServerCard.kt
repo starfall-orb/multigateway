@@ -27,6 +27,7 @@ import org.starfall.multigateway.data.model.McpInfo
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.AdaptiveCardLayout
+import org.starfall.multigateway.ui.components.providerInitials
 
 @Composable
 fun McpUnifiedCard(server: McpInfo, isGrid: Boolean, modifier: Modifier = Modifier, toolCount: Int?, toolError: String?,
@@ -36,14 +37,13 @@ fun McpUnifiedCard(server: McpInfo, isGrid: Boolean, modifier: Modifier = Modifi
     Surface(shape = RoundedCornerShape(corner), color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant), modifier = modifier.fillMaxWidth().clickable(onClick = onEdit)) {
         AdaptiveCardLayout(isGrid = isGrid, modifier = Modifier.fillMaxWidth().padding(14.dp),
-            icon = { EntityIcon(server.icon, Modifier.size(42.dp), fallback = Icons.Outlined.Extension, matchName = server.name) },
+            icon = { EntityIcon(server.icon, Modifier.size(42.dp), text = providerInitials(server.name),
+                fallback = Icons.Outlined.Extension, matchName = server.name) },
             actions = { ItemOverflowMenu(onEdit = onEdit, onDelete = onDelete, deleteColor = MaterialTheme.colorScheme.error) },
             content = {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(server.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(stringResource(R.string.mcp_protocol, mcpTransportLabel(server.protocol)),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp), color = MaterialTheme.colorScheme.primary)
                     Text(server.url ?: stringResource(R.string.mcp_no_endpoint), style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = MaterialTheme.colorScheme.outline, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     when {

@@ -1,6 +1,7 @@
 package org.starfall.multigateway.data.repository
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.combine
@@ -40,6 +41,45 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     }
 
     private data class Catalog(val providers: List<LlmProviderInfo>, val groups: List<ProviderGroup>)
+    private val providerOrder = compareBy<LlmProviderInfo> { it.sortOrder }.thenBy { it.id }
+
+    /** Compact the destination order before appending, including legacy Int.MAX_VALUE ranks. */
+    private fun Catalog.appendProvider(provider: LlmProviderInfo): Catalog {
+        val destination = buildList {
+            providers.filter { it.id != provider.id && it.groupId == provider.groupId }
+                .forEach { add(Triple(it.id, false, it.sortOrder)) }
+            if (provider.groupId == null) groups.forEach { add(Triple(it.id, true, it.sortOrder)) }
+        }.sortedWith(compareBy<Triple<String, Boolean, Int>> { it.third }.thenBy { if (it.second) 0 else 1 }.thenBy { it.first })
+        val providerRanks = destination.mapIndexedNotNull { index, item -> if (item.second) null else item.first to index }.toMap()
+        val groupRanks = destination.mapIndexedNotNull { index, item -> if (item.second) item.first to index else null }.toMap()
+        val placed = provider.copy(sortOrder = destination.size)
+        return copy(
+            providers = providers.filterNot { it.id == provider.id }.map { p ->
+                providerRanks[p.id]?.let { p.copy(sortOrder = it) } ?: p
+            }.plus(placed).sortedWith(providerOrder),
+            groups = groups.map { g -> groupRanks[g.id]?.let { g.copy(sortOrder = it) } ?: g }.sortedBy { it.sortOrder }
+        )
+    }
+
+    private fun Catalog.saveProviderDraft(provider: LlmProviderInfo): Catalog {
+        val previous = providers.firstOrNull { it.id == provider.id }
+        return if ((previous == null && provider.sortOrder == Int.MAX_VALUE) ||
+            (previous != null && previous.groupId != provider.groupId)) appendProvider(provider)
+        else copy(providers = providers.upsert(provider) { it.id }.sortedWith(providerOrder))
+    }
+
+    private suspend fun readCatalog() = Catalog(
+        providerDao.getAllProviders().first().map(::providerEntityToModel),
+        groupDao.getAllGroupsOnce().map { ProviderGroup(it.id, it.name, it.sortOrder, it.icon) }
+    )
+
+    private suspend fun persistDestinationOrder(catalog: Catalog, groupId: String?) {
+        catalog.providers.filter { it.groupId == groupId }.forEach {
+            providerDao.updateGroupAndSortOrder(it.id, groupId, it.sortOrder)
+        }
+        if (groupId == null) catalog.groups.forEach { groupDao.updateSortOrder(it.id, it.sortOrder) }
+    }
+
     private val state = ImmediateState(combine(storedProviders, storedGroups, ::Catalog))
     val allProviders: Flow<List<LlmProviderInfo>> = state.flow.map { it.providers }.distinctUntilChanged()
     val allGroups: Flow<List<ProviderGroup>> = state.flow.map { it.groups }.distinctUntilChanged()
@@ -81,20 +121,53 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
 
     suspend fun moveProviderToGroup(providerId: String, groupId: String?) {
         state.mutate({ catalog ->
-            val max = maxOf(catalog.providers.filter { it.groupId == groupId && it.id != providerId }.maxOfOrNull { it.sortOrder } ?: -1,
-                if (groupId == null) catalog.groups.maxOfOrNull { it.sortOrder } ?: -1 else -1)
-            catalog.copy(providers = catalog.providers.map { if (it.id == providerId) it.copy(groupId = groupId, sortOrder = max + 1) else it })
+            val provider = catalog.providers.firstOrNull { it.id == providerId }
+            if (provider == null || provider.groupId == groupId) catalog
+            else catalog.appendProvider(provider.copy(groupId = groupId))
         }) {
             db.withTransaction {
-                val sortOrder = if (groupId == null) {
-                    maxOf(
-                        groupDao.getAllGroupsOnce().maxOfOrNull { it.sortOrder } ?: -1,
-                        providerDao.getUngroupedProviders().filterNot { it.id == providerId }.maxOfOrNull { it.sortOrder } ?: -1
-                    ) + 1
-                } else {
-                    (providerDao.getProvidersByGroup(groupId).filterNot { it.id == providerId }.maxOfOrNull { it.sortOrder } ?: -1) + 1
+                val catalog = readCatalog()
+                val provider = catalog.providers.firstOrNull { it.id == providerId }
+                if (provider != null && provider.groupId != groupId) {
+                    persistDestinationOrder(catalog.appendProvider(provider.copy(groupId = groupId)), groupId)
                 }
-                providerDao.updateGroupAndSortOrder(providerId, groupId, sortOrder)
+            }
+        }
+    }
+
+    private fun Catalog.placeProvider(placement: ProviderPlacement): Catalog {
+        if (providers.none { it.id == placement.providerId } ||
+            (placement.groupId != null && groups.none { it.id == placement.groupId })) return this
+        var members = providers.map { if (it.id == placement.providerId) it.copy(groupId = placement.groupId) else it }
+        val actualRoot = providerRootOrder(members, groups)
+        val root = placement.rootOrder.filter { it in actualRoot }.distinct() + actualRoot.filter { it !in placement.rootOrder }
+        val rootRanks = root.withIndex().associate { it.value to it.index }
+        members = members.map { p ->
+            rootRanks[ProviderRootOrderItem(p.id, false)]?.let { p.copy(sortOrder = it) } ?: p
+        }
+        placement.groupOrders.forEach { (groupId, requested) ->
+            val actual = members.filter { it.groupId == groupId }.sortedWith(providerOrder).map { it.id }
+            val order = requested.filter { it in actual }.distinct() + actual.filter { it !in requested }
+            val ranks = order.withIndex().associate { it.value to it.index }
+            members = members.map { p -> if (p.groupId == groupId) p.copy(sortOrder = ranks.getValue(p.id)) else p }
+        }
+        return copy(providers = members.sortedWith(providerOrder), groups = groups.map { g ->
+            g.copy(sortOrder = rootRanks.getValue(ProviderRootOrderItem(g.id, true)))
+        }.sortedBy { it.sortOrder })
+    }
+
+    private fun providerRootOrder(providers: List<LlmProviderInfo>, groups: List<ProviderGroup>): List<ProviderRootOrderItem> =
+        (groups.map { Triple(ProviderRootOrderItem(it.id, true), it.sortOrder, 0) } +
+            providers.filter { it.groupId == null }.map { Triple(ProviderRootOrderItem(it.id, false), it.sortOrder, 1) })
+            .sortedWith(compareBy<Triple<ProviderRootOrderItem, Int, Int>> { it.second }.thenBy { it.third }.thenBy { it.first.id })
+            .map { it.first }
+
+    suspend fun placeProvider(placement: ProviderPlacement) {
+        state.mutate({ it.placeProvider(placement) }) {
+            db.withTransaction {
+                val updated = readCatalog().placeProvider(placement)
+                updated.providers.forEach { providerDao.updateGroupAndSortOrder(it.id, it.groupId, it.sortOrder) }
+                updated.groups.forEach { groupDao.updateSortOrder(it.id, it.sortOrder) }
             }
         }
     }
@@ -121,42 +194,71 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         }
     }
 
+    private fun mergeOAuthAuthorization(persisted: LlmProviderInfo?, authorized: LlmProviderInfo): LlmProviderInfo {
+        val accounts = (persisted?.takeIf { it.type == authorized.type }?.oauthAccountsWithCurrent().orEmpty() +
+            authorized.config.oauthAccounts).associateBy { it.id }.values.toList()
+        return (persisted ?: authorized).copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth,
+            config = (persisted?.config ?: authorized.config).copy(oauthAccounts = accounts,
+                multipleApiKeys = authorized.config.multipleApiKeys))
+    }
+
     suspend fun authorizeProvider(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
         service.withOAuthSession {
-            val authorized = service.authorizeProvider(provider).getOrThrow()
-            withContext(Dispatchers.IO) {
-                val persisted = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
-                providerDao.insertOrUpdate(providerModelToEntity(
-                    persisted?.copy(type = authorized.type, baseUrl = authorized.baseUrl, auth = authorized.auth)
-                        ?: authorized
-                ))
+            val authorized = service.authorizeProvider(provider).getOrThrow().recordOAuthAccount()
+            var saved = authorized
+            state.mutate({ catalog ->
+                val updated = mergeOAuthAuthorization(catalog.providers.firstOrNull { it.id == provider.id }, authorized)
+                catalog.copy(providers = catalog.providers.upsert(updated) { it.id }.sortedWith(providerOrder))
+            }) {
+                db.withTransaction {
+                    val persisted = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
+                    if (persisted != null && persisted.type != authorized.type) clearAllOAuthCredentials(persisted)
+                    saved = mergeOAuthAuthorization(persisted, authorized)
+                    providerDao.insertOrUpdate(providerModelToEntity(saved))
+                }
             }
-            authorized
+            authorized.copy(config = authorized.config.copy(oauthAccounts = saved.config.oauthAccounts))
         }
     }
 
-    suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> = withContext(Dispatchers.IO) {
-        runCatching {
-            service.clearAccountCredentials(provider.type, provider.id)
-            val clearedAuth = Authorization(method = AuthMethod.OAUTH)
-            providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)?.let { persisted ->
-                providerDao.insertOrUpdate(providerModelToEntity(persisted.copy(auth = clearedAuth)))
+    suspend fun clearOAuthCredentials(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
+        val accountId = provider.oauthCredentialId
+        state.mutate({ catalog -> catalog.copy(providers = catalog.providers.map {
+            if (it.id == provider.id && it.type == provider.type) it.removeOAuthAccount(accountId) else it
+        }) }) {
+            service.clearAccountCredentials(provider.type, accountId)
+            db.withTransaction {
+                providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)?.let { persisted ->
+                    if (persisted.type == provider.type) providerDao.insertOrUpdate(providerModelToEntity(persisted.removeOAuthAccount(accountId)))
+                }
             }
-            provider.copy(auth = clearedAuth)
+        }
+        provider.removeOAuthAccount(accountId)
+    }
+
+    private fun clearAllOAuthCredentials(provider: LlmProviderInfo) {
+        (provider.oauthAccountsWithCurrent().map { it.id } + provider.id + provider.oauthCredentialId).distinct().forEach {
+            service.clearAccountCredentials(provider.type, it)
         }
     }
 
-    suspend fun saveProvider(provider: LlmProviderInfo) {
-        state.mutate({ it.copy(providers = it.providers.upsert(provider) { p -> p.id }.sortedBy { p -> p.sortOrder }) }) {
+    suspend fun saveProvider(draft: LlmProviderInfo) {
+        val provider = draft.copy(config = draft.config.normalizedForStorage())
+        state.mutate({ it.saveProviderDraft(provider) }) {
             val previous = providerDao.getProviderById(provider.id)?.let(::providerEntityToModel)
             if (
                 previous != null &&
                 (previous.type != provider.type ||
                     (previous.auth.method == AuthMethod.OAUTH && provider.auth.method != AuthMethod.OAUTH))
             ) {
-                service.clearAccountCredentials(previous.type, previous.id)
+                clearAllOAuthCredentials(previous)
             }
-            providerDao.insertOrUpdate(providerModelToEntity(provider))
+            db.withTransaction {
+                val catalog = readCatalog()
+                val updated = catalog.saveProviderDraft(provider)
+                persistDestinationOrder(updated, provider.groupId)
+                providerDao.insertOrUpdate(providerModelToEntity(updated.providers.first { it.id == provider.id }))
+            }
             provider.config.modelConfigs.forEach { (id, config) ->
                 if (previous?.config?.modelConfigs?.get(id) != config) service.modelConfigurationMemory.remember(id, config)
             }
@@ -178,7 +280,7 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
     suspend fun deleteProvider(id: String) {
         state.mutate({ it.copy(providers = it.providers.filterNot { p -> p.id == id }) }) {
             providerDao.getProviderById(id)?.let(::providerEntityToModel)?.let {
-                service.clearAccountCredentials(it.type, it.id)
+                clearAllOAuthCredentials(it)
             }
             providerDao.deleteById(id)
         }
@@ -236,7 +338,7 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             auth = auth,
             icon = entity.icon,
             baseUrl = SecretCipher.decrypt(entity.baseUrl),
-            config = config,
+            config = config.normalizedForStorage(),
             sortOrder = entity.sortOrder,
             groupId = entity.groupId
         )
@@ -249,7 +351,7 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
             type = provider.type.name,
             baseUrl = SecretCipher.encrypt(provider.baseUrl),
             authJson = SecretCipher.encrypt(json.encodeToString(provider.auth)),
-            configJson = SecretCipher.encrypt(json.encodeToString(provider.config)),
+            configJson = SecretCipher.encrypt(json.encodeToString(provider.config.normalizedForStorage())),
             icon = provider.icon,
             sortOrder = provider.sortOrder,
             groupId = provider.groupId

@@ -60,7 +60,7 @@ fun McpScreen(
             onAuthorizeOAuth = onAuthorizeOAuth, onClearOAuth = onClearOAuth,
             cachedTools = toolsCache[page.server.id] ?: page.server.cachedTools, cachedError = toolErrors[page.server.id],
             cachedLoading = page.server.id in toolsLoading, toolSettings = toolSettings, onSetToolEnabled = onSetToolEnabled,
-            onDismiss = { editor = null }, onSave = { onSaveMcpServer(it); editor = null }
+             onDismiss = { editor = null }, onSave = onSaveMcpServer
         ) else Scaffold(topBar = {
             TopAppBar(title = {
                 Column {

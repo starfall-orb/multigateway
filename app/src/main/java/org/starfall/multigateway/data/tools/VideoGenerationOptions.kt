@@ -4,11 +4,10 @@ import kotlinx.serialization.json.*
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.starfall.multigateway.data.model.LlmProviderInfo
 
-internal enum class VideoApi { OPENAI, H3, AGNES }
+internal enum class VideoApi { OPENAI, AGNES }
 
-internal fun videoApi(provider: LlmProviderInfo, model: String): VideoApi = when {
-    model.startsWith("agnes-video-", true) || provider.baseUrl.toHttpUrlOrNull()?.host == "apihub.agnes-ai.com" -> VideoApi.AGNES
-    model.matches(Regex("h3-(6|10|15)s", RegexOption.IGNORE_CASE)) || provider.baseUrl.toHttpUrlOrNull()?.host == "h3video.cc.cd" -> VideoApi.H3
+internal fun videoApi(provider: LlmProviderInfo): VideoApi = when {
+    isAgnesProvider(provider) -> VideoApi.AGNES
     else -> VideoApi.OPENAI
 }
 
@@ -20,14 +19,10 @@ internal fun validateVideoImageUrl(value: String): String {
     return value
 }
 
-fun videoOptionFields(provider: LlmProviderInfo, model: String): List<ImageOptionField> = when (videoApi(provider, model)) {
-    VideoApi.H3 -> listOf(
-        ImageOptionField("image_url", "Source image URL (or attach an image in chat)"),
-        ImageOptionField("cf_token", "Turnstile token (only when required by the server)")
-    )
+fun videoOptionFields(provider: LlmProviderInfo, model: String): List<ImageOptionField> = when (videoApi(provider)) {
     VideoApi.AGNES -> listOf(
         ImageOptionField("seconds", "Duration (seconds)", "integer", min = 4.0, max = 12.0),
-        ImageOptionField("size", "Resolution", choices = if (model.endsWith("-flash", true)) listOf("720P") else listOf("720P", "1080P", "1K", "2K")),
+        ImageOptionField("size", "Resolution", choices = if (model.equals("agnes-video-2.5-flash", true)) listOf("720P") else listOf("720P", "1080P", "1K", "2K")),
         ImageOptionField("aspect_ratio", "Aspect ratio", choices = listOf("16:9", "9:16", "1:1", "4:3", "3:4", "21:9")),
         ImageOptionField("first_frame", "First-frame image URL"),
         ImageOptionField("last_frame", "Last-frame image URL"),
@@ -41,8 +36,7 @@ fun validateVideoOptions(provider: LlmProviderInfo, model: String, options: Json
     require(listOf("model", "prompt", "input_reference", "image", "instances").none { it in options }) {
         "Model, prompt, and attached files are supplied by chat."
     }
-    val allowed = when (videoApi(provider, model)) {
-        VideoApi.H3 -> setOf("image_url", "cf_token")
+    val allowed = when (videoApi(provider)) {
         VideoApi.AGNES -> setOf("mode", "seconds", "size", "aspect_ratio", "seed", "n", "first_frame", "last_frame", "images", "audios", "videos")
         VideoApi.OPENAI -> emptySet()
     }
@@ -57,25 +51,22 @@ fun validateVideoOptions(provider: LlmProviderInfo, model: String, options: Json
             }
         } else require(primitive.isString && (field.choices.isEmpty() || primitive.content in field.choices)) { "Invalid ${field.label.lowercase()}." }
     }
-    listOf("image_url", "first_frame", "last_frame").forEach { key ->
+    listOf("first_frame", "last_frame").forEach { key ->
         if (key in options) validateVideoImageUrl(options.text(key))
     }
-    if (videoApi(provider, model) != VideoApi.AGNES) return
-    require(model in listOf("agnes-video-2.5", "agnes-video-2.5-flash")) {
-        "Select agnes-video-2.5 or agnes-video-2.5-flash. Agnes Video v2.0 has been retired."
-    }
+    if (videoApi(provider) != VideoApi.AGNES) return
     val mode = options.text("mode")
-    require(mode.isEmpty() || mode in listOf("text", "keyframe", "reference")) { "Video mode must be text, keyframe, or reference." }
+    require("mode" !in options || (options["mode"] is JsonPrimitive && options["mode"]!!.jsonPrimitive.isString && mode in listOf("text", "keyframe", "reference"))) { "Video mode must be text, keyframe, or reference." }
     options["n"]?.let { require(it is JsonPrimitive && !it.isString && it.intOrNull == 1) { "Agnes supports one video per request." } }
     listOf("images", "audios").forEach { key ->
         options[key]?.let { value ->
-            val limit = if (key == "audios") 3 else if (model.endsWith("-flash")) 5 else 8
+            val limit = if (key == "audios") 3 else if (model.equals("agnes-video-2.5-flash", true)) 5 else 8
             require(value is JsonArray && value.size in 1..limit) { "$key requires 1–$limit public media URLs." }
             value.forEach { require(it is JsonPrimitive && it.isString) { "$key must contain URLs." }; validateVideoImageUrl(it.content) }
         }
     }
     options["videos"]?.let { value ->
-        require(!model.endsWith("-flash") && value is JsonArray && value.size == 1) { "Only Agnes Video 2.5 accepts one reference video." }
+        require(!model.equals("agnes-video-2.5-flash", true) && value is JsonArray && value.size == 1) { "Only Agnes Video 2.5 accepts one reference video." }
         val video = value.single() as? JsonObject ?: error("Reference videos must be objects containing url.")
         require(video.keys.all { it in setOf("url", "start_seconds", "require_audio") }) { "Unsupported reference video fields." }
         validateVideoImageUrl(video.text("url"))

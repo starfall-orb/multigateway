@@ -2,6 +2,7 @@ package org.starfall.multigateway
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.*
@@ -15,6 +16,37 @@ import org.starfall.multigateway.ui.chat.ModelPickerSheet
 
 class ModelPickerToggleTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+
+    @Test fun selectedModelSurvivesCollapsedParentsAndReasoningCanBeDisabledIndependently() {
+        val config = ModelConfiguration(supportsThinking = true)
+        val provider = LlmProviderInfo("p", "Primary", ProviderType.OPENAI, baseUrl = "",
+            groupId = "folder", config = ProviderConfiguration(modelIds = listOf("alpha", "beta"),
+                modelConfigs = mapOf("alpha" to config)))
+        var effort: String? = "high"
+        compose.setContent {
+            var currentEffort by remember { mutableStateOf(effort) }
+            MaterialTheme {
+                ModelPickerSheet(providers = listOf(provider), providerGroups = listOf(ProviderGroup("folder", "Work")),
+                    collapsedGroupIdsState = setOf("folder"), collapsedProviderIdsState = setOf("p"),
+                    selectedProviderId = "p", selectedModelId = "alpha", conversationReasoningEffort = currentEffort,
+                    onSelectModel = { _, _ -> }, onSetReasoningEffort = { effort = it; currentEffort = it }, onDismiss = {})
+            }
+        }
+        compose.onNodeWithTag("model-picker-provider_p").assertIsDisplayed()
+        compose.onNodeWithTag("model-picker-model_p_alpha").assertIsDisplayed()
+        compose.onNodeWithTag("model-picker-model_p_beta").assertDoesNotExist()
+        compose.onNodeWithTag("reasoning-enabled").assertIsOn().performClick()
+        compose.onNodeWithTag("reasoning-slider").assertIsNotEnabled()
+        compose.runOnIdle { assertEquals("none", effort); assertTrue(config.supportsThinking) }
+        compose.onNodeWithTag("reasoning-enabled").assertIsOff().performClick()
+        compose.onNodeWithTag("reasoning-slider").assertIsEnabled()
+        compose.runOnIdle { assertEquals("high", effort) }
+        compose.onNodeWithTag("reasoning-slider").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) {
+            it(0f)
+        }
+        compose.runOnIdle { assertEquals(null, effort) }
+        compose.onNodeWithText("Default").assertIsDisplayed()
+    }
 
     @Test fun toggleControlsGroupedAndRootProvidersIncludingSearchResults() {
         val group = ProviderGroup("folder", "Work", 0)

@@ -1,7 +1,10 @@
 package org.starfall.multigateway.data.model
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.*
 
 enum class ProviderType(val displayName: String, val defaultName: String, val defaultBaseUrl: String) {
     @SerialName("openai")
@@ -56,7 +59,8 @@ enum class AuthMethod {
 data class Authorization(
     val method: AuthMethod = AuthMethod.PLATFORM_DEFAULT,
     val key: String? = null,
-    val value: String? = null
+    val value: String? = null,
+    val oauthAccountId: String? = null
 ) {
     // OAuth stores only an opaque adapter marker here; real tokens never enter provider config.
     val token: String
@@ -110,6 +114,13 @@ fun Authorization.requestHeaders(type: ProviderType): Map<String, String> = when
 }
 
 @Serializable
+data class ProviderApiKey(
+    val id: String,
+    val label: String = "",
+    val value: String
+)
+
+@Serializable
 data class ProviderConfiguration(
     val httpProxy: Map<String, String> = emptyMap(),
     val socksProxy: Map<String, String> = emptyMap(),
@@ -121,7 +132,10 @@ data class ProviderConfiguration(
     // Model IDs are scoped to this provider, including custom gateway models.
     val modelConfigs: Map<String, ModelConfiguration> = emptyMap(),
     // null preserves legacy discovery; an empty list explicitly selects no models.
-    val modelIds: List<String>? = null
+    val modelIds: List<String>? = null,
+    val multipleApiKeys: Boolean = false,
+    val apiKeys: List<ProviderApiKey> = emptyList(),
+    val oauthAccounts: List<ProviderOAuthAccount> = emptyList()
 )
 
 
@@ -162,6 +176,14 @@ data class ProviderRootOrderItem(
     val isGroup: Boolean
 )
 
+/** Commit a drag preview's membership and ordering in one local transaction. */
+data class ProviderPlacement(
+    val providerId: String,
+    val groupId: String?,
+    val rootOrder: List<ProviderRootOrderItem>,
+    val groupOrders: Map<String, List<String>>
+)
+
 @Serializable
 data class Capabilities(
     val text: Boolean = true,
@@ -199,6 +221,7 @@ enum class ModelType(val displayName: String) {
     TEXT_TO_SPEECH("Text to speech")
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ModelConfiguration(
     val temperature: Double? = null,
@@ -207,6 +230,7 @@ data class ModelConfiguration(
     // null inherits the provider setting; false is an explicit override.
     val supportStream: Boolean? = null,
     val displayName: String = "",
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
     val contextWindowTokens: Int = DEFAULT_CONTEXT_WINDOW_TOKENS,
     val modelType: ModelType = ModelType.TEXT_GENERATION,
     // Image input capability. Kept as supportsVision for backward compatibility with saved configs.
@@ -217,8 +241,19 @@ data class ModelConfiguration(
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
     val supportsToolCalls: Boolean = true,
     @SerialName("send_thinking_content") val sendThinkingContent: Boolean = false,
-    val icon: String? = null
+    val icon: String? = null,
+    @SerialName("model_json")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val modelJson: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
 )
+
+/** Only context windows above the app default need an explicit stored override. */
+fun ModelConfiguration.normalizedForStorage(): ModelConfiguration =
+    if (contextWindowTokens > DEFAULT_CONTEXT_WINDOW_TOKENS) this
+    else copy(contextWindowTokens = DEFAULT_CONTEXT_WINDOW_TOKENS)
+
+fun ProviderConfiguration.normalizedForStorage(): ProviderConfiguration =
+    copy(modelConfigs = modelConfigs.mapValues { (_, config) -> config.normalizedForStorage() })
 
 fun LlmProviderInfo.streamEnabledFor(modelId: String): Boolean =
     config.modelConfigs[modelId]?.supportStream ?: config.supportStream
@@ -256,6 +291,21 @@ data class DiscoveredModel(
     val displayName: String = "",
     val metadata: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
 ) {
-    fun configuration() = ModelConfiguration(displayName = displayName,
-        contextWindowTokens = contextWindowTokens ?: DEFAULT_CONTEXT_WINDOW_TOKENS)
+    fun configuration(): ModelConfiguration {
+        val supports = (metadata["capabilities"] as? JsonObject)?.get("supports") as? JsonObject
+        fun supported(key: String) = (supports?.get(key) as? JsonPrimitive)?.booleanOrNull
+        val thinking = supports?.let {
+            supported("adaptive_thinking") == true || (it["reasoning_effort"] as? JsonArray)?.isNotEmpty() == true ||
+                listOf("min_thinking_budget", "max_thinking_budget").any { key ->
+                    (it[key] as? JsonPrimitive)?.longOrNull?.let { budget -> budget > 0 } == true
+                }
+        }
+        return ModelConfiguration(displayName = displayName,
+            contextWindowTokens = contextWindowTokens ?: DEFAULT_CONTEXT_WINDOW_TOKENS,
+            supportsVision = supported("vision") ?: true,
+            supportsThinking = thinking ?: true,
+            supportsToolCalls = supported("tool_calls") ?: true,
+            supportStream = supported("streaming"),
+            modelJson = metadata).normalizedForStorage()
+    }
 }

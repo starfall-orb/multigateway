@@ -117,7 +117,7 @@ fun SystemToolsScreen(
                             enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
                             onClick = { editingMedia = name }
                         ) { Text("Image settings") }
-                    } else if (provider != null && videoOptionFields(provider, config.modelId).isNotEmpty()) {
+                    } else if (provider != null && (videoOptionFields(provider, config.modelId).isNotEmpty() || config.videoOptions.isNotEmpty())) {
                         TextButton(
                             enabled = model?.modelType == ModelType.VIDEO_GENERATION,
                             onClick = { editingMedia = name }
@@ -160,11 +160,10 @@ fun SystemToolsScreen(
         val defaultPrompt = if (name == "title_generation") DEFAULT_TITLE_GENERATION_PROMPT else DEFAULT_CHAT_SUMMARY_PROMPT
         var prompt by rememberSaveable(name) { mutableStateOf(config.prompt.ifBlank { defaultPrompt }) }
         AppBottomSheet(
-            onDismissRequest = { editingPrompt = null },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            onDismissRequest = { editingPrompt = null }
         ) {
             Column(
-                Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(20.dp),
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(if (name == "title_generation") "Title Generation" else "Chat Summary",

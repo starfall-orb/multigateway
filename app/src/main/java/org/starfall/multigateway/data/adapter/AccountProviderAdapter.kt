@@ -2,6 +2,7 @@ package org.starfall.multigateway.data.adapter
 
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.JsonObject
+import org.starfall.multigateway.data.model.DiscoveredModel
 import org.starfall.multigateway.data.model.GenerationEvent
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.ProviderType
@@ -19,6 +20,8 @@ internal interface AccountProviderAdapter {
 
     suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo>
     suspend fun fetchModels(provider: LlmProviderInfo): List<String>
+    suspend fun fetchModelCatalog(provider: LlmProviderInfo): List<DiscoveredModel> =
+        fetchModels(provider).map { DiscoveredModel(it) }
     suspend fun testConnection(provider: LlmProviderInfo): Result<String>
     suspend fun prepareAuthenticatedProvider(provider: LlmProviderInfo): LlmProviderInfo
 

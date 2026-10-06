@@ -14,7 +14,7 @@ class SystemMediaTools(private val http: ToolHttp) {
         if (inputImages.isNotEmpty()) require(provider.type.isOpenAi || provider.type == ProviderType.GOOGLE) {
             "This provider does not support image editing. Select an OpenAI-compatible or Gemini image provider."
         }
-        val referenceImages = inputImages.map { resolveInputImage(it, files, if (provider.type.isOpenAi) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES) }
+        val referenceImages = inputImages.map { resolveInputImage(it, files, if (provider.type.isOpenAi && !isAgnesProvider(provider)) 50L * 1024 * 1024 - 1 else MAX_MEDIA_INPUT_BYTES) }
         val image = inputImage?.let {
             require(kind == "generate_video") { "input_image is only supported by generate_video." }
             require(provider.type.isOpenAi || provider.type == ProviderType.GOOGLE) {
@@ -26,7 +26,9 @@ class SystemMediaTools(private val http: ToolHttp) {
         val base = providerBase(provider)
         val response = when(provider.type) {
             ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES -> if(kind == "generate_image") {
-                if (referenceImages.isEmpty()) {
+                if (isAgnesProvider(provider)) {
+                    http.postMedia("${agnesApiBase(provider)}/images/generations", agnesImageRequest(model, prompt, imageOptions, referenceImages), provider)
+                } else if (referenceImages.isEmpty()) {
                     http.postMedia("$base/images/generations", imageGenerationRequest(provider.type, model, prompt, imageOptions), provider)
                 } else {
                     http.postMedia("$base/images/edits", openAiImageEditRequest(model, prompt, imageOptions, referenceImages), provider)

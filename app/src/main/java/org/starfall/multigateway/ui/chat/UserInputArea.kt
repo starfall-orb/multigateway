@@ -517,6 +517,7 @@ fun UserInputArea(
             onSetReasoningEffort = { if (mediaKind == null) onSetReasoningEffort(it) },
             showReasoningEffort = mediaKind == null,
             dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap,
+            modelFilter = if (mediaKind == null) chatModelPickerFilter else { _, _, config -> config.modelType == mediaKind },
             onDismiss = { showModelPicker = false }
         )
     }

@@ -15,6 +15,51 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class ProviderEditorBehaviorTest {
+    @Test fun modelJsonExpandsAndManualModelsShowEmptyObject() {
+        compose.setContent { MaterialTheme {
+            ModelEditScreen(provider, "", emptySet(), onSave = { _, _ -> }, onBack = {})
+        } }
+        compose.onNodeWithTag("model-json-code").assertDoesNotExist()
+        compose.onNodeWithTag("model-json-toggle").performScrollTo().performClick()
+        compose.onNodeWithText("{}").assertExists()
+        compose.onNodeWithTag("model-json-toggle").performClick()
+        compose.onNodeWithTag("model-json-code").assertDoesNotExist()
+    }
+
+    @Test fun editingFetchedModelShowsAndPreservesApiJson() {
+        val raw = buildJsonObject { put("id", "custom-model"); put("context_window", 32000); put("owned_by", "vendor") }
+        var saved: ModelConfiguration? = null
+        compose.setContent { MaterialTheme {
+            ModelEditScreen(provider.copy(config = ProviderConfiguration(modelConfigs = mapOf(
+                "custom-model" to ModelConfiguration(modelJson = raw, contextWindowTokens = 32000)
+            ))), "custom-model", setOf("custom-model"), onSave = { _, config -> saved = config }, onBack = {})
+        } }
+        compose.onNodeWithTag("model-json-toggle").performScrollTo().performClick()
+        compose.onNode(hasText("\"owned_by\": \"vendor\"", substring = true)).assertExists()
+        compose.onNodeWithText("Save").performClick()
+        compose.runOnIdle {
+            assertEquals(raw, saved!!.modelJson)
+            assertEquals(DEFAULT_CONTEXT_WINDOW_TOKENS, saved!!.contextWindowTokens)
+        }
+    }
+
+    @Test fun faviconDialogShowsUrlValidationResetAndClose() {
+        compose.setContent { MaterialTheme {
+            org.starfall.multigateway.ui.components.IconPickerRow(null, onChange = {})
+        } }
+        compose.onNodeWithContentDescription("Get logo automatically").performClick()
+        compose.onNode(hasSetTextAction() and hasText("Custom homepage URL")).assertIsDisplayed()
+        compose.onNodeWithText("Get", useUnmergedTree = true).performClick()
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Enter a homepage URL or set the provider Base URL.")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Reset").performClick()
+        compose.onNode(hasSetTextAction() and hasText("Custom homepage URL")).assertIsDisplayed()
+        compose.onNodeWithText("Close").performClick()
+        compose.onNodeWithText("Custom homepage URL").assertDoesNotExist()
+    }
+
     @Test fun streamingSegmentsAndPassbackFollowReasoning() {
         var saved: ModelConfiguration? = null
         compose.setContent { MaterialTheme {
@@ -106,6 +151,62 @@ class ProviderEditorBehaviorTest {
             field.fetchSemanticsNode().boundsInRoot.height,
             1f
         )
+    }
+
+    @Test fun customHeadersExpandOnlyWhenClicked() {
+        compose.setContent { MaterialTheme {
+            ProviderEditScreen(provider.copy(config = provider.config.copy(headers = mapOf("X-Test" to "value"))), false,
+                onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> }, onDismiss = {}, onSave = {})
+        } }
+        compose.onNodeWithText("Custom Headers").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("X-Test").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Add header").assertDoesNotExist()
+        compose.onNodeWithText("Custom Headers").performClick()
+        compose.onNodeWithText("X-Test").assertExists()
+        compose.onNodeWithContentDescription("Add header").assertExists()
+        compose.onNodeWithText("Custom Headers").performClick()
+        compose.onNodeWithText("X-Test").assertDoesNotExist()
+    }
+
+    @Test fun multipleApiKeysImportExistingKeyAddSelectEditAndDelete() {
+        var saved: LlmProviderInfo? = null
+        compose.setContent { MaterialTheme {
+            ProviderEditScreen(provider.copy(auth = Authorization(value = "sk-existing-0123456789")), false,
+                onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> }, onDismiss = {}, onSave = { saved = it })
+        } }
+        compose.onNodeWithText("Manage API Keys").assertDoesNotExist()
+        compose.onNodeWithText("Multiple API Keys").performScrollTo().performClick().assertIsOn()
+        compose.onNodeWithText("Manage API Keys").performScrollTo().performClick()
+        compose.onNodeWithText("sk-e••••6789").assertIsSelected()
+        compose.onNodeWithContentDescription("Add API key").performClick()
+        compose.onNodeWithTag("provider_api_key_label").performTextReplacement("Backup")
+        compose.onNodeWithTag("provider_managed_api_key").performTextReplacement("backup-secret-key")
+        compose.onNode(hasContentDescription("Show API key") and hasAnyAncestor(isDialog())).performClick()
+        compose.onNodeWithTag("provider_managed_api_key").assertTextContains("backup-secret-key")
+        compose.onNodeWithContentDescription("Save API key").performClick()
+        compose.onNodeWithText("Backup").assertExists()
+        assertTrue(compose.onNodeWithText("sk-e••••6789").fetchSemanticsNode().boundsInRoot.top <
+            compose.onNodeWithText("Backup").fetchSemanticsNode().boundsInRoot.top)
+        compose.onNodeWithText("Backup").performClick()
+        compose.onNode(isDialog()).assertDoesNotExist()
+        compose.onNodeWithText("Manage API Keys").performScrollTo().performClick()
+        compose.onNodeWithText("Backup").assertIsSelected()
+        compose.onNodeWithContentDescription("API key actions for Backup").performClick()
+        compose.onNodeWithText("Edit").performClick()
+        compose.onNodeWithTag("provider_api_key_label").performTextReplacement("Renamed")
+        compose.onNodeWithContentDescription("Save API key").performClick()
+        compose.onNodeWithText("Renamed").assertIsSelected()
+        compose.onNodeWithContentDescription("API key actions for Renamed").performClick()
+        compose.onNodeWithText("Delete").performClick()
+        compose.onNodeWithText("Renamed").assertDoesNotExist()
+        compose.onNodeWithText("sk-e••••6789").assertIsSelected()
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNodeWithText("Save").performClick()
+        compose.runOnIdle {
+            assertTrue(saved!!.config.multipleApiKeys)
+            assertEquals(1, saved!!.config.apiKeys.size)
+            assertEquals("sk-existing-0123456789", saved!!.auth.token)
+        }
     }
 
     @Test fun connectionDialogTestsOnlyTextModelsAndRemovesFailedModels() {

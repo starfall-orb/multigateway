@@ -21,20 +21,15 @@ fun ReasoningEffortSheet(
     onApply: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val efforts = listOf<String?>("none", null, "low", "medium", "high", "xhigh")
-    val labels = listOf("Off", "Auto", "Low", "Medium", "High", "Extra high")
-    var index by remember(currentEffort) {
-        mutableFloatStateOf(efforts.indexOf(currentEffort).takeIf { it >= 0 }?.toFloat() ?: 1f)
-    }
-    val selected = index.roundToInt().coerceIn(efforts.indices)
+    var effort by remember(currentEffort) { mutableStateOf(currentEffort) }
 
     AppBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -45,21 +40,14 @@ fun ReasoningEffortSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text(labels[selected], style = MaterialTheme.typography.headlineSmall)
-            Slider(
-                value = index,
-                onValueChange = { index = it },
-                valueRange = 0f..5f,
-                steps = 4
+            Text(
+                if (reasoningEffortEnabled(effort)) reasoningEffortLabels[reasoningEffortIndex(effort)] else "Off",
+                style = MaterialTheme.typography.headlineSmall
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                labels.forEach { label ->
-                    Text(label.take(1), style = MaterialTheme.typography.labelSmall)
-                }
-            }
+            ReasoningEffortControl(effort = effort, onEffortChange = { effort = it })
             Button(
                 onClick = {
-                    onApply(efforts[selected])
+                    onApply(effort)
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -91,8 +79,7 @@ fun ConversationSummarySheet(
         (!chunked || (chunkTokens != null && chunkTokens in 1..100_000))
 
     AppBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

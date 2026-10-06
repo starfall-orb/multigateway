@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.data.model.*
+import org.starfall.multigateway.ui.components.EntityIcon
+import org.starfall.multigateway.ui.chat.modelInitial
 import java.util.UUID
 
 @Composable
@@ -51,8 +53,10 @@ fun ConversationsDrawer(
     onCloseDrawer: () -> Unit,
     promptLibrary: PromptLibrary? = null,
     onPromptLibraryChange: (PromptLibrary) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    providers: List<LlmProviderInfo> = emptyList()
 ) {
+    val providersById = remember(providers) { providers.associateBy { it.id } }
     var search by remember { mutableStateOf("") }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
@@ -139,6 +143,7 @@ fun ConversationsDrawer(
                         if (folder.expanded || search.isNotBlank()) {
                             items(chats, key = { "chat:${it.id}" }) { chat ->
                                 DrawerChatRow(chat, currentConversationId, generatingConversationId, selecting, chat.id in selected, chat.id in organization.pinnedChatIds,
+                                    modelIcon = chat.lastModelIcon(providersById),
                                     onClick = { if (selecting) toggle(chat.id) else { onSelectConversation(chat); onCloseDrawer() } },
                                     onLongClick = { selecting = true; toggle(chat.id) },
                                     onPin = { onUpdateOrganization { it.copy(pinnedChatIds = if (chat.id in it.pinnedChatIds) it.pinnedChatIds - chat.id else it.pinnedChatIds + chat.id) } },
@@ -153,6 +158,7 @@ fun ConversationsDrawer(
                     .sortedWith(compareByDescending<Conversation> { it.id in organization.pinnedChatIds }.thenByDescending { it.updatedAt })
                 items(history, key = { "chat:${it.id}" }) { chat ->
                     DrawerChatRow(chat, currentConversationId, generatingConversationId, selecting, chat.id in selected, chat.id in organization.pinnedChatIds,
+                        modelIcon = chat.lastModelIcon(providersById),
                         onClick = { if (selecting) toggle(chat.id) else { onSelectConversation(chat); onCloseDrawer() } },
                         onLongClick = { selecting = true; toggle(chat.id) },
                         onPin = { onUpdateOrganization { it.copy(pinnedChatIds = if (chat.id in it.pinnedChatIds) it.pinnedChatIds - chat.id else it.pinnedChatIds + chat.id) } },
@@ -211,14 +217,20 @@ private fun SidebarLabel(text: String) { Text(text, Modifier.padding(start = 8.d
 private fun DrawerChatRow(
     chat: Conversation, currentId: String?, generatingId: String?, selecting: Boolean, checked: Boolean, pinned: Boolean,
     onClick: () -> Unit, onLongClick: () -> Unit, onPin: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit, onMove: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    modelIcon: ConversationModelIcon? = null
 ) {
     var menu by remember { mutableStateOf(false) }
     val active = chat.id == currentId
     Surface(shape = RoundedCornerShape(12.dp), color = if (checked || active) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
         modifier = modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
         Row(Modifier.padding(start = 10.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (selecting) Checkbox(checked, onCheckedChange = { onClick() }, modifier = Modifier.size(36.dp)) else Box(Modifier.size(36.dp).clip(CircleShape).background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
+            if (selecting) Checkbox(checked, onCheckedChange = { onClick() }, modifier = Modifier.size(36.dp))
+            else if (modelIcon != null) EntityIcon(
+                modelIcon.image, Modifier.size(36.dp).clip(CircleShape),
+                text = modelInitial(modelIcon.name), matchName = modelIcon.name, model = true,
+                backgroundColor = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest
+            ) else Box(Modifier.size(36.dp).clip(CircleShape).background(if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest), contentAlignment = Alignment.Center) {
                 Text(chat.title.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "#", color = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             }
             Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {

@@ -27,7 +27,21 @@ internal fun iconMatchNames(name: String, model: Boolean): List<String> {
     val clean = name.trim()
     return (if (model && '/' in clean) listOf(clean.substringAfterLast('/'), clean.substringBefore('/'))
         else listOf(clean)).flatMap { part ->
-            if (!model) listOf(part.trim()) else {
+            if (!model) {
+                // Exact names win. Then try complete word groups, longest first,
+                // so descriptive prefixes/suffixes work for every brand, including
+                // multi-word brands, without matching fragments inside other words.
+                val providerName = part.trim()
+                val words = Regex("[\\p{L}\\p{N}]+").findAll(providerName).map { it.value }.toList()
+                buildList {
+                    add(providerName)
+                    for (length in words.size downTo 1) {
+                        for (start in 0..words.size - length) {
+                            add(words.subList(start, start + length).joinToString(" "))
+                        }
+                    }
+                }
+            } else {
                 val segments = part.trim().split('-')
                 segments.indices.map { segments.take(it + 1).joinToString("-") }
             }
@@ -291,6 +305,15 @@ class IconStore(private val context: Context) {
         } finally {
             staging.delete()
         }
+    }
+
+    /** Save a confirmed favicon preview as an app-owned icon. Called on IO. */
+    internal fun importBitmap(bitmap: Bitmap): String {
+        val staging = File.createTempFile("favicon-", ".png", context.cacheDir)
+        try {
+            staging.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            return importImage(Uri.fromFile(staging), shared = false)
+        } finally { staging.delete() }
     }
 
     /** Explicit URL icons use the same app-owned, resized cache as imported pictures. Called on IO. */

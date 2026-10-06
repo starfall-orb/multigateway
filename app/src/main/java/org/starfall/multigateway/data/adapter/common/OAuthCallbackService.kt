@@ -33,7 +33,7 @@ class OAuthCallbackService : Service() {
         startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .setContentTitle("Account sign-in in progress")
-            .setContentText("Complete sign-in in your browser, then return to MultiGateway.")
+            .setContentText(getString(org.starfall.multigateway.R.string.oauth_browser_pending))
             .setContentIntent(returnToApp)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
@@ -93,7 +93,7 @@ class OAuthCallbackService : Service() {
 
         internal suspend fun <T> keepAlive(context: Context, block: suspend () -> T): T {
             start(context)
-            return try { block() } finally { stop(context) }
+            return try { OAuthBrowser.withSession(context, block) } finally { stop(context) }
         }
     }
 }

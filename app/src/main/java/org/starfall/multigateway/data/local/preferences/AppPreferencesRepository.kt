@@ -13,6 +13,16 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
 
+enum class WordWrapMode(val value: String) {
+    OFF("off"), VIEWPORT("on"), COLUMN("wordWrapColumn"), BOUNDED("bounded");
+
+    companion object {
+        fun fromValue(value: String?) = entries.firstOrNull { it.value == value } ?: OFF
+    }
+}
+
+const val DEFAULT_WORD_WRAP_COLUMN = 80
+
 data class AppPreferences(
     val sidebar: SidebarOrganization = SidebarOrganization(),
     val selectedProfileId: String? = null,
@@ -43,7 +53,10 @@ data class AppPreferences(
     val modelPickerCollapsedProviders: Set<String> = emptySet(),
     val mcpPresetsInitialized: Boolean = false,
     val contentApiPresetInitialized: Boolean = false,
-    val latexMode: String = "AUTO" // ON, OFF, AUTO
+    val latexMode: String = "AUTO", // ON, OFF, AUTO
+    val wordWrapMode: WordWrapMode = WordWrapMode.OFF,
+    val wordWrapColumn: Int = DEFAULT_WORD_WRAP_COLUMN,
+    val codePreviewEnabled: Boolean = true
 ) {
     val effectiveSystemPrompt: String get() = promptLibrary?.systemPrompt() ?: defaultSystemPrompt
     fun promptRoleMessages() = promptLibrary?.roleMessages().orEmpty()
@@ -82,6 +95,9 @@ class AppPreferencesRepository(private val context: Context) {
         val MCP_PRESETS_INITIALIZED = booleanPreferencesKey("mcp_presets_initialized")
         val CONTENT_API_PRESET_INITIALIZED = booleanPreferencesKey("content_api_preset_initialized")
         val LATEX_MODE = stringPreferencesKey("latex_mode")
+        val WORD_WRAP_MODE = stringPreferencesKey("word_wrap_mode")
+        val WORD_WRAP_COLUMN = intPreferencesKey("word_wrap_column")
+        val CODE_PREVIEW_ENABLED = booleanPreferencesKey("code_preview_enabled")
     }
 
     private val storedPreferences: Flow<AppPreferences> = context.dataStore.data
@@ -121,7 +137,10 @@ class AppPreferencesRepository(private val context: Context) {
                 modelPickerCollapsedProviders = preferences[PreferenceKeys.MODEL_PICKER_COLLAPSED_PROVIDERS].orEmpty(),
                 mcpPresetsInitialized = preferences[PreferenceKeys.MCP_PRESETS_INITIALIZED] ?: false,
                 contentApiPresetInitialized = preferences[PreferenceKeys.CONTENT_API_PRESET_INITIALIZED] ?: false,
-                latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO"
+                latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO",
+                wordWrapMode = WordWrapMode.fromValue(preferences[PreferenceKeys.WORD_WRAP_MODE]),
+                wordWrapColumn = preferences[PreferenceKeys.WORD_WRAP_COLUMN]?.takeIf { it > 0 } ?: DEFAULT_WORD_WRAP_COLUMN,
+                codePreviewEnabled = preferences[PreferenceKeys.CODE_PREVIEW_ENABLED] ?: true
             )
         }
 
@@ -372,4 +391,23 @@ class AppPreferencesRepository(private val context: Context) {
             }
         }
     }
+    suspend fun setWordWrapMode(mode: WordWrapMode) {
+        state.mutate({ it.copy(wordWrapMode = mode) }) {
+            context.dataStore.edit { it[PreferenceKeys.WORD_WRAP_MODE] = mode.value }
+        }
+    }
+
+    suspend fun setWordWrapColumn(column: Int) {
+        require(column > 0)
+        state.mutate({ it.copy(wordWrapColumn = column) }) {
+            context.dataStore.edit { it[PreferenceKeys.WORD_WRAP_COLUMN] = column }
+        }
+    }
+
+    suspend fun setCodePreviewEnabled(enabled: Boolean) {
+        state.mutate({ it.copy(codePreviewEnabled = enabled) }) {
+            context.dataStore.edit { it[PreferenceKeys.CODE_PREVIEW_ENABLED] = enabled }
+        }
+    }
+
 }

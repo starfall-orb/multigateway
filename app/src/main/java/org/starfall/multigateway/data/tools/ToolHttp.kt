@@ -22,10 +22,12 @@ internal fun providerBase(p: LlmProviderInfo): String {
     val suffix = listOf("/chat/completions", "/responses", "/messages", "/models", "/chat").firstOrNull { base.endsWith(it) }
     return if (suffix == null) base else base.removeSuffix(suffix)
 }
-class ToolHttp(val files: ToolFiles? = null) {
-    fun requireFiles(): ToolFiles = files ?: error("Tool/media storage is required for this operation")
-    val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS)
+class ToolHttp(
+    val files: ToolFiles? = null,
+    val client: OkHttpClient = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS)
         .callTimeout(5, TimeUnit.MINUTES).followRedirects(false).build()
+) {
+    fun requireFiles(): ToolFiles = files ?: error("Tool/media storage is required for this operation")
     suspend fun execute(request: Request): Response = execute(client.newCall(request))
     internal suspend fun execute(call: Call): Response = suspendCancellableCoroutine { cont ->
         cont.invokeOnCancellation { call.cancel() }

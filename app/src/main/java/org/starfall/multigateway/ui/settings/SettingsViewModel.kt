@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.settings
 
+import org.starfall.multigateway.data.local.preferences.WordWrapMode
 import org.starfall.multigateway.data.model.SidebarOrganization
 import org.starfall.multigateway.data.repository.LocalWriteErrors
 import androidx.lifecycle.ViewModel
@@ -63,4 +64,14 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     fun setLatexMode(value: String) {
         viewModelScope.launch(LocalWriteErrors.handler) { repository.setLatexMode(value) }
     }
+    fun setWordWrapMode(value: WordWrapMode) {
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setWordWrapMode(value) }
+    }
+    fun setWordWrapColumn(value: Int) {
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setWordWrapColumn(value) }
+    }
+    fun setCodePreviewEnabled(value: Boolean) {
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setCodePreviewEnabled(value) }
+    }
+
 }

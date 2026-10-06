@@ -1,5 +1,6 @@
 package org.starfall.multigateway
 
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -16,6 +17,31 @@ class ContextWindowTest {
         assertEquals(32000, discovered.contextWindowTokens)
         assertEquals(listOf("chat", "speech"), discovered.metadata["supported_endpoints"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
+    @Test fun onlyContextWindowsAbove128kAreStoredEvenWhenEncodingDefaults() {
+        val json = Json { encodeDefaults = true }
+        for (limit in listOf(32000, 127999, 128000)) {
+            val config = DiscoveredModel("model", contextWindowTokens = limit).configuration()
+            assertEquals(DEFAULT_CONTEXT_WINDOW_TOKENS, config.contextWindowTokens)
+            assertFalse(json.parseToJsonElement(json.encodeToString(config)).jsonObject.containsKey("contextWindowTokens"))
+        }
+        for (limit in listOf(128001, 262144)) {
+            val config = ModelConfiguration(contextWindowTokens = limit).normalizedForStorage()
+            val stored = json.parseToJsonElement(json.encodeToString(config)).jsonObject
+            assertEquals(limit, stored.getValue("contextWindowTokens").jsonPrimitive.int)
+            assertEquals(limit, json.decodeFromString<ModelConfiguration>(stored.toString()).contextWindowTokens)
+        }
+    }
+
+    @Test fun rawApiModelJsonSurvivesConfigurationRoundTrip() {
+        val raw = Json.parseToJsonElement("""{"id":"m","context_window":32000,"vendor":{"enabled":true,"options":[1,null,"x"]}}""").jsonObject
+        val configuration = discoveredModel("m", raw).configuration()
+        val decoded = Json.decodeFromString<ModelConfiguration>(Json.encodeToString(configuration))
+        assertEquals(raw, decoded.modelJson)
+        assertEquals(DEFAULT_CONTEXT_WINDOW_TOKENS, decoded.contextWindowTokens)
+        assertEquals(JsonObject(emptyMap()), ModelConfiguration().modelJson)
+        assertEquals(JsonObject(emptyMap()), Json.decodeFromString<ModelConfiguration>("{}").modelJson)
+    }
+
     private fun message(id: String, text: String) = StoredMessage(id, ChatRole.USER, listOf(MessageVersion(content = text)))
 
     @Test fun discoveryReadsHelixAndGoogleLimitsAndRejectsInvalidValues() {

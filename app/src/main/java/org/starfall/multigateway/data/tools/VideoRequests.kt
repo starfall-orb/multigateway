@@ -6,7 +6,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.asRequestBody
 import java.util.Base64
 
-/** OpenAI Videos uses multipart; standalone H3 and Agnes use separate JSON protocols. */
+/** OpenAI Videos uses multipart; Agnes uses a separate JSON protocol. */
 internal fun openAiVideoRequest(model: String, prompt: String, image: MediaInputImage? = null): MultipartBody =
     MultipartBody.Builder().setType(MultipartBody.FORM)
         .addFormDataPart("model", model)
@@ -16,20 +16,6 @@ internal fun openAiVideoRequest(model: String, prompt: String, image: MediaInput
                 addFormDataPart("input_reference", it.file.name, it.file.asRequestBody(it.mimeType.toMediaType()))
             }
         }.build()
-
-internal fun h3VideoRequest(model: String, prompt: String, image: MediaInputImage?, options: JsonObject, imageUrl: String?): JsonObject {
-    val duration = Regex("h3-(6|10|15)s", RegexOption.IGNORE_CASE).matchEntire(model)?.groupValues?.get(1)?.toInt()
-        ?: error("Select h3-6s, h3-10s, or h3-15s for the standalone H3 API.")
-    require(prompt.length <= 7000) { "H3 prompts must be at most 7000 characters." }
-    val source = image?.let(::h3InputImage)
-        ?: (imageUrl ?: options.text("image_url").takeIf { it.isNotBlank() })?.let(::validateVideoImageUrl)
-        ?: error("H3 requires a source image. Attach an image or set its public URL in Video settings.")
-    return buildJsonObject {
-        put("model", model); put("prompt", prompt); put("image", source)
-        put("aspect_ratio", "9:16"); put("seconds", duration)
-        options["cf_token"]?.let { put("cf_token", it) }
-    }
-}
 
 internal fun agnesVideoRequest(model: String, prompt: String, options: JsonObject, imageUrl: String?): JsonObject {
     val inputs = if (imageUrl == null) options else JsonObject(options + ("first_frame" to str(validateVideoImageUrl(imageUrl))))

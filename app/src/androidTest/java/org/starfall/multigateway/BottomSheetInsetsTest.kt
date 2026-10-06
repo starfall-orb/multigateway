@@ -36,11 +36,11 @@ import org.starfall.multigateway.ui.components.AppBottomSheet
 class BottomSheetInsetsTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
-    @Test fun shortSheetCoversNavigationBarWhileContentStaysAboveIt() {
+    @Test fun shortSheetStopsAboveNavigationBar() {
         checkSheet(fullHeight = false)
     }
 
-    @Test fun expandedSheetStopsBelowStatusBarAndCoversNavigationBar() {
+    @Test fun expandedSheetStopsBelowStatusBarAndAboveNavigationBar() {
         checkSheet(fullHeight = true)
     }
 
@@ -94,7 +94,7 @@ class BottomSheetInsetsTest {
                 ViewCompat.dispatchApplyWindowInsets(dialogView, imeInsets)
             }
         }
-        val sheetBottom = height - keyboardInset
+        val sheetBottom = height - maxOf(bottomInset, keyboardInset)
         val surface = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle))
         compose.waitUntil(10_000) {
             val sheet = surface.fetchSemanticsNode().boundsInRoot
@@ -103,9 +103,9 @@ class BottomSheetInsetsTest {
         val sheet = surface.getUnclippedBoundsInRoot()
         val content = compose.onNodeWithTag("content").getUnclippedBoundsInRoot()
         with(compose.density) {
-            assertEquals("Surface must reach its bottom anchor", sheetBottom.toFloat(), sheet.bottom.toPx(), 1f)
+            assertEquals("Surface must stop above navigation bar/keyboard", sheetBottom.toFloat(), sheet.bottom.toPx(), 1f)
             assertTrue("Surface must stay below status bar", sheet.top.toPx() >= topInset - 1)
-            assertTrue("Content must avoid navigation bar/keyboard", content.bottom.toPx() <= height - maxOf(bottomInset, keyboardInset) + 1)
+            assertTrue("Content must stay inside the sheet bottom edge", content.bottom.toPx() <= sheetBottom + 1)
             if (fullHeight) assertEquals(topInset.toFloat(), sheet.top.toPx(), 1f)
         }
         // Check the actual display, including system bars, rather than only Compose bounds.

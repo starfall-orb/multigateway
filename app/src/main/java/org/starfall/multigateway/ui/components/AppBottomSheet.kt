@@ -128,20 +128,17 @@ fun AppBottomSheet(
             BoxWithConstraints(
                 Modifier.fillMaxSize()
                     .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top))
-                    // Consume the keyboard here so content does not pad for it a second time.
+                    // Keep the whole sheet above the system navigation bar. Insets are consumed
+                    // here so the IME padding below only adds any remaining keyboard overlap.
+                    .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                     .windowInsetsPadding(WindowInsets.ime.only(WindowInsetsSides.Bottom))
             ) {
                 val bounds = bottomSheetHeightBounds(fullHeight, constraints.maxHeight)
                 val drag = rememberDraggableState { delta ->
                     requestedHeight = bounds.resizedHeight(requestedHeight ?: measuredHeight.toFloat(), delta)
                 }
-                val navigationBarBottom = with(androidx.compose.ui.platform.LocalDensity.current) {
-                    WindowInsets.navigationBars.getBottom(this).toDp()
-                }
                 Surface(
                     modifier = modifier.align(Alignment.BottomCenter).widthIn(max = BottomSheetDefaults.SheetMaxWidth)
-                        // The dialog is edge-to-edge; keep the surface background continuous
-                        // behind the transparent navbar while padding the content below.
                         .fillMaxWidth().testTag("app-bottom-sheet")
                         .onSizeChanged { measuredHeight = it.height }
                         .graphicsLayer { translationY = size.height * (1f - entrance.value) }
@@ -173,8 +170,7 @@ fun AppBottomSheet(
                                 ) { BottomSheetDefaults.DragHandle(modifier = Modifier.width(dragHandleWidth)) }
                                 Column(
                                     Modifier.fillMaxWidth().nestedScroll(scrollBoundary)
-                                         .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
-                                         .padding(bottom = navigationBarBottom),
+                                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
                                     content = content
                                 )
                             }

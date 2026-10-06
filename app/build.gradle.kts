@@ -22,7 +22,9 @@ android {
 
         manifestPlaceholders["appAuthRedirectScheme"] = "multigateway-oauth"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = if (providers.gradleProperty("migrationUiRunner").orNull == "true") {
+            "org.starfall.multigateway.MigrationUiTestRunner"
+        } else "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {

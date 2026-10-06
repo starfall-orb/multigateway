@@ -184,21 +184,28 @@ class ProviderDragBehaviorTest {
         val source = bounds("provider_outside").center - root.topLeft
         fun scrollPosition() = surface.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
         val before = scrollPosition()
-        compose.mainClock.autoAdvance = false
         surface.performTouchInput {
             down(source)
             advanceEventTime(650)
-            moveTo(Offset(source.x, height - 20f))
+            moveBy(Offset(0f, 1f))
         }
-        repeat(15) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle() }
-        val forward = scrollPosition()
-        assertTrue("Library must scroll through folder members while the finger stays at the edge", forward > before)
-        assertTrue("Autoscroll preview must not persist", writes.isEmpty())
-        surface.performTouchInput { moveTo(Offset(source.x, 20f)) }
-        repeat(15) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle() }
-        assertTrue("Reversing at the edge must reverse autoscroll", scrollPosition() < forward)
-        surface.performTouchInput { cancel() }
-        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        compose.onNodeWithTag("dragged_provider").assertExists()
+        compose.mainClock.autoAdvance = false
+        try {
+            surface.performTouchInput { moveTo(Offset(source.x, height - 20f)) }
+            repeat(40) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle(); Thread.sleep(50) }
+            compose.onNodeWithTag("dragged_provider").assertExists()
+            val forward = scrollPosition()
+            assertTrue("Library must scroll through folder members while the finger stays at the edge: before=$before after=$forward", forward > before)
+            assertTrue("Autoscroll preview must not persist", writes.isEmpty())
+            surface.performTouchInput { moveTo(Offset(source.x, 20f)) }
+            repeat(40) { compose.mainClock.advanceTimeBy(100); compose.waitForIdle(); Thread.sleep(50) }
+            assertTrue("Reversing at the edge must reverse autoscroll", scrollPosition() < forward)
+        } finally {
+            surface.performTouchInput { cancel() }
+            compose.mainClock.autoAdvance = true
+        }
         compose.waitForIdle()
         assertTrue("Cancellation must not save membership or order", writes.isEmpty())
         surface.performScrollToNode(hasTestTag("provider_outside"))

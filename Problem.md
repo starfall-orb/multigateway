@@ -1,319 +1,328 @@
-# MultiGateway Library Migration — Remaining Problems
+# MultiGateway Library Migration — Current Problems
 
-This document records the gaps found while auditing the implementation against `PLANS.md`.
+This file reflects the **current implementation**, not the earlier migration snapshot.
 
-The six planned library families are present in the project, and the project currently compiles and passes unit tests. However, the migration is **not yet fully complete according to the completion criteria in `PLANS.md`**, because some app-owned infrastructure that the plan intended to retire is still active.
+The six planned library integrations are present. The architectural migration is now substantially aligned with `PLANS.md`, including its explicit compatibility-adapter rules.
 
-## 1. Provider drag/drop is still partly custom
+Current build validation passes, but device acceptance is **not complete** because the provider drag autoscroll device regression test fails and several remaining UI regressions are being interrupted by severe device memory pressure.
+
+## Outstanding issues — updated 2026-10-06
+
+Work is incomplete. Investigation stopped at the status report without an isolated cause or a verified fix for the autoscroll test failure. This remains unfinished work.
+
+| Area | Current status | Required follow-up |
+| --- | --- | --- |
+| Provider edge autoscroll in grid mode | Completed test failed: `before=0.0 after=0.0` | Isolate the cause, fix it and rerun; test coordinates or clock timing have not been ruled out |
+| List autoscroll, folder/root transfers, drop and cancellation | Insufficient results on the current APK | Validate scrolling in both directions, persistence on drop and rollback on cancellation |
+| Model picker folder/provider toggles | Scroll-state retention implemented; device validation incomplete | Verify that the viewport does not jump back to the selected model |
+| Slow model-picker loading after app startup | Caching and parallel discovery implemented; no before/after measurement | Measure cold startup, cache hits/misses and time to display the model list |
+| Continuing a list drag into the sheet at the list start | One drag-at-start test passed; continuous gestures not fully validated | Verify handoff within the same gesture and scrolling without a reverse swipe to unlock it |
+| Instrumentation suite and manual acceptance | Full acceptance not achieved | Update outdated UI test assumptions and execute the remaining checks |
+
+A successful build and **305 passing unit tests** do not establish acceptance of these UI behaviors. The autoscroll assertion failure and interrupted test processes are separate results. Memory pressure and concurrent APK installation explain some interruptions; they do not yet explain the completed autoscroll result of `0.0`.
+
+## 1. Provider edge autoscroll fails in grid mode
 
 ### Status
 
-**Incomplete**
+**Confirmed failing device regression; underlying cause not yet isolated**
 
-The old generic reorder helpers were removed:
+The previous independent provider pointer engine has been removed.
 
-- `ui/components/LazyListReorder.kt`
-- `ui/components/ReorderableItem.kt`
+Current provider dragging uses Calvin Reorderable on the flattened keyed lazy grid/list surface:
 
-Calvin Reorderable is now used for normal list/grid reordering in Models, MCP, Speech, Profiles, and provider root/group ordering.
+- `ProviderDrag.kt` is gone.
+- No provider UI code uses `detectDragGesturesAfterLongPress` or a custom `pointerInput` drag engine.
+- `PackedProviderGrid.kt` uses `rememberReorderableLazyGridState`.
+- Provider membership changes remain app business logic through `ProviderDragLayout` and `moveProviderDrag`.
+- Root/folder movement is previewed transactionally and rolled back on cancellation.
 
-However, provider transfer between folder/root surfaces still uses the custom implementation:
+This now matches the architectural requirement in `PLANS.md`.
 
-- `ui/providers/ProviderDrag.kt`
-- Custom `detectDragGesturesAfterLongPress`
-- Custom pointer tracking.
-- Custom card bounds tracking.
-- Custom floating overlay positioning.
-- Custom hit testing in `ProviderScreen.kt`.
-- Custom cancellation/rollback behavior.
+However, the device regression for library edge autoscroll fails.
 
-The migration documentation also explicitly notes that provider transfers do not receive library edge autoscroll.
+Test:
 
-### Why this matters
+```
+ProviderDragBehaviorTest.libraryAutoscrollCrossesFolderBoundaryAndCancellationRestoresGridOrder
+```
 
-`PLANS.md` states that the reorder library should own:
+Current APK result on the Android 11 Star 4 device:
 
-- Long-press drag gesture handling.
-- Dragged-item positioning.
-- Reorder calculations.
-- Edge autoscroll.
-- Lazy list/grid integration.
+```
+java.lang.AssertionError:
+Library must scroll through folder members while the finger stays at the edge:
+before=0.0 after=0.0
+```
 
-It also defines completion as removing old custom infrastructure after all call sites are migrated.
+The pointer is moved to the lower edge and held there while the Compose test clock advances, but the provider surface remains at scroll position `0.0`.
 
-Provider folder/root transfer still violates that goal.
+### Why this blocks completion
+
+`PLANS.md` explicitly requires provider dragging, positioning, move targeting, and **edge autoscroll** to use Calvin across folder/root boundaries.
+
+The migration is structurally in place, but the grid device test does not demonstrate the required behavior. A production bug versus an input/clock issue in the test has not yet been isolated.
 
 ### Required follow-up
 
-Refactor provider transfer so that the library owns as much of the physical drag lifecycle as possible.
+Investigate why Calvin's edge autoscroll is not activating for the flattened provider grid.
 
-MultiGateway should continue owning only business rules such as:
+Check at least:
 
-- Folder membership.
-- Root/folder transfer legality.
-- Transactional persistence.
-- Cancellation rollback.
-- Final target selection.
+- Whether the drag pointer coordinates received by the reorder state are relative to the correct lazy-grid viewport.
+- Whether adding/removing/folding cells during `onMove` invalidates the active dragged item or its scroll target.
+- Whether `ScrollMoveMode.INSERT` interacts badly with the root start/end sentinel cells.
+- Whether the dynamically changing `displayCells` list interferes with the library's active drag/autoscroll state.
+- Whether the dragged provider remains keyed and visible while folder membership changes.
+- Whether test-clock-driven frames are sufficient for the library's autoscroll coroutine.
 
-If Calvin Reorderable cannot support cross-container transfer directly, introduce a small adapter around the library rather than retaining a second independent drag engine.
+Validate both grid and list modes after the fix.
 
-Edge autoscroll must also work during provider transfer, including while crossing root/folder boundaries.
-
----
-
-## 2. Bottom sheet migration still retains a custom layout/resize engine
-
-### Status
-
-**Partially complete**
-
-`AppBottomSheet.kt` now correctly delegates the following to Material 3 `ModalBottomSheet`:
-
-- Dialog ownership.
-- Scrim.
-- Show/hide lifecycle.
-- System insets.
-- Base accessibility behavior.
-- Material sheet state.
-
-This is a major improvement over the previous custom Dialog/Window implementation.
-
-However, the app still owns:
-
-- A custom draggable resize handle.
-- Manual requested/measured height state.
-- Custom height bounds.
-- A custom `Layout`.
-- Custom nested-scroll handoff.
-- Overscroll suppression.
-- Custom resize accessibility progress semantics.
-
-### Why this matters
-
-This no longer has the dangerous custom Window/system-bar ownership that caused the original problems, so it is not equivalent to the old implementation.
-
-But it still means the bottom-sheet migration does not fully satisfy the broad completion criterion:
-
-> The old custom infrastructure for each migrated subsystem is removed.
-
-The remaining adapter is justified only if free-form sheet resizing is an actual product requirement that Material 3 or a suitable library cannot reproduce.
-
-### Required follow-up
-
-Decide explicitly which behavior is required:
-
-1. If arbitrary free-form resizing is not necessary, remove the custom resize/layout layer and use Material 3 sheet states directly.
-2. If arbitrary resizing is required, keep the adapter but update `PLANS.md` completion criteria to explicitly permit this small compatibility layer.
-
-Do not return to direct Dialog Window/system-bar manipulation.
+The later diagnostic test explicitly waits for the lifted drag marker before moving to the edge, allows real coroutine time alongside Compose frames, checks that the marker survives edge movement, and always cancels the gesture in `finally`. Two attempts with that diagnostic test ended with `Process crashed` before producing an assertion result; they do not supersede the earlier completed failure or establish that the revised timing passes.
 
 ---
 
-## 3. AppAuth integration does not own the complete OAuth transaction
+## 2. Provider list-mode autoscroll is not yet validated
 
 ### Status
 
-**Partially complete**
+**Blocked by device process termination**
 
-AppAuth is integrated and currently provides:
+The corresponding test is:
 
-- `AuthorizationRequest`.
-- `TokenRequest`.
-- PKCE/request model behavior.
-- Client authentication helpers.
-- Response validation.
-- Browser discovery/binding through `AuthorizationService`.
+```
+ProviderDragBehaviorTest.libraryAutoscrollCrossesFolderBoundaryAndCancellationRestoresListOrder
+```
 
-However, MultiGateway still owns important generic OAuth plumbing:
+On the current APK, Android's low-memory killer terminated the app process before the test produced an assertion result.
 
-- `OAuthBrowserActivity` still launches the Custom Tab itself.
-- Authorization callback collection still uses the custom HTTP loopback listener.
-- `awaitOAuthAuthorizationCode` remains app-owned.
-- Token requests are serialized and sent through `ToolHttp` rather than AppAuth's normal token execution path.
-- Browser completion/cancellation orchestration remains custom.
-- OpenAI Codex still uses the loopback flow.
-- MCP OAuth still uses the loopback flow.
+The log shows:
 
-Some of this is necessary because existing provider registrations use HTTP loopback redirects and some compatible token servers require nonstandard JSON bodies.
+```
+lowmemorykiller: Kill 'org.starfall.multigateway' ... reason: device is not responding
+```
 
-### Why this matters
-
-The plan says AppAuth should own standard OAuth transaction mechanics where possible.
-
-The current implementation uses AppAuth substantially, but it is closer to an AppAuth-backed compatibility layer than a full AppAuth transaction migration.
-
-### Required follow-up
-
-Separate OAuth flows into two categories:
-
-#### Standard AppAuth-compatible flows
-
-Where provider registration and token endpoint behavior permit it, allow AppAuth to own:
-
-- Browser authorization launch.
-- Redirect handling.
-- Authorization response parsing.
-- Code exchange.
-- Refresh.
-
-#### Compatibility flows
-
-Keep custom transport/listener logic only where required for:
-
-- HTTP loopback redirects.
-- JSON token endpoints.
-- Provider-specific behavior.
-- MCP discovery/DCR/resource semantics.
-
-Document every remaining compatibility path explicitly so custom OAuth code cannot silently become the default again.
+Therefore list-mode autoscroll must currently be treated as **unverified**, not passed and not failed.
 
 ---
 
-## 4. Reorder migration still lacks full behavior parity for edge scrolling
+## 3. Lifted provider rendering/tracking is not yet validated on the current APK
 
 ### Status
 
-**Incomplete for provider transfer**
+**Blocked by device process termination**
 
-Normal Calvin Reorderable lists/grids receive library edge scrolling.
+The current regression test:
 
-Provider cross-folder/root transfer does not.
+```
+ProviderDragBehaviorTest.liftedProviderRemainsVisibleAndTracksFingerOutsideFolderInGrid
+```
 
-### Required follow-up
+was started against the rebuilt current APK, but Android's low-memory killer terminated the app before the test returned an assertion.
 
-Test and implement:
+Older runs produced lifted-card assertions, but those runs occurred while provider drag code was changing and must not be used as evidence for the current implementation.
 
-- Drag provider toward top edge.
-- Drag provider toward bottom edge.
-- Drag out of a long folder while scrolling.
-- Drag from root into a folder that is partially off-screen.
-- Reverse direction during autoscroll.
-- Cancel after autoscroll and ensure ordering/membership rollback is exact.
+The current implementation must therefore still be validated for:
 
-This is part of Phase 1 acceptance, not an optional enhancement.
+- Dragged provider remains visibly rendered outside its original folder region.
+- Dragged provider center follows the finger.
+- Grid/list transitions do not clip the dragged item.
+- Cancel returns the provider exactly to its previous placement.
+- No placement write occurs on cancellation.
 
 ---
 
-## 5. Completion criteria and implementation documentation disagree
+## 4. Device instrumentation acceptance is still incomplete
 
 ### Status
 
-**Needs reconciliation**
+**Not passed**
 
-`docs/LIBRARY_MIGRATION.md` says:
-
-> The six migration paths in `PLANS.md` are implemented.
-
-The same document then lists compatibility limitations for:
-
-- Provider cross-container drag.
-- Bottom-sheet resizing.
-- Streaming Markdown parsing.
-- ICO decoding.
-- OAuth loopback handling.
-
-Several of those limitations are valid compatibility decisions, but `PLANS.md` currently has stricter wording that says old infrastructure should be removed.
-
-### Required follow-up
-
-After resolving the functional gaps, make the documentation use one definition of "complete":
-
-- Either complete means no old generic infrastructure remains, or
-- Complete means only narrowly justified compatibility adapters remain.
-
-The current documents use both definitions.
-
----
-
-## 6. Device instrumentation validation is not yet confirmed complete in this audit
-
-### Status
-
-**Pending at audit time**
-
-The following validation command completed successfully:
+The current source passes build/unit validation:
 
 ```sh
-ANDROID_HOME=/opt/android-sdk ./gradlew testDebugUnitTest compileDebugAndroidTestKotlin assembleDebug
+ANDROID_HOME=/opt/android-sdk ./gradlew   testDebugUnitTest   compileDebugAndroidTestKotlin   assembleDebug
 ```
 
 Result:
 
-- BUILD SUCCESSFUL.
-- Unit tests/build artifacts compile successfully.
+```
+BUILD SUCCESSFUL
+```
 
-An ADB device is connected and `connectedDebugAndroidTest` was started during this audit, but its final result had not yet returned when this file was written.
+The current app and instrumentation APKs also build and install successfully.
 
-Therefore this audit must not claim device behavior is fully validated yet.
+A focused bottom-sheet system-insets regression was executed successfully on the current APK:
 
-### Device behaviors that must pass
+```
+BottomSheetInsetsTest.expandedSheetStopsBelowStatusBarAndAboveNavigationBar
+```
 
-- Provider drag/reorder.
-- Provider cross-folder/root transfer.
-- Edge autoscroll.
-- Bottom-sheet resize.
-- Bottom-sheet list-to-sheet gesture handoff.
-- Gesture navigation.
-- Three-button navigation.
-- IME open/close.
-- Landscape sheets.
-- Model picker scrolling/toggling.
-- Media playback lifecycle.
-- Audio focus/noisy-output handling.
-- OAuth loopback return/cancel.
-- OAuth refresh where practical.
+Result:
+
+```
+OK (1 test)
+```
+
+So the earlier claim that this bottom-sheet inset behavior was currently failing is no longer valid.
+
+However, the complete instrumentation acceptance cannot pass yet because:
+
+1. Provider grid edge autoscroll has a confirmed assertion failure.
+2. Other isolated provider tests are repeatedly terminated by Android's low-memory killer.
+3. The full `connectedDebugAndroidTest` run has not completed successfully.
+
+### Device condition
+
+The Android 11 Star 4 device is under severe system pressure during these runs.
+
+The low-memory killer is terminating multiple unrelated processes, including:
+
+- Google Play services.
+- Gboard.
+- Play Store.
+- Launchers.
+- The MultiGateway instrumentation process.
+
+This means a `Process crashed` result by itself must not be treated as an app crash unless an app exception/assertion appears before the termination.
+
+At least one failure is independent of this device-pressure problem: the grid edge-autoscroll assertion above completed normally and failed with `before=0.0 after=0.0`.
 
 ---
 
-# Areas that appear fully migrated
+## 5. Model picker: viewport and startup performance still need acceptance
 
-The following areas currently look substantially complete from code inspection.
+**Code changes present; device behavior/performance not yet fully verified.**
 
-## Coil 3
+`ModelPickerSheet.kt` now keeps its lazy-list state and applies the selected-model opening position once. Folder/provider toggles and later dynamic discovery should not recreate that state. Ollama discovery has disk caching, parallel requests, request coalescing and stale-cache fallback; startup maintenance runs on IO.
 
-Coil is the shared image loader and cache.
+Remaining checks:
 
-`BitmapFactory`-based general-purpose loading is gone. Remaining bitmap conversion is mainly for APIs/components that still require a `Bitmap`, and ICO DIB decoding remains as an explicit compatibility decoder.
+- Run `ModelPickerToggleTest.togglingBranchesKeepsTheViewportInsteadOfReturningToTheSelectedModel` successfully on the current APK.
+- Run `ModelPickerToggleTest.lateDynamicDiscoveryAppearsWithoutReopeningThePicker` successfully.
+- Exercise opening/closing folders and providers after scrolling away from the selected model, including when discovery updates arrive.
+- Measure time to show the model list after cold app start, with fresh cache, expired cache and unavailable providers. A reported MainActivity display time of **16.860 seconds** was observed on the pressured debug device; this does not isolate model discovery time and is not a before/after benchmark.
 
-No major migration blocker was found here.
+The originally reported slow loading and viewport jump must not be marked accepted based only on code inspection or unit tests.
 
-## Markdown renderer
+---
 
-The mikepenz Markdown renderer and parser now own generic Markdown parsing/rendering.
+## 6. Continuous list-to-sheet gesture and scroll-lock regressions remain partly unverified
 
-MultiGateway retains intentional custom presentation for:
+**One targeted gesture test passed; the complete requirement is not yet accepted.**
 
-- Code toolbar.
-- Streaming fade.
-- LaTeX.
-- Error blocks.
-- Code syntax highlighting where the candidate renderer does not cover the required language set.
+`BottomSheetScrollBehaviorTest.draggingDownAtListStartMovesTheSheet` passed in an isolated earlier run. The expanded-sheet system-insets test also passed. Neither proves the remaining continuous-scroll cases.
 
-No remaining independent block Markdown parser was found.
+Still require successful device results:
 
-## Media3
+- `theSameDragContinuesIntoTheSheetAfterReachingListStart`: reach the list start and continue moving the sheet within the same gesture.
+- `draggingDownInTheMiddleScrollsTheListBeforeMovingTheSheet`: consume list scrolling before handing unused motion to the sheet.
+- `repeatedDownwardDragsReachTheStartWithoutAReverseDrag`: reach the exact start without a reverse swipe and move the sheet immediately.
+- `fetchModelsKeepsScrollingTowardTheEndWithoutAReverseSwipe`: avoid the corresponding lock at the list end.
+- Intermediate sheet heights, short/tall content, IME opening/closing and both navigation modes from `PLANS.md`.
 
-No active `android.media.MediaPlayer` or `VideoView` playback implementation was found.
+---
 
-Media3/ExoPlayer is the shared playback engine for media and synthesized speech.
+## 7. Test infrastructure and remaining integration acceptance
 
-No major migration blocker was found here.
+**Incomplete validation, with a known outdated test assumption.**
+
+The existing `ModelPickerToggleTest.selectedModelSurvivesCollapsedParentsAndReasoningCanBeDisabledIndependently` still expects the `reasoning-enabled` UI tag. That tag is absent from current production UI. The test must be aligned with the current reasoning controls while retaining meaningful behavioral assertions; this mismatch is not evidence of a runtime reasoning bug.
+
+Several older provider instrumentation tests also assume the previous whole-folder/floating-overlay layout. Review their coordinates and assertions against the Calvin layout before treating their results as current product regressions.
+
+The optional `MigrationUiTestRunner` avoids production startup for synthetic UI tests. Passing those tests would still not validate production initialization or real provider persistence. The default runner and manual acceptance must cover real app startup, persistence after drop, navigation/system bars/IME, icon resolution, streaming Markdown, media playback/audio focus and supported live OAuth flows.
+
+Known execution interference:
+
+- Android's low-memory killer and input-dispatch ANR interrupted runs on the Android 11 Star 4 device.
+- A concurrent APK installation interrupted at least one instrumentation run (`installPackageLI` in ActivityManager logs).
+- Two later grid diagnostics ended with `Process crashed` before returning an assertion. Their root cause was not independently established; do not label every such result as a confirmed memory kill.
+- The original Gradle UTP setup requested APK uninstallation after testing. `android.injected.androidTest.leaveApksInstalledAfterRun=true` has now been configured; preservation after a complete future Gradle run still needs verification. Direct ADB replacement installs are used for focused runs.
+
+No full `connectedDebugAndroidTest` pass has been recorded for this revision. Execute tests without simultaneous deployment and retain assertion/crash/system logs so infrastructure interruptions are distinguished from app failures.
+
+---
+
+# Items from the previous Problem.md that are now resolved
+
+## Provider drag architecture
+
+**Resolved architecturally**
+
+The previous custom `ProviderDrag.kt` pointer engine, floating overlay implementation, and custom provider drag gesture have been removed.
+
+Calvin now owns the physical drag lifecycle on one keyed lazy surface.
+
+`ProviderDragLayout` remains, but it now represents business-level membership/order transformation rather than a second gesture engine. This is allowed by `PLANS.md`.
+
+## Bottom-sheet compatibility adapter
+
+**Accepted by the current plan**
+
+`PLANS.md` now explicitly permits the bounded content-height/drag-handle adapter because arbitrary intermediate sheet height is a product requirement.
+
+Material 3 still exclusively owns:
+
+- Dialog/window.
+- Insets.
+- Scrim.
+- Sheet lifecycle.
+
+The app-owned layout/resize adapter is therefore no longer a migration-completion violation by itself.
+
+The targeted expanded-sheet inset test passes on the current device build.
+
+## OAuth compatibility paths
+
+**Resolved architecturally**
+
+The current implementation clearly separates standard AppAuth execution from compatibility paths.
+
+Standard flows use:
+
+- `StandardAppAuthAuthorization`.
+- `AuthorizationService.performAuthorizationRequest`.
+- `AuthorizationService.performTokenRequest`.
+- AppAuth client authentication and response parsing.
+
+Explicit compatibility code remains for documented cases such as:
+
+- Existing HTTP loopback registrations.
+- JSON token bodies.
+- Cleartext/local MCP token endpoints.
+- Device-code provider protocols.
+- MCP discovery/DCR/resource semantics.
+
+This matches the revised completion criteria in `PLANS.md`.
+
+## Documentation completion definition
+
+**Resolved**
+
+`PLANS.md` and `docs/LIBRARY_MIGRATION.md` now both use the same rule:
+
+> Old generic subsystem engines must be removed, while narrowly documented compatibility adapters may remain when required by product/protocol behavior that the selected library cannot reproduce.
+
+The documentation also no longer claims device acceptance merely because instrumentation compiled.
 
 ---
 
 # Current conclusion
 
-The migration is **mostly implemented but not fully complete**.
+The migration is **architecturally almost complete**, but it cannot yet be marked fully accepted.
 
-The primary blocker is provider drag/drop across folder/root boundaries, because it still maintains a second custom drag engine and lacks library edge autoscroll.
+The concrete remaining blocker found in this audit is:
 
-Bottom-sheet and OAuth work are partially migrated with compatibility adapters. Those adapters may be valid, but the implementation and `PLANS.md` must agree explicitly on whether retaining them is acceptable.
+1. **Calvin provider edge autoscroll does not activate in the tested grid cross-folder scenario.**
 
-The migration should not be marked fully complete until:
+The following still require successful device validation:
 
-1. Provider cross-container drag is resolved.
-2. Provider edge autoscroll is covered.
-3. Bottom-sheet compatibility behavior is either removed or formally accepted.
-4. OAuth compatibility paths are clearly separated from standard AppAuth flows.
-5. Device instrumentation tests finish successfully.
-6. `PLANS.md` and `docs/LIBRARY_MIGRATION.md` use the same completion definition.
+2. Provider list-mode edge autoscroll.
+3. Lifted provider rendering/tracking.
+4. Provider cancellation/rollback during long edge scrolling.
+5. Model-picker viewport stability and controlled startup/model-list timing.
+6. Continuous list-to-sheet handoff and scrolling without a reverse swipe.
+7. The remaining instrumentation suite and manual acceptance cases listed in `PLANS.md`.
+
+Bottom-sheet architecture and OAuth compatibility separation are no longer architectural blockers. This does not establish full device acceptance for sheet gestures, Coil, Markdown, Media3 or live OAuth flows; the checks above remain outstanding.

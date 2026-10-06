@@ -170,3 +170,16 @@ layouts. A Robolectric network test exercises the actual AppAuth form refresh pa
 including Basic client authentication, resource fields and extension-token fields.
 Device acceptance must be recorded from successful execution, not inferred from
 compilation or these code changes.
+
+Current Problem.md build validation passes 305 unit tests with zero failures, errors
+or skips, including an actual AppAuth form refresh request and folder-handle identity
+while temporarily folding a dragged folder. Debug and instrumentation APKs build.
+Synthetic ComponentActivity UI regressions can use `-PmigrationUiRunner=true` to
+select MigrationUiTestRunner and the rendering-only MigrationUiApplication. The
+default runner still starts the production application for integration tests.
+Use direct `adb install -r` and `am instrument` on a personal device to retain the
+installed app; the initial Gradle UTP configuration requested APK uninstallation after tests.
+The project now sets AGP's `android.injected.androidTest.leaveApksInstalledAfterRun=true`
+to retain the deployment on subsequent Gradle device runs. The first isolated attempt
+was interrupted by a concurrent APK installation (confirmed by ActivityManager's
+installPackageLI log), so its Process crashed result is not a gesture pass.

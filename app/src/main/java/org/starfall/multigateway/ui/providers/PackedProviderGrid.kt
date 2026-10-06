@@ -10,7 +10,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -32,13 +31,10 @@ internal fun packedGroupRegions(cells: List<PackedGridCell>, bounds: Map<String,
             val other = bounds[next.key] ?: continue
             val diagonal = nextIndex == index + 1 && index % 2 == 1
             if (diagonal) {
-                // The end of one row and start of the next share the inter-row gap.
-                // This connects the stepped frame without including either outside tile.
-                if (other.top >= rect.bottom && other.left < rect.left)
-                    // Only bridge the gap between the two diagonal cells. Using
-                    // the full right-hand cell here makes the outline jut out
-                    // into the next column and creates sharp zig-zag corners.
-                    parts += Rect(other.right, rect.bottom, rect.left, other.top)
+                // Diagonal cells have a concave inner corner. Do not add a
+                // rectangular bridge: its stroke necessarily protrudes toward
+                // the lower-right outside of the folder. The two rounded cell
+                // outlines remain clean and meet at the shared folder region.
                 continue
             }
             val horizontal = nextIndex == index + 1
@@ -93,12 +89,10 @@ internal fun PackedProviderGrid(
         regions.values.forEach { parts ->
             val outline = packedGroupPath(parts, cellRects, origin, 20.dp.toPx())
             drawPath(outline, background)
-            drawPath(outline, border, style = Stroke(
-                width = 1.5.dp.toPx(),
-                // Keep the concave transition subtle so the stroke does not bulge
-                // outside the folder's original envelope.
-                pathEffect = PathEffect.cornerPathEffect(4.dp.toPx())
-            ))
+            // Keep the concave transition inside the union envelope. Applying a
+            // stroke corner effect here rounds both sides of the path and makes
+            // the inner join bulge outward.
+            drawPath(outline, border, style = Stroke(1.5.dp.toPx()))
         }
     }) {
         LazyVerticalGrid(

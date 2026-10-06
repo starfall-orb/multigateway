@@ -218,7 +218,6 @@ fun UserInputArea(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
             .imePadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center

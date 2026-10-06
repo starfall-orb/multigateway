@@ -33,7 +33,7 @@ workflows:
       groups:
         - github_release
       vars:
-        GITHUB_RELEASE_REPO: starfall-orb/multigateway
+        GITHUB_RELEASE_REPO: starfall-org/multigateway
       android_signing:
         - MultiGateway
     scripts:

@@ -31,7 +31,10 @@ import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.FadeGridListContent
-import org.starfall.multigateway.ui.components.longPressReorder
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
+import sh.calvin.reorderable.ScrollMoveMode
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.starfall.multigateway.ui.components.moved
 import org.starfall.multigateway.ui.components.windowHeightIn
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
@@ -87,23 +90,29 @@ fun McpScreen(
                         Text(stringResource(R.string.no_mcp_servers_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     }
                 } else FadeGridListContent(isGrid = isGridView, modifier = Modifier.fillMaxSize()) { gridMode ->
-                    LazyVerticalGrid(columns = GridCells.Fixed(if (gridMode) 2 else 1),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(orderedServers, key = { _, item -> item.id }) { index, server ->
-                        McpUnifiedCard(server = server, isGrid = gridMode,
-                            modifier = Modifier.animateItem(placementSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
-                                .longPressReorder(index = index, itemCount = orderedServers.size, columns = if (gridMode) 2 else 1,
-                                    onMove = { from, to -> orderedServers = orderedServers.moved(from, to) },
-                                    onDrop = { onReorderMcpServers(orderedServers.map { it.id }) }),
-                            toolCount = (toolsCache[server.id] ?: server.cachedTools)?.size, toolError = toolErrors[server.id], loading = server.id in toolsLoading,
-                            onToolErrorClick = { selectedToolError = server.name to it },
-                            onEdit = { editor = McpEditor(server, false) }, onDelete = { deletingServerId = server.id })
+                    val gridState = rememberLazyGridState()
+                    val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
+                        orderedServers = orderedServers.moved(from.index, to.index)
                     }
-                }
+                    LazyVerticalGrid(state = gridState, columns = GridCells.Fixed(if (gridMode) 2 else 1),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxSize()) {
+                        itemsIndexed(orderedServers, key = { _, item -> item.id }) { _, server ->
+                            ReorderableItem(reorderState, key = server.id) { _ ->
+                                McpUnifiedCard(server = server, isGrid = gridMode,
+                                    modifier = Modifier.longPressDraggableHandle(
+                                        onDragStopped = { onReorderMcpServers(orderedServers.map { it.id }) }
+                                    ),
+                                    toolCount = (toolsCache[server.id] ?: server.cachedTools)?.size, toolError = toolErrors[server.id], loading = server.id in toolsLoading,
+                                    onToolErrorClick = { selectedToolError = server.name to it },
+                                    onEdit = { editor = McpEditor(server, false) }, onDelete = { deletingServerId = server.id })
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+
     if (deletingServerId != null) AlertDialog(onDismissRequest = { deletingServerId = null },
         title = { Text(stringResource(R.string.delete_mcp_server_title)) }, text = { Text(stringResource(R.string.delete_mcp_server_message)) },
         confirmButton = { Button(onClick = { deletingServerId?.let(onDeleteMcpServer); deletingServerId = null },

@@ -12,8 +12,8 @@ class MarkdownInlineParserTest {
     @Test fun linksRetainCorrectAnnotationOffsetsAfterFormattingIsRemoved() {
         val parsed = buildMarkdownAnnotatedString("**See** [docs](https://example.com) and `x`.", Color.Blue, Color.Gray, Color.Black)
         assertEquals("See docs and  x .", parsed.text)
-        val link = parsed.getStringAnnotations("URL", 0, parsed.length).single()
-        assertEquals("https://example.com", link.item)
+        val link = parsed.getLinkAnnotations(0, parsed.length).single()
+        assertEquals("https://example.com", (link.item as androidx.compose.ui.text.LinkAnnotation.Url).url)
         assertEquals("docs", parsed.text.substring(link.start, link.end))
         assertTrue(parsed.spanStyles.any { it.item.fontWeight == FontWeight.Bold })
     }

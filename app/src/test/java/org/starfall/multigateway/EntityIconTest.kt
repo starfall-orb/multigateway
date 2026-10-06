@@ -63,7 +63,6 @@ class EntityIconTest {
         assertTrue(loaded.width <= 256)
         assertTrue(loaded.height <= 256)
         assertEquals(2f, loaded.width.toFloat() / loaded.height, 0.05f)
-        loaded.recycle()
     }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -249,10 +248,10 @@ class EntityIconTest {
             store.cache("Private model", privateIcon)
             assertNull(store.find("Private model"))
             store.prune(listOf(privateIcon))
-            store.load(privateIcon)!!.recycle()
+            assertNotNull(store.load(privateIcon))
             store.prune(emptyList())
             assertNull(store.load(privateIcon))
-            store.load(sharedIcon)!!.recycle()
+            assertNotNull(store.load(sharedIcon))
         } finally { source.delete() }
     }
 

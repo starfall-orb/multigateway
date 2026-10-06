@@ -673,11 +673,11 @@ fun AboutSettingsView() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         UpdateSettingsView()
-        SettingsNavigationItem("Source code", "starfall-orb/multigateway", Icons.Outlined.Code) {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/starfall-orb/multigateway")))
+        SettingsNavigationItem("Source code", "starfall-org/multigateway", Icons.Outlined.Code) {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/starfall-org/multigateway")))
         }
         SettingsSection("License") {
-            Text("Starfall Orb Contributor Commercial Copyleft License v1.0", style = MaterialTheme.typography.bodyMedium,
+            Text("Starfall Org Contributor Commercial Copyleft License v1.0", style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

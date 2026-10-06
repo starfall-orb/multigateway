@@ -50,7 +50,7 @@ internal fun ProviderApiKeysDialog(state: ProviderApiKeysState, identity: (Strin
     }
     AppDialog(onDismissRequest = { if (editing) editing = false else onDismiss() }) {
         BackHandler(enabled = editing) { editing = false }
-        Surface(shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp).imePadding()) {
+        Surface(shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
             Column {
                 TopAppBar(
                     title = { Text(stringResource(if (editing) R.string.provider_edit_api_key else R.string.provider_manage_api_keys),

@@ -14,6 +14,8 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FormatListBulleted
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -28,8 +30,8 @@ import org.starfall.multigateway.ui.components.*
 @Composable
 internal fun ProviderModelsPane(models: List<String>, configurations: Map<String, ModelConfiguration>, listState: LazyListState,
     onMove: (Int, Int) -> Unit, onDrop: () -> Unit, onEdit: (String) -> Unit, onDelete: (String) -> Unit, onOpenCatalog: () -> Unit) {
-    val reorderState = rememberLazyListReorderState(listState = listState, onMove = onMove, onDrop = onDrop)
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().reorderGestures(reorderState),
+    val reorderState = rememberReorderableLazyListState(listState) { from, to -> onMove(from.index, to.index) }
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (models.isEmpty()) item {
             Column(Modifier.fillMaxWidth().padding(vertical = 32.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -42,11 +44,11 @@ internal fun ProviderModelsPane(models: List<String>, configurations: Map<String
             }
         }
         items(models, key = { it }) { id ->
+            ReorderableItem(reorderState, key = id) { _ ->
             val model = configurations.getValue(id)
             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()
-                    .animateItem(placementSpec = if (reorderState.draggedKey == id) null else spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
-                    .reorderItem(reorderState, id).clickable { onEdit(id) }) {
+                    .longPressDraggableHandle(onDragStopped = onDrop).clickable { onEdit(id) }) {
                 Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     EntityIcon(model.icon, Modifier.size(42.dp), text = modelInitial(id), matchName = model.displayName.ifBlank { id }, model = true)
                     Spacer(Modifier.width(12.dp))
@@ -57,6 +59,7 @@ internal fun ProviderModelsPane(models: List<String>, configurations: Map<String
                     }
                     ItemOverflowMenu(onEdit = { onEdit(id) }, onDelete = { onDelete(id) }, deleteColor = MaterialTheme.colorScheme.error)
                 }
+            }
             }
         }
     }

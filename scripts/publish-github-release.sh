@@ -4,7 +4,7 @@ set -euo pipefail
 GITHUB_RELEASE_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 : "${GITHUB_RELEASE_TOKEN:?Set secret GITHUB_TOKEN (or GH_TOKEN) in Codemagic environment group github_release}"
 export GH_TOKEN="$GITHUB_RELEASE_TOKEN"
-repo="${GITHUB_RELEASE_REPO:-starfall-orb/multigateway}"
+repo="${GITHUB_RELEASE_REPO:-starfall-org/multigateway}"
 cd "${CM_BUILD_DIR:-$(git rev-parse --show-toplevel)}"
 command -v gh >/dev/null || { echo 'GitHub CLI (gh) is required.' >&2; exit 1; }
 

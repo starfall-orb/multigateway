@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
@@ -47,6 +50,7 @@ internal fun McpConnectionSettings(
     modifier: Modifier = Modifier
 ) {
     var oauthAdvancedExpanded by remember { mutableStateOf(false) }
+    var authValueRevealed by remember(authMethod) { mutableStateOf(false) }
     Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         IconPickerRow(icon, onIconChange, text = providerInitials(name), fallback = Icons.Outlined.Extension,
             onBusyChange = onIconBusyChange, matchName = name, faviconBaseUrl = url)
@@ -84,7 +88,17 @@ internal fun McpConnectionSettings(
             oauthAdvancedExpanded, { oauthAdvancedExpanded = !oauthAdvancedExpanded })
         if (authMethod != McpAuthMethod.NONE && authMethod != McpAuthMethod.OAUTH2) SelectableOutlinedTextField(authValue, onAuthValueChange,
             label = { Text(stringResource(if (authMethod == McpAuthMethod.BEARER_TOKEN) R.string.bearer_token else R.string.common_value)) },
-            singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().onFocusChanged {
+            trailingIcon = {
+                IconButton(onClick = { authValueRevealed = !authValueRevealed }) {
+                    Icon(
+                        if (authValueRevealed) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
+                        stringResource(if (authValueRevealed) R.string.provider_hide_api_key else R.string.provider_show_api_key)
+                    )
+                }
+            },
+            singleLine = true,
+            visualTransformation = if (authValueRevealed) VisualTransformation.None else PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth().onFocusChanged {
                 if (!it.isFocused && authMethod == McpAuthMethod.BEARER_TOKEN) onAuthValueChange(bearerHeaderValue(authKey.trim().ifBlank { "Authorization" }, authValue))
             })
         HorizontalDivider()
@@ -102,6 +116,5 @@ internal fun McpConnectionSettings(
             }
         }
         Spacer(Modifier.height(24.dp))
-        Spacer(Modifier.navigationBarsPadding())
     }
 }

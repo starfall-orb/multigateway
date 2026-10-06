@@ -137,7 +137,7 @@ The repository includes the Gradle wrapper, so a separate Gradle installation is
 ### Build
 
 ```bash
-git clone https://github.com/starfall-orb/multigateway.git
+git clone https://github.com/starfall-org/multigateway.git
 cd multigateway
 
 # Debug APK
@@ -187,6 +187,6 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for repository
 
 ## License
 
-[![License: Starfall Orb Contributor Commercial Copyleft](https://img.shields.io/badge/License-Starfall%20Orb%20Copyleft%20v1.0-blue.svg)](https://raw.githubusercontent.com/starfall-orb/multigateway/refs/heads/main/LICENSE)
+[![License: Starfall Org Contributor Commercial Copyleft](https://img.shields.io/badge/License-Starfall%20Org%20Copyleft%20v1.0-blue.svg)](https://raw.githubusercontent.com/starfall-org/multigateway/refs/heads/main/LICENSE)
 
-This project is licensed under the **Starfall Orb Contributor Commercial Copyleft License v1.0**. See the [LICENSE](https://raw.githubusercontent.com/starfall-orb/multigateway/refs/heads/main/LICENSE) file for details.
+This project is licensed under the **Starfall Org Contributor Commercial Copyleft License v1.0**. See the [LICENSE](https://raw.githubusercontent.com/starfall-org/multigateway/refs/heads/main/LICENSE) file for details.

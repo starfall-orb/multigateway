@@ -141,6 +141,108 @@ class McpOAuthServiceTest {
         }
     }
 
+    @Test
+    fun oauthUsesOriginResourceAdvertisedForNestedMcpEndpoint() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val endpoint = server.url("/mcp/oauth").toString()
+        val resource = server.url("/").toString().trimEnd('/')
+        val issuer = server.url("/auth").toString().trimEnd('/')
+        val authorizeUrl = server.url("/authorize").toString()
+        val tokenUrl = server.url("/token").toString()
+        val protectedMetadata = server.url("/prm").toString()
+        val tokenRequest = AtomicReference<Map<String, String>>()
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path?.substringBefore('?')) {
+                "/mcp/oauth" -> MockResponse()
+                    .setResponseCode(401)
+                    .addHeader("WWW-Authenticate", "Bearer resource_metadata=\"$protectedMetadata\"")
+                "/prm" -> jsonResponse(
+                    """{"resource":"$resource","authorization_servers":["$issuer"],"scopes_supported":["profile","email"]}"""
+                )
+                "/.well-known/oauth-authorization-server/auth" -> jsonResponse(
+                    """{"issuer":"$issuer","authorization_endpoint":"$authorizeUrl","token_endpoint":"$tokenUrl","code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"]}"""
+                )
+                "/token" -> {
+                    tokenRequest.set(form(request.body.readUtf8()))
+                    jsonResponse("""{"access_token":"context7-token","token_type":"Bearer","expires_in":3600}""")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        try {
+            val opened = AtomicReference<Uri>()
+            val oauth = McpOAuthService(context, openBrowser = { url ->
+                val uri = Uri.parse(url)
+                opened.set(uri)
+                Thread {
+                    val callback = McpOAuthService.REDIRECT_URI +
+                        "?code=context7-code&state=" + Uri.encode(uri.getQueryParameter("state"))
+                    (URL(callback).openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 2_000
+                        readTimeout = 2_000
+                        inputStream.use { it.readBytes() }
+                        disconnect()
+                    }
+                }.start()
+            })
+            val info = McpInfo(
+                id = "context7-style",
+                name = "Context7 style",
+                url = endpoint,
+                auth = McpAuthorization(method = McpAuthMethod.OAUTH2, oauthClientId = "configured-client")
+            )
+
+            val authorized = oauth.authorize(info)
+            assertTrue(authorized.auth.oauthAuthorized)
+            assertEquals(resource, opened.get().getQueryParameter("resource"))
+            assertEquals(resource, tokenRequest.get()["resource"])
+            assertEquals("context7-token", oauth.accessToken(authorized))
+
+            val changedEndpoint = authorized.copy(url = server.url("/different-mcp").toString())
+            val mismatch = runCatching { oauth.accessToken(changedEndpoint) }.exceptionOrNull()
+            assertTrue(mismatch?.message?.contains("URL changed") == true)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun oauthRejectsProtectedResourceOutsideMcpEndpointScope() = runBlocking {
+        val server = MockWebServer()
+        server.start()
+        val endpoint = server.url("/mcp/oauth").toString()
+        val unrelatedResource = server.url("/other").toString().trimEnd('/')
+        val protectedMetadata = server.url("/prm").toString()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path?.substringBefore('?')) {
+                "/mcp/oauth" -> MockResponse()
+                    .setResponseCode(401)
+                    .addHeader("WWW-Authenticate", "Bearer resource_metadata=\"$protectedMetadata\"")
+                "/prm" -> jsonResponse(
+                    """{"resource":"$unrelatedResource","authorization_servers":["${server.url("/auth").toString().trimEnd('/')}"]}"""
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        try {
+            val oauth = McpOAuthService(context, openBrowser = { error("Browser must not open") })
+            val info = McpInfo(
+                id = "resource-mismatch",
+                name = "Mismatch",
+                url = endpoint,
+                auth = McpAuthorization(method = McpAuthMethod.OAUTH2, oauthClientId = "client")
+            )
+            val error = runCatching { oauth.authorize(info) }.exceptionOrNull()
+            assertTrue(error?.message?.contains("different MCP resource") == true)
+        } finally {
+            server.shutdown()
+        }
+    }
+
     private fun jsonResponse(body: String) = MockResponse()
         .setResponseCode(200)
         .addHeader("Content-Type", "application/json")

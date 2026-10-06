@@ -5,7 +5,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /** ICO entries contain either PNG or Windows DIB pixels plus an optional transparency mask. */
-internal fun decodeIco(bytes: ByteArray): Bitmap? = runCatching {
+internal fun decodeIco(bytes: ByteArray, decodePng: (ByteArray) -> Bitmap?): Bitmap? = runCatching {
     val data = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
     fun u16(at: Int) = data.getShort(at).toInt() and 0xffff
     val count = u16(4)
@@ -22,7 +22,7 @@ internal fun decodeIco(bytes: ByteArray): Bitmap? = runCatching {
         val offset = data.getInt(at + 12)
         if (length <= 0 || offset < 6 + count * 16 || offset.toLong() + length > bytes.size) continue
         val image = bytes.copyOfRange(offset, offset + length)
-        val bitmap = if (image.size >= 8 && image[0] == 0x89.toByte() && image[1] == 0x50.toByte()) decodeFavicon(image)
+        val bitmap = if (image.size >= 8 && image[0] == 0x89.toByte() && image[1] == 0x50.toByte()) decodePng(image)
             else runCatching { decodeIconDib(image) }.getOrNull()
         if (bitmap != null) return@runCatching bitmap
     }

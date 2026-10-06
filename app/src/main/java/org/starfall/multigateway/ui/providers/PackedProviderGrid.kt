@@ -15,6 +15,10 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.ReorderableCollectionItemScope
+import sh.calvin.reorderable.rememberReorderableLazyGridState
+import sh.calvin.reorderable.ScrollMoveMode
 
 internal data class PackedGridCell(val key: String, val groupId: String?)
 
@@ -66,10 +70,15 @@ internal fun packedGroupPath(parts: List<Rect>, cellRects: Set<Rect>, origin: Of
 @Composable
 internal fun PackedProviderGrid(
     cells: List<PackedGridCell>,
+    onMove: (String, String) -> Unit,
     onGroupBoundsChanged: (String, List<Rect>) -> Unit,
     onCellBoundsChanged: (String, Rect?) -> Unit,
-    content: @Composable (Int) -> Unit
+    content: @Composable ReorderableCollectionItemScope.(Int) -> Unit
 ) {
+    val gridState = rememberLazyGridState()
+    val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
+        onMove(from.key as String, to.key as String)
+    }
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var origin by remember { mutableStateOf(Offset.Zero) }
     val currentBoundsCallback by rememberUpdatedState(onGroupBoundsChanged)
@@ -95,7 +104,7 @@ internal fun PackedProviderGrid(
             drawPath(outline, border, style = Stroke(1.5.dp.toPx()))
         }
     }) {
-        LazyVerticalGrid(
+        LazyVerticalGrid(state = gridState,
             columns = GridCells.Fixed(2),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -103,15 +112,17 @@ internal fun PackedProviderGrid(
         ) {
             itemsIndexed(cells, key = { _, cell -> cell.key }) { index, cell ->
                 DisposableEffect(cell.key) { onDispose { bounds.remove(cell.key); currentCellBoundsCallback(cell.key, null) } }
-                Box(Modifier.animateItem().fillMaxWidth().height(164.dp)
-                    .onGloballyPositioned { coordinates ->
-                        val position = coordinates.positionInRoot()
-                        val rect = Rect(position, Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
-                        bounds[cell.key] = rect
-                        currentCellBoundsCallback(cell.key, rect)
+                ReorderableItem(reorderState, key = cell.key) { _ ->
+                    Box(Modifier.fillMaxWidth().height(164.dp)
+                        .onGloballyPositioned { coordinates ->
+                            val position = coordinates.positionInRoot()
+                            val rect = Rect(position, Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat()))
+                            bounds[cell.key] = rect
+                            currentCellBoundsCallback(cell.key, rect)
+                        }
+                        .padding(6.dp)) {
+                        content(index)
                     }
-                    .padding(6.dp)) {
-                    content(index)
                 }
             }
         }

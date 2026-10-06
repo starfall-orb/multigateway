@@ -1,5 +1,6 @@
 package org.starfall.multigateway.data.adapter.codex
 
+import java.util.Base64
 import android.content.Context
 import android.net.Uri
 import io.ktor.client.HttpClient
@@ -16,9 +17,6 @@ import io.ktor.http.Parameters
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.readUTF8Line
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
@@ -44,6 +42,7 @@ import org.starfall.multigateway.data.adapter.AccountProviderAdapter
 import org.starfall.multigateway.data.model.AuthMethod
 import org.starfall.multigateway.data.model.oauthCredentialId
 import org.starfall.multigateway.data.model.DiscoveredModel
+import org.starfall.multigateway.data.adapter.common.AppAuthTransactions
 import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.model.Authorization
 import org.starfall.multigateway.data.model.ChatRole
@@ -74,31 +73,11 @@ internal class OpenAICodexAdapter(
     override suspend fun authorize(provider: LlmProviderInfo): Result<LlmProviderInfo> = runCatching {
         require(provider.type == ProviderType.OPENAI_CODEX) { "Provider is not OpenAI Codex." }
 
-        val verifierBytes = ByteArray(96).also(SecureRandom()::nextBytes)
-        val verifier = Base64.getUrlEncoder().withoutPadding().encodeToString(verifierBytes)
-        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8))
-        )
-        val state = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(ByteArray(32).also(SecureRandom()::nextBytes))
-
-        val authorizationUrl = Uri.parse("$ISSUER/oauth/authorize").buildUpon()
-            .appendQueryParameter("response_type", "code")
-            .appendQueryParameter("client_id", CLIENT_ID)
-            .appendQueryParameter("redirect_uri", REDIRECT_URI)
-            .appendQueryParameter("scope", AUTH_SCOPE)
-            .appendQueryParameter("code_challenge", challenge)
-            .appendQueryParameter("code_challenge_method", "S256")
-            .appendQueryParameter("prompt", "login")
-            .appendQueryParameter("id_token_add_organizations", "true")
-            .appendQueryParameter("codex_cli_simplified_flow", "true")
-            .appendQueryParameter("state", state)
-            .build()
-            .toString()
-
+        val request = AppAuthTransactions.authorization("$ISSUER/oauth/authorize", "$ISSUER/oauth/token", CLIENT_ID,
+            REDIRECT_URI, AUTH_SCOPE, mapOf("prompt" to "login", "id_token_add_organizations" to "true", "codex_cli_simplified_flow" to "true"))
         OAuthCallbackService.keepAlive(appContext) {
-            val code = awaitAuthorizationCode(authorizationUrl, state)
-            val exchanged = exchangeAuthorizationCode(code, verifier)
+            val code = awaitAuthorizationCode(request.toUri().toString(), request.state!!)
+            val exchanged = exchangeAuthorizationCode(code, request.codeVerifier!!)
             withContext(Dispatchers.IO) { tokenStore.save(provider.oauthCredentialId, exchanged) }
 
             provider.copy(
@@ -319,11 +298,9 @@ internal class OpenAICodexAdapter(
         val response = http.submitForm(
             url = "$ISSUER/oauth/token",
             formParameters = Parameters.build {
-                append("grant_type", "authorization_code")
-                append("client_id", CLIENT_ID)
-                append("code", code)
-                append("redirect_uri", REDIRECT_URI)
-                append("code_verifier", verifier)
+                val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
+                    mapOf("grant_type" to "authorization_code", "code" to code, "redirect_uri" to REDIRECT_URI, "code_verifier" to verifier))
+                AppAuthTransactions.fields(request).forEach { (name, value) -> append(name, value) }
             }
         )
         val raw = response.bodyAsText()
@@ -337,10 +314,9 @@ internal class OpenAICodexAdapter(
         val response = http.submitForm(
             url = "$ISSUER/oauth/token",
             formParameters = Parameters.build {
-                append("grant_type", "refresh_token")
-                append("client_id", CLIENT_ID)
-                append("refresh_token", current.refreshToken)
-                append("scope", REFRESH_SCOPE)
+                val request = AppAuthTransactions.token("$ISSUER/oauth/token", CLIENT_ID,
+                    mapOf("grant_type" to "refresh_token", "refresh_token" to current.refreshToken, "scope" to REFRESH_SCOPE))
+                AppAuthTransactions.fields(request).forEach { (name, value) -> append(name, value) }
             }
         )
         val raw = response.bodyAsText()

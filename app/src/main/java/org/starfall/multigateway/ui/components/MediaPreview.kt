@@ -14,16 +14,8 @@ import androidx.core.view.WindowInsetsCompat
 import org.starfall.multigateway.R
 
 import android.content.Context
-import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.graphics.SurfaceTexture
-import android.view.Surface
 import android.view.TextureView
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
-import android.media.AudioManager
-import android.media.MediaMetadataRetriever
-import android.media.MediaPlayer
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.compose.foundation.Image
@@ -68,44 +60,12 @@ fun mediaMimeType(name: String): String = MimeTypeMap.getSingleton()
 fun isPreviewableMedia(mime: String) = mime.startsWith("image/") ||
     mime.startsWith("video/") || mime.startsWith("audio/")
 
-/** Decode a bounded image or video thumbnail off the UI thread, for local files and content URIs. */
+/** Coil shares downsampling and cached frames across chat, storage and preview screens. */
 suspend fun mediaThumbnail(context: Context, reference: String, mime: String, size: Int): ImageBitmap? =
-    withContext(Dispatchers.IO) {
-        runCatching {
-            if (mime.startsWith("video/")) {
-                val retriever = MediaMetadataRetriever()
-                try {
-                    val uri = Uri.parse(reference)
-                    if (uri.scheme == "content") retriever.setDataSource(context, uri)
-                    else retriever.setDataSource(uri.path ?: reference)
-                    val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: size
-                    val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: size
-                    val ratio = size.toFloat() / maxOf(width, height, size)
-                    val targetWidth = (width * ratio).toInt().coerceAtLeast(1)
-                    val targetHeight = (height * ratio).toInt().coerceAtLeast(1)
-                    val frame = if (android.os.Build.VERSION.SDK_INT >= 27) {
-                        retriever.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetWidth, targetHeight)
-                    } else {
-                        retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { original ->
-                            android.graphics.Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true).also { scaled ->
-                                if (scaled !== original) original.recycle()
-                            }
-                        }
-                    }
-                    frame?.asImageBitmap()
-                } finally { retriever.release() }
-            } else if (mime.startsWith("image/")) {
-                val resolver = AttachmentResolver(context)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                resolver.open(reference)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                var sample = 1
-                while (bounds.outWidth / sample > size || bounds.outHeight / sample > size) sample *= 2
-                resolver.open(reference)?.use {
-                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-                }?.asImageBitmap()
-            } else null
-        }.getOrNull()
-    }
+    if (mime.startsWith("image/") || mime.startsWith("video/")) {
+        org.starfall.multigateway.data.service.AppImages.decode(context,
+            org.starfall.multigateway.data.service.AppImages.source(reference), size)?.asImageBitmap()
+    } else null
 
 @Composable
 fun MediaPreviewDialog(reference: String, name: String, mime: String, onDismiss: () -> Unit) {
@@ -137,14 +97,10 @@ fun MediaContent(reference: String, mime: String) {
 private fun ZoomableMediaImage(reference: String, mime: String) {
     val context = LocalContext.current
     var loaded by remember { mutableStateOf(false) }
-    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    var error by remember { mutableStateOf(false) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    LaunchedEffect(reference) {
-        bitmap = mediaThumbnail(context, reference, mime, 2048)
-        loaded = true
-    }
     Box(Modifier.fillMaxWidth().windowHeightIn(minFraction = 0.22f, maxFraction = 0.6f).clipToBounds()
         .onSizeChanged { viewportSize = it }
         .transformable(rememberTransformableState { zoom, pan, _ ->
@@ -154,12 +110,15 @@ private fun ZoomableMediaImage(reference: String, mime: String) {
             offset = Offset((offset.x + pan.x).coerceIn(-boundX, boundX),
                 (offset.y + pan.y).coerceIn(-boundY, boundY))
         }), contentAlignment = Alignment.Center) {
-        bitmap?.let { image ->
-            Image(image, "Image preview", contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.6f)
-                    .graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y })
-        } ?: if (loaded) Text("Unable to open this image. The file may be unavailable or unsupported.")
-        else CircularProgressIndicator()
+        coil3.compose.AsyncImage(
+            model = org.starfall.multigateway.data.service.AppImages.source(reference),
+            contentDescription = "Image preview", contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.6f)
+                .graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y },
+            onSuccess = { loaded = true }, onError = { loaded = true; error = true }
+        )
+        if (error) Text("Unable to open this image. The file may be unavailable or unsupported.")
+        else if (!loaded) CircularProgressIndicator()
     }
 }
 
@@ -209,101 +168,35 @@ fun InlineVideoPreview(reference: String, thumbnail: ImageBitmap?, modifier: Mod
 private fun VideoPlayback(reference: String, inline: Boolean = false,
     fullscreen: Boolean = false, initialPosition: Int = 0, autoPlay: Boolean = true,
     onPositionChanged: (Int) -> Unit = {}, onPlayingChanged: (Boolean) -> Unit = {}, onFullscreen: (() -> Unit)? = null) {
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val player = remember(reference) { MediaPlayer() }
+    val playback = rememberMediaPlayback(reference, initialPosition, autoPlay, onPositionChanged, onPlayingChanged)
+    val player = playback.player
     var textureView by remember { mutableStateOf<TextureView?>(null) }
-    var error by remember { mutableStateOf(false) }
-    var ready by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf(false) }
-    var duration by remember { mutableIntStateOf(0) }
-    var position by remember { mutableIntStateOf(0) }
+    val error = playback.error
+    val ready = playback.ready
+    val playing = playback.playing
+    val duration = playback.duration
+    val position = playback.position
     var seekPosition by remember { mutableStateOf<Float?>(null) }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     fun fitVideo(view: TextureView) {
-        if (view.width == 0 || view.height == 0 || player.videoWidth == 0 || player.videoHeight == 0) return
-        val ratio = minOf(view.width.toFloat() / player.videoWidth, view.height.toFloat() / player.videoHeight)
+        val video = player.videoSize
+        if (view.width == 0 || view.height == 0 || video.width == 0 || video.height == 0) return
+        val width = video.width * video.pixelWidthHeightRatio
+        val ratio = minOf(view.width / width, view.height.toFloat() / video.height)
         view.setTransform(Matrix().apply {
-            setScale(player.videoWidth * ratio / view.width, player.videoHeight * ratio / view.height,
-                view.width / 2f, view.height / 2f)
+            setScale(width * ratio / view.width, video.height * ratio / view.height, view.width / 2f, view.height / 2f)
         })
     }
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    val attributes = remember { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-        .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build() }
-    val focus = remember {
-        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attributes)
-            .setOnAudioFocusChangeListener { change ->
-                if (change < 0 && ready) { runCatching { player.pause() }; playing = false; onPlayingChanged(false) }
-            }.build()
+    DisposableEffect(player) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) { textureView?.let(::fitVideo) }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
     }
-    DisposableEffect(player, lifecycle) {
-        player.setAudioAttributes(attributes)
-        player.setOnPreparedListener {
-            ready = true
-            duration = it.duration.coerceAtLeast(0)
-            position = initialPosition.coerceIn(0, duration)
-            if (position > 0) it.seekTo(position)
-            textureView?.let(::fitVideo)
-            if (autoPlay && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
-                audioManager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                it.start()
-                playing = true
-                onPlayingChanged(true)
-            }
-        }
-        player.setOnVideoSizeChangedListener { _, _, _ -> textureView?.let(::fitVideo) }
-        player.setOnCompletionListener {
-            playing = false; position = duration
-            onPositionChanged(position); onPlayingChanged(false)
-            audioManager.abandonAudioFocusRequest(focus)
-        }
-        player.setOnErrorListener { _, _, _ ->
-            error = true; playing = false
-            audioManager.abandonAudioFocusRequest(focus)
-            true
-        }
-        runCatching {
-            val uri = Uri.parse(reference)
-            if (uri.scheme == null) player.setDataSource(reference) else player.setDataSource(context, uri)
-            player.prepareAsync()
-        }.onFailure { error = true }
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                if (ready) runCatching { player.pause() }
-                playing = false
-                onPlayingChanged(false)
-                audioManager.abandonAudioFocusRequest(focus)
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            audioManager.abandonAudioFocusRequest(focus)
-            if (ready && !error) onPositionChanged(runCatching { player.currentPosition }.getOrDefault(position))
-            player.release()
-        }
-    }
-    LaunchedEffect(ready, playing) {
-        while (ready && playing) {
-            position = runCatching { player.currentPosition }.getOrDefault(position)
-            onPositionChanged(position)
-            delay(250)
-        }
-    }
-    fun togglePlayback() {
-        if (!ready || error) return
-        if (playing) {
-            player.pause(); playing = false; audioManager.abandonAudioFocusRequest(focus)
-        } else if (audioManager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            if (position >= duration) { player.seekTo(0); position = 0 }
-            player.start(); playing = true
-        }
-        onPositionChanged(runCatching { player.currentPosition }.getOrDefault(position))
-        onPlayingChanged(playing)
-    }
+    fun togglePlayback() = playback.toggle()
     val controls: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = ::togglePlayback) {
@@ -313,7 +206,7 @@ private fun VideoPlayback(reference: String, inline: Boolean = false,
             MediaSeekBar(value = seekPosition ?: position.toFloat().coerceIn(0f, duration.toFloat()),
                 onValueChange = { seekPosition = it },
                 onValueChangeFinished = {
-                    seekPosition?.toInt()?.let { player.seekTo(it); position = it; onPositionChanged(it) }; seekPosition = null
+                    seekPosition?.toInt()?.let { playback.seek(it); onPositionChanged(it) }; seekPosition = null
                 }, duration = duration.coerceAtLeast(1).toFloat(), modifier = Modifier.weight(1f))
             onFullscreen?.let { open ->
                 IconButton(onClick = open) {
@@ -343,28 +236,15 @@ private fun VideoPlayback(reference: String, inline: Boolean = false,
                 factory = { context ->
                     TextureView(context).also { texture ->
                         textureView = texture
-                        texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                Surface(surface).let { output ->
-                                    try { player.setSurface(output) } finally { output.release() }
-                                }
-                                if (ready) fitVideo(texture)
-                            }
-                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                if (ready) fitVideo(texture)
-                            }
-                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                runCatching { player.setSurface(null) }
-                                return true
-                            }
-                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
-                        }
+                        player.setVideoTextureView(texture)
+                        texture.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ -> fitVideo(view as TextureView) }
+
                     }
                 },
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
                 },
-                onRelease = { textureView = null }
+                onRelease = { texture -> player.clearVideoTextureView(texture); textureView = null }
             )
             if (!ready) CircularProgressIndicator()
         } else Text("Unable to play this video. The file may be unavailable or unsupported.",
@@ -409,78 +289,19 @@ private fun MediaSeekBar(value: Float, onValueChange: (Float) -> Unit, onValueCh
 
 @Composable
 private fun AudioPlayback(reference: String) {
-    val context = LocalContext.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val player = remember { MediaPlayer() }
-    val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    var ready by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf(false) }
-    var playing by remember { mutableStateOf(false) }
-    var duration by remember { mutableIntStateOf(0) }
-    var position by remember { mutableIntStateOf(0) }
+    val playback = rememberMediaPlayback(reference)
+    val ready = playback.ready
+    val error = playback.error
+    val playing = playback.playing
+    val duration = playback.duration
+    val position = playback.position
     var seekPosition by remember { mutableStateOf<Float?>(null) }
-    val attributes = remember { AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build() }
-    val focus = remember {
-        AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).setAudioAttributes(attributes)
-            .setOnAudioFocusChangeListener { change ->
-                if (change < 0) { runCatching { player.pause() }; playing = false }
-            }.build()
-    }
-    DisposableEffect(player, lifecycle) {
-        player.setAudioAttributes(attributes)
-        player.setOnPreparedListener { duration = it.duration.coerceAtLeast(0); ready = true }
-        player.setOnCompletionListener {
-            playing = false
-            position = duration
-            audioManager.abandonAudioFocusRequest(focus)
-        }
-        player.setOnErrorListener { _, _, _ ->
-            error = true; playing = false; ready = false
-            audioManager.abandonAudioFocusRequest(focus)
-            true
-        }
-        runCatching {
-            val uri = Uri.parse(reference)
-            if (uri.scheme == null) player.setDataSource(reference) else player.setDataSource(context, uri)
-            player.prepareAsync()
-        }.onFailure { error = true }
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                if (ready) runCatching { player.pause() }
-                playing = false
-                audioManager.abandonAudioFocusRequest(focus)
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose {
-            lifecycle.removeObserver(observer)
-            audioManager.abandonAudioFocusRequest(focus)
-            player.release()
-        }
-    }
-    LaunchedEffect(ready, playing) {
-        while (ready && playing) {
-            position = runCatching { player.currentPosition }.getOrDefault(position)
-            delay(250)
-        }
-    }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (error) Text("Unable to play this audio. The file may be unavailable or unsupported.", color = MaterialTheme.colorScheme.error)
         else if (!ready) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         else {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledIconButton(onClick = {
-                    if (playing) {
-                        player.pause()
-                        playing = false
-                        audioManager.abandonAudioFocusRequest(focus)
-                    } else if (audioManager.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                        if (position >= duration) { player.seekTo(0); position = 0 }
-                        player.start()
-                        playing = true
-                    }
-                }) {
+                FilledIconButton(onClick = playback::toggle) {
                     Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                         if (playing) "Pause audio" else "Play audio")
                 }
@@ -488,7 +309,7 @@ private fun AudioPlayback(reference: String) {
                     value = seekPosition ?: position.toFloat().coerceIn(0f, duration.toFloat()),
                     onValueChange = { seekPosition = it },
                     onValueChangeFinished = {
-                        seekPosition?.toInt()?.let { player.seekTo(it); position = it }
+                        seekPosition?.toInt()?.let { playback.seek(it) }
                         seekPosition = null
                     },
                     valueRange = 0f..duration.coerceAtLeast(1).toFloat(),

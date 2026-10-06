@@ -456,38 +456,3 @@ private fun MessageActionButton(
 fun FormattedMarkdownMessage(content: String) {
     MarkdownRenderer(content = content)
 }
-
-sealed class ContentBlock {
-    data class Paragraph(val text: String) : ContentBlock()
-    data class Code(val language: String, val code: String) : ContentBlock()
-}
-
-fun parseMarkdownBlocks(markdown: String): List<ContentBlock> {
-    val blocks = mutableListOf<ContentBlock>()
-    val codeRegex = Regex("```(\\w*)\\n?([\\s\\S]*?)```")
-    var lastIndex = 0
-
-    codeRegex.findAll(markdown).forEach { match ->
-        val textBefore = markdown.substring(lastIndex, match.range.first).trim()
-        if (textBefore.isNotEmpty()) {
-            blocks.add(ContentBlock.Paragraph(textBefore))
-        }
-        val language = match.groupValues[1].trim()
-        val code = match.groupValues[2].trim()
-        blocks.add(ContentBlock.Code(language, code))
-        lastIndex = match.range.last + 1
-    }
-
-    if (lastIndex < markdown.length) {
-        val remaining = markdown.substring(lastIndex).trim()
-        if (remaining.isNotEmpty()) {
-            blocks.add(ContentBlock.Paragraph(remaining))
-        }
-    }
-
-    if (blocks.isEmpty() && markdown.isNotBlank()) {
-        blocks.add(ContentBlock.Paragraph(markdown))
-    }
-
-    return blocks
-}

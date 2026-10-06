@@ -178,13 +178,14 @@ fun ChatScreen(
     var appBarHeightPx by remember { mutableIntStateOf(0) }
     var inputAreaHeightPx by remember { mutableIntStateOf(0) }
     val appBarHeight = if (appBarHeightPx > 0) with(density) { appBarHeightPx.toDp() }
-        else WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
+        else 72.dp
 
     PlatformTextSelection {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding()
     ) {
         // Reserve the app bar's actual bounds rather than scrollable list padding.
         BoxWithConstraints(

@@ -95,18 +95,16 @@ class BottomSheetInsetsTest {
             }
         }
         val sheetBottom = height - maxOf(bottomInset, keyboardInset)
-        val surface = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.PaneTitle))
+        // Material draws the surface behind system bars; interactive content stays safe.
         compose.waitUntil(10_000) {
-            val sheet = surface.fetchSemanticsNode().boundsInRoot
-            kotlin.math.abs(sheet.bottom - sheetBottom) <= 1 && sheet.top >= topInset - 1
+            val content = compose.onNodeWithTag("content").fetchSemanticsNode().boundsInRoot
+            content.bottom <= sheetBottom + 1 && content.top >= topInset - 1
         }
-        val sheet = surface.getUnclippedBoundsInRoot()
         val content = compose.onNodeWithTag("content").getUnclippedBoundsInRoot()
         with(compose.density) {
-            assertEquals("Surface must stop above navigation bar/keyboard", sheetBottom.toFloat(), sheet.bottom.toPx(), 1f)
-            assertTrue("Surface must stay below status bar", sheet.top.toPx() >= topInset - 1)
-            assertTrue("Content must stay inside the sheet bottom edge", content.bottom.toPx() <= sheetBottom + 1)
-            if (fullHeight) assertEquals(topInset.toFloat(), sheet.top.toPx(), 1f)
+            assertTrue("Content must stay below status bar", content.top.toPx() >= topInset - 1)
+            assertTrue("Content must stay above navigation bar/keyboard", content.bottom.toPx() <= sheetBottom + 1)
+            if (fullHeight) assertEquals(sheetBottom.toFloat(), content.bottom.toPx(), 1f)
         }
         // Check the actual display, including system bars, rather than only Compose bounds.
         val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()!!

@@ -187,7 +187,7 @@ fun ProviderEditScreen(
                 onSave = { id, config -> memory.remember(id, config); updateModels((models - modelId) + (id to config)); editingModel = null },
                 onBack = { editingModel = null })
         } else {
-            Scaffold(modifier = Modifier.fillMaxSize().imePadding(), topBar = {
+            Scaffold(modifier = Modifier.fillMaxSize(), topBar = {
                 TopAppBar(title = { Text(if (isNew) stringResource(R.string.new_provider) else name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back)) } },
                     actions = {
@@ -207,7 +207,7 @@ fun ProviderEditScreen(
                         }
                     })
             }) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding)) {
+                Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                     TabRow(selectedTabIndex = pager.currentPage) {
                         Tab(pager.currentPage == 0, { scope.launch { pager.animateScrollToPage(0) } }, text = { Text(stringResource(R.string.provider_configuration)) })
                         Tab(pager.currentPage == 1, { scope.launch { pager.animateScrollToPage(1) } }, text = { Text(stringResource(R.string.provider_models)) })

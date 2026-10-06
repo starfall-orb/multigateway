@@ -20,6 +20,7 @@ internal data class McpOAuthTokenState(
     val authorizationEndpoint: String,
     val tokenEndpoint: String,
     val resource: String,
+    val mcpEndpoint: String? = null,
     val scope: String? = null
 )
 

@@ -34,7 +34,7 @@ fun PromptLibraryDialog(initialLibrary: PromptLibrary, onChange: (PromptLibrary)
     val showEditor = creating || editing != null
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge) {
-            Column(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.85f).imePadding().padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.85f).padding(16.dp)) {
                 if (showEditor) {
                     var name by remember(editing?.id) { mutableStateOf(editing?.name.orEmpty()) }
                     var content by remember(editing?.id) { mutableStateOf(editing?.content.orEmpty()) }

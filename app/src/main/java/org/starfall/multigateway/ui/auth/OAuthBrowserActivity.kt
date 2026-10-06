@@ -1,14 +1,13 @@
 package org.starfall.multigateway.ui.auth
 
 import android.app.Activity
-import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.widget.TextView
-import androidx.browser.customtabs.*
+import androidx.browser.customtabs.CustomTabsIntent
+import net.openid.appauth.AuthorizationService
+import kotlinx.coroutines.*
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.adapter.common.OAuthBrowserKeepAliveService
@@ -16,11 +15,11 @@ import org.starfall.multigateway.data.adapter.common.OAuthBrowserKeepAliveServic
 /** Hosts a browser Custom Tab in the app's task, so completing OAuth can close it automatically. */
 class OAuthBrowserActivity : Activity() {
     private var sessionId = ""
-    private var connection: CustomTabsServiceConnection? = null
+    private var authorizationService: AuthorizationService? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var stoppedForBrowser = false
     private var launched = false
-    private val handler = Handler(Looper.getMainLooper())
-    private var fallback: Runnable? = null
+    private var completing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,39 +30,26 @@ class OAuthBrowserActivity : Activity() {
         if (launched) { stoppedForBrowser = true; return }
         val url = Uri.parse(intent.getStringExtra(URL).orEmpty())
         if (url.scheme != "https" || url.host.isNullOrBlank()) { OAuthBrowser.cancel(sessionId); finish(); return }
-        // Prefer Chrome to reuse its existing sign-in cookies; otherwise use a Custom Tabs browser.
-        val browser = CustomTabsClient.getPackageName(this, listOf("com.android.chrome", "com.chrome.beta", "com.chrome.dev"), true)
-            ?: CustomTabsClient.getPackageName(this, null)
+        val service = AuthorizationService(this)
+        authorizationService = service
+        val browser = service.browserDescriptor
         if (browser == null) {
             android.widget.Toast.makeText(this, R.string.oauth_browser_unavailable, android.widget.Toast.LENGTH_LONG).show()
             OAuthBrowser.cancel(sessionId); finish(); return
         }
-        fun launch(session: CustomTabsSession?) {
-            if (launched || isFinishing || !OAuthBrowser.isActive(sessionId)) return
-            launched = true
-            fallback?.let(handler::removeCallbacks)
-            val tab = CustomTabsIntent.Builder(session).setShowTitle(true)
-                .setShareState(CustomTabsIntent.SHARE_STATE_OFF).build()
-            tab.intent.setPackage(browser)
-            // Chrome binds this inert service while the tab is visible, raising the app's process
-            // priority. This complements the foreground service and CPU wake lock during OAuth.
-            tab.intent.putExtra("android.support.customtabs.extra.KEEP_ALIVE",
-                Intent(this, OAuthBrowserKeepAliveService::class.java))
-            try { tab.launchUrl(this, url) }
-            catch (_: Exception) { OAuthBrowser.cancel(sessionId); finish() }
-        }
-        connection = object : CustomTabsServiceConnection() {
-            override fun onCustomTabsServiceConnected(name: ComponentName, client: CustomTabsClient) {
-                client.warmup(0L)
-                launch(client.newSession(CustomTabsCallback()))
+        scope.launch {
+            // AppAuth owns browser service binding/warmup. Building the session
+            // can wait for its service connection, so do that off the UI thread.
+            val tab = withContext(Dispatchers.IO) {
+                service.createCustomTabsIntentBuilder(url).setShowTitle(true)
+                    .setShareState(CustomTabsIntent.SHARE_STATE_OFF).build()
             }
-            override fun onServiceDisconnected(name: ComponentName) { }
-        }
-        if (!CustomTabsClient.bindCustomTabsService(this, browser, connection!!)) {
-            connection = null
-            launch(null)
-        } else {
-            fallback = Runnable { launch(null) }.also { handler.postDelayed(it, 1500) }
+            if (isFinishing || !OAuthBrowser.isActive(sessionId)) return@launch
+            launched = true
+            tab.intent.setPackage(browser.packageName)
+            tab.intent.putExtra("android.support.customtabs.extra.KEEP_ALIVE", Intent(this@OAuthBrowserActivity, OAuthBrowserKeepAliveService::class.java))
+            try { tab.launchUrl(this@OAuthBrowserActivity, url) }
+            catch (_: Exception) { OAuthBrowser.cancel(sessionId); finish() }
         }
     }
 
@@ -74,15 +60,21 @@ class OAuthBrowserActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        if (stoppedForBrowser) {
-            if (OAuthBrowser.isActive(sessionId)) OAuthBrowser.cancel(sessionId)
+        if (stoppedForBrowser && !completing) {
+            // Resume is not evidence that authorization was cancelled. It can
+            // happen during a browser handoff or before token exchange/device
+            // polling finishes. Return to the app; its explicit Cancel action
+            // and the authorization timeout remain authoritative.
             finish()
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getBooleanExtra(COMPLETE, false) && intent.getStringExtra(SESSION) == sessionId) finish()
+        if (intent.getBooleanExtra(COMPLETE, false) && intent.getStringExtra(SESSION) == sessionId) {
+            completing = true
+            finish()
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -91,9 +83,8 @@ class OAuthBrowserActivity : Activity() {
     }
 
     override fun onDestroy() {
-        fallback?.let(handler::removeCallbacks)
-        connection?.let { runCatching { unbindService(it) } }
-        if (isFinishing && OAuthBrowser.isActive(sessionId)) OAuthBrowser.cancel(sessionId)
+        scope.cancel()
+        authorizationService?.dispose()
         super.onDestroy()
     }
 

@@ -2,9 +2,6 @@ package org.starfall.multigateway.data.service
 
 import android.content.Context
 import android.net.Uri
-import java.security.MessageDigest
-import java.security.SecureRandom
-import java.util.Base64
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,6 +12,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
+import org.starfall.multigateway.data.adapter.common.AppAuthTransactions
 import org.starfall.multigateway.data.adapter.common.OAuthBrowser
 import org.starfall.multigateway.data.adapter.common.OAuthCallbackService
 import org.starfall.multigateway.data.adapter.common.awaitOAuthAuthorizationCode
@@ -37,8 +35,9 @@ class McpOAuthService(
     suspend fun authorize(info: McpInfo): McpInfo {
         require(info.auth.method == McpAuthMethod.OAUTH2) { "MCP server is not configured for OAuth." }
         val endpoint = info.resolvedUrl() ?: error("MCP URL is missing")
-        val resource = canonicalResource(endpoint)
-        val discovery = discover(endpoint, resource)
+        val mcpEndpoint = canonicalResource(endpoint)
+        val discovery = discover(endpoint, mcpEndpoint)
+        val resource = discovery.resource
         require(discovery.metadata.codeChallengeMethods.any { it.equals("S256", true) }) {
             "Authorization server does not advertise PKCE S256 support."
         }
@@ -79,24 +78,11 @@ class McpOAuthService(
             }
         }
 
-        val verifier = randomValue(32)
-        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8))
-        )
-        val state = randomValue(32)
-        val authorizeUrl = discovery.metadata.authorizationEndpoint.toHttpUrl().newBuilder().apply {
-            addQueryParameter("response_type", "code")
-            addQueryParameter("client_id", registration.clientId)
-            addQueryParameter("redirect_uri", REDIRECT_URI)
-            addQueryParameter("state", state)
-            addQueryParameter("code_challenge", challenge)
-            addQueryParameter("code_challenge_method", "S256")
-            addQueryParameter("resource", resource)
-            discovery.scope?.takeIf { it.isNotBlank() }?.let { addQueryParameter("scope", it) }
-        }.build().toString()
-
+        val request = AppAuthTransactions.authorization(
+            discovery.metadata.authorizationEndpoint, discovery.metadata.tokenEndpoint,
+            registration.clientId, REDIRECT_URI, discovery.scope, mapOf("resource" to resource))
         val code = OAuthCallbackService.keepAlive(appContext) {
-            awaitOAuthAuthorizationCode(REDIRECT_URI, authorizeUrl, state, openBrowser)
+            awaitOAuthAuthorizationCode(REDIRECT_URI, request.toUri().toString(), request.state!!, openBrowser)
         }
 
         val token = exchangeAuthorizationCode(
@@ -105,7 +91,8 @@ class McpOAuthService(
             resource = resource,
             scope = discovery.scope,
             code = code,
-            verifier = verifier
+            verifier = request.codeVerifier!!,
+            mcpEndpoint = mcpEndpoint
         )
         store.save(info.id, token)
         return info.copy(
@@ -125,8 +112,8 @@ class McpOAuthService(
             return info.auth.value?.takeIf { it.isNotBlank() }
                 ?: error("MCP OAuth credentials are missing. Authorize this server again.")
         }
-        val resource = canonicalResource(info.resolvedUrl() ?: error("MCP URL is missing"))
-        require(sameUri(current.resource, resource)) {
+        val endpoint = canonicalResource(info.resolvedUrl() ?: error("MCP URL is missing"))
+        require(sameUri(current.mcpEndpoint ?: current.resource, endpoint)) {
             "MCP server URL changed after OAuth authorization. Authorize this server again."
         }
         info.auth.oauthClientId?.trim()?.takeIf { it.isNotEmpty() }?.let { configured ->
@@ -152,7 +139,7 @@ class McpOAuthService(
 
     fun clear(serverId: String) = store.delete(serverId)
 
-    private suspend fun discover(endpointValue: String, resource: String): OAuthDiscovery {
+    private suspend fun discover(endpointValue: String, requestedResource: String): OAuthDiscovery {
         val endpoint = endpointValue.toHttpUrl()
         var challengedMetadataUrl: String? = null
         var challengedScope: String? = null
@@ -200,11 +187,12 @@ class McpOAuthService(
             if (protected != null) break
         }
 
-        protected?.text("resource")?.takeIf { it.isNotBlank() }?.let { advertised ->
-            require(sameUri(advertised, resource)) {
+        val resource = protected?.text("resource")?.takeIf { it.isNotBlank() }?.let { advertised ->
+            require(resourceCoversEndpoint(advertised, requestedResource)) {
                 "Protected Resource Metadata describes a different MCP resource."
             }
-        }
+            canonicalResource(advertised)
+        } ?: requestedResource
 
         val authorizationServers = protected?.arrayStrings("authorization_servers").orEmpty()
         val servers = if (authorizationServers.isNotEmpty()) {
@@ -220,7 +208,7 @@ class McpOAuthService(
                 val metadata = discoverAuthorizationServer(authorizationServer)
                 val scope = challengedScope
                     ?: protected?.arrayStrings("scopes_supported")?.joinToString(" ")?.takeIf { it.isNotBlank() }
-                return OAuthDiscovery(authorizationServer, metadata, scope)
+                return OAuthDiscovery(authorizationServer, metadata, scope, resource)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -298,7 +286,8 @@ class McpOAuthService(
         resource: String,
         scope: String?,
         code: String,
-        verifier: String
+        verifier: String,
+        mcpEndpoint: String
     ): McpOAuthTokenState {
         val fields = linkedMapOf(
             "grant_type" to "authorization_code",
@@ -318,6 +307,7 @@ class McpOAuthService(
             registration = registration,
             discovery = discovery,
             resource = resource,
+            mcpEndpoint = mcpEndpoint,
             scope = scope
         )
     }
@@ -350,9 +340,11 @@ class McpOAuthService(
                     listOf("S256"),
                     emptyList()
                 ),
-                previous.scope
+                previous.scope,
+                previous.resource
             ),
             resource = previous.resource,
+            mcpEndpoint = previous.mcpEndpoint ?: previous.resource,
             scope = response.text("scope").takeIf { it.isNotBlank() } ?: previous.scope
         )
     }
@@ -362,31 +354,9 @@ class McpOAuthService(
         fields: Map<String, String>,
         registration: ClientRegistration
     ): JsonObject {
-        val form = FormBody.Builder().apply {
-            fields.forEach { (key, value) -> add(key, value) }
-            when (registration.tokenEndpointAuthMethod) {
-                "", "none" -> add("client_id", registration.clientId)
-                "client_secret_post" -> {
-                    add("client_id", registration.clientId)
-                    add("client_secret", registration.clientSecret
-                        ?: error("Authorization server requires client_secret_post but no client secret is available."))
-                }
-            }
-        }.build()
-        val builder = http.request(endpoint).post(form)
-        if (registration.tokenEndpointAuthMethod == "client_secret_basic") {
-            val secret = registration.clientSecret
-                ?: error("Authorization server requires client_secret_basic but no client secret is available.")
-            val credentials = Base64.getEncoder().encodeToString(
-                "${registration.clientId}:$secret".toByteArray(Charsets.UTF_8)
-            )
-            builder.header("Authorization", "Basic $credentials")
-        } else {
-            require(
-                registration.tokenEndpointAuthMethod in listOf("", "none", "client_secret_post")
-            ) { "Unsupported token endpoint authentication method: ${registration.tokenEndpointAuthMethod}" }
-        }
-        return http.json(builder.build())
+        return AppAuthTransactions.exchange(http,
+            AppAuthTransactions.token(endpoint, registration.clientId, fields),
+            AppAuthTransactions.authentication(registration.tokenEndpointAuthMethod, registration.clientSecret))
     }
 
     private fun tokenState(
@@ -395,6 +365,7 @@ class McpOAuthService(
         registration: ClientRegistration,
         discovery: OAuthDiscovery,
         resource: String,
+        mcpEndpoint: String,
         scope: String?
     ): McpOAuthTokenState {
         val accessToken = response.text("access_token")
@@ -414,6 +385,7 @@ class McpOAuthService(
             authorizationEndpoint = discovery.metadata.authorizationEndpoint,
             tokenEndpoint = discovery.metadata.tokenEndpoint,
             resource = resource,
+            mcpEndpoint = mcpEndpoint,
             scope = response.text("scope").takeIf { it.isNotBlank() } ?: scope
         )
     }
@@ -492,16 +464,22 @@ class McpOAuthService(
     private fun sameUri(a: String, b: String): Boolean =
         runCatching { a.toHttpUrl() == b.toHttpUrl() }.getOrDefault(a == b)
 
-    private fun randomValue(bytes: Int): String {
-        val data = ByteArray(bytes)
-        SecureRandom().nextBytes(data)
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data)
-    }
+    private fun resourceCoversEndpoint(resource: String, endpoint: String): Boolean = runCatching {
+        val advertised = resource.toHttpUrl()
+        val target = endpoint.toHttpUrl()
+        if (advertised.scheme != target.scheme || advertised.host != target.host || advertised.port != target.port) {
+            return@runCatching false
+        }
+        val resourcePath = advertised.encodedPath.trimEnd('/')
+        val endpointPath = target.encodedPath.trimEnd('/')
+        resourcePath.isEmpty() || resourcePath == endpointPath || endpointPath.startsWith("$resourcePath/")
+    }.getOrDefault(false)
 
     private data class OAuthDiscovery(
         val authorizationServer: String,
         val metadata: AuthorizationServerMetadata,
-        val scope: String?
+        val scope: String?,
+        val resource: String
     )
 
     private data class AuthorizationServerMetadata(

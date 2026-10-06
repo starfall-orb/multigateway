@@ -64,21 +64,18 @@ fun AddOrEditMcpScreenContent(
     BackHandler(enabled = LocalScreenTransitionActive.current, onBack = onDismiss)
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Scaffold(contentWindowInsets = WindowInsets(0, 0, 0, 0), topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-                Column(Modifier.statusBarsPadding()) {
-                    TopAppBar(windowInsets = WindowInsets(0, 0, 0, 0),
-                        title = { Text(stringResource(if (isNew) R.string.add_mcp_server_title else R.string.configure_mcp_server_title),
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)) },
-                        navigationIcon = { IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
-                        } },
-                        actions = { Button(onClick = { onSave(currentServer()) }, enabled = canSave && !iconImporting,
-                            modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.common_save)) } })
-                }
-            }
+        Scaffold(topBar = {
+            TopAppBar(
+                title = { Text(stringResource(if (isNew) R.string.add_mcp_server_title else R.string.configure_mcp_server_title),
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)) },
+                navigationIcon = { IconButton(onClick = onDismiss) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.common_back))
+                } },
+                actions = { Button(onClick = { onSave(currentServer()) }, enabled = canSave && !iconImporting,
+                    modifier = Modifier.padding(end = 8.dp)) { Text(stringResource(R.string.common_save)) } }
+            )
         }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(selectedTab == 0, { selectedTab = 0 }, text = { Text(stringResource(R.string.mcp_basic_settings), fontWeight = FontWeight.SemiBold) })
                     Tab(selectedTab == 1, { selectedTab = 1 }, text = { Text(stringResource(R.string.mcp_tools), fontWeight = FontWeight.SemiBold) })

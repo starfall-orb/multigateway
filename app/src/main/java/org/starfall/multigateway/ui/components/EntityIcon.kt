@@ -4,7 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,7 +15,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,21 +51,25 @@ fun EntityIcon(
     val context = LocalContext.current
     val revision by IconStore.lookupRevision.collectAsState()
     val dark = useDarkVariant ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-    var bitmap by remember(context, image, matchName, model, dark) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(image, matchName, model, revision, context, dark) {
-        bitmap = withContext(Dispatchers.IO) { IconStore(context).let { it.loadIcon(image, dark) ?: it.loadIcon(matchName?.let { name -> it.resolve(name, model) }, dark) } }
+    var data by remember(context, image, matchName, model, dark) { mutableStateOf<Any?>(null) }
+    var explicitFailed by remember(image, matchName, dark, revision) { mutableStateOf(false) }
+    LaunchedEffect(image, matchName, model, revision, context, dark, explicitFailed) {
+        data = withContext(Dispatchers.IO) {
+            val store = IconStore(context)
+            (if (explicitFailed) null else store.imageData(image, dark))
+                ?: store.imageData(matchName?.let { store.resolve(it, model) }, dark)
+        }
     }
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
         color = backgroundColor ?: MaterialTheme.colorScheme.surfaceContainerHighest) {
         Box(contentAlignment = Alignment.Center) {
-            val loaded = bitmap
-            if (loaded != null) Image(loaded.asImageBitmap(), contentDescription = null,
-                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            else if (fallback != null) Icon(fallback, contentDescription = null,
+            if (fallback != null) Icon(fallback, contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize().padding(9.dp))
             else Text(text?.takeIf { it.isNotBlank() } ?: "?",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface)
+                style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            if (data != null) AsyncImage(data, contentDescription = null,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                onError = { if (image != null && !explicitFailed) explicitFailed = true })
         }
     }
 }

@@ -27,7 +27,6 @@ fun ChatAppBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .statusBarsPadding()
             .height(72.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp)
     ) {

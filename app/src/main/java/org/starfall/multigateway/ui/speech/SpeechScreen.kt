@@ -57,7 +57,10 @@ import org.starfall.multigateway.ui.components.AdaptiveCardLayout
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.IconPickerRow
 import org.starfall.multigateway.ui.components.FadeGridListContent
-import org.starfall.multigateway.ui.components.longPressReorder
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
+import sh.calvin.reorderable.ScrollMoveMode
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.starfall.multigateway.ui.components.moved
 import org.starfall.multigateway.ui.components.providerInitials
 
@@ -142,50 +145,45 @@ fun SpeechScreen(
             isGrid = isGridView,
             modifier = Modifier.fillMaxSize()
         ) { gridMode ->
-            LazyVerticalGrid(
-            columns = GridCells.Fixed(if (gridMode) 2 else 1),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier
+            val gridState = rememberLazyGridState()
+            val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
+                orderedServices = orderedServices.moved(from.index, to.index)
+            }
+            LazyVerticalGrid(state = gridState,
+                columns = GridCells.Fixed(if (gridMode) 2 else 1),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            itemsIndexed(orderedServices, key = { _, item -> item.id }) { index, service ->
-                val providerName = when {
-                    service.provider.equals("system", ignoreCase = true) -> "Android System TTS"
-                    else -> providersById[service.provider]?.name ?: service.provider
-                }
-                SpeechServiceUnifiedCard(
-                    service = service,
-                    isGrid = gridMode,
-                    modifier = Modifier
-                        .animateItem(
-                            placementSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+            ) {
+                itemsIndexed(orderedServices, key = { _, item -> item.id }) { _, service ->
+                    ReorderableItem(reorderState, key = service.id) { _ ->
+                        val providerName = when {
+                            service.provider.equals("system", ignoreCase = true) -> "Android System TTS"
+                            else -> providersById[service.provider]?.name ?: service.provider
+                        }
+                        SpeechServiceUnifiedCard(
+                            service = service,
+                            isGrid = gridMode,
+                            modifier = Modifier.longPressDraggableHandle(
+                                onDragStopped = { onReorderServices(orderedServices.map { it.id }) }
+                            ),
+                            providerName = providerName,
+                            selected = service.id == effectiveSelectedId,
+                            isPlaying = service.id == activeTestServiceId,
+                            onSelect = { onSelectService(service.id) },
+                            onTest = {
+                                if (service.id == activeTestServiceId) onStopPlayback()
+                                else onTestVoice(service, "Hello! This is a preview of the ${service.name} voice.")
+                            },
+                            onEdit = { editor = SpeechEditor(service, false) },
+                            onDelete = { deletingServiceId = service.id }
                         )
-                        .longPressReorder(
-                            index = index,
-                            itemCount = orderedServices.size,
-                            columns = if (gridMode) 2 else 1,
-                            onMove = { from, to -> orderedServices = orderedServices.moved(from, to) },
-                            onDrop = { onReorderServices(orderedServices.map { it.id }) }
-                        ),
-                    providerName = providerName,
-                    selected = service.id == effectiveSelectedId,
-                    isPlaying = service.id == activeTestServiceId,
-                    onSelect = { onSelectService(service.id) },
-                    onTest = {
-                        if (service.id == activeTestServiceId) onStopPlayback()
-                        else onTestVoice(service, "Hello! This is a preview of the ${service.name} voice.")
-                    },
-                    onEdit = { editor = SpeechEditor(service, false) },
-                    onDelete = { deletingServiceId = service.id }
-                )
+                    }
+                }
             }
-        }
         }
     }
 

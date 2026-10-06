@@ -1,7 +1,8 @@
 package org.starfall.multigateway.data.service
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.content.Context
+import kotlinx.coroutines.runBlocking
 import android.text.Html
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +64,7 @@ internal fun faviconHeadUrls(html: String, page: HttpUrl): List<HttpUrl> {
 internal data class FaviconResult(val bitmap: Bitmap, val url: HttpUrl)
 
 /** Fetches public web pages without provider auth, with bounded reads and cancellation. */
-internal class FaviconService(private val http: ToolHttp = ToolHttp(client = OkHttpClient.Builder()
+internal class FaviconService(private val context: Context, private val http: ToolHttp = ToolHttp(client = OkHttpClient.Builder()
     .connectTimeout(10, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS)
     .callTimeout(15, TimeUnit.SECONDS).followRedirects(false).build())) {
     private data class Resource(val bytes: ByteArray, val url: HttpUrl)
@@ -115,7 +116,7 @@ internal class FaviconService(private val http: ToolHttp = ToolHttp(client = OkH
         for (url in (links + faviconFallbackUrls(homepage)).distinct()) {
             try {
                 val resource = download(url)
-                val bitmap = decodeFavicon(resource.bytes) ?: error("Not a supported PNG, JPEG, WebP, GIF, or ICO image.")
+                val bitmap = decodeFavicon(context, resource.bytes) ?: error("Not a supported PNG, JPEG, WebP, GIF, or ICO image.")
                 return@withContext FaviconResult(bitmap, resource.url)
             } catch (error: CancellationException) { throw error }
             catch (error: Exception) { failures += "${url.host}${url.encodedPath}: ${error.message ?: "could not load the icon"}" }
@@ -124,15 +125,9 @@ internal class FaviconService(private val http: ToolHttp = ToolHttp(client = OkH
     }
 }
 
-internal fun decodeFavicon(bytes: ByteArray): Bitmap? {
+/** ICO's DIB format needs a small compatibility decoder; standard raster decoding belongs to Coil. */
+internal fun decodeFavicon(context: Context, bytes: ByteArray): Bitmap? {
     if (bytes.size >= 6 && bytes[0] == 0.toByte() && bytes[1] == 0.toByte() && bytes[2] == 1.toByte() && bytes[3] == 0.toByte())
-        return decodeIco(bytes)
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    if (bounds.outWidth !in 1..4096 || bounds.outHeight !in 1..4096) return null
-    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-    val scale = minOf(1f, 256f / maxOf(bitmap.width, bitmap.height))
-    if (scale == 1f) return bitmap
-    return Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1),
-        (bitmap.height * scale).toInt().coerceAtLeast(1), true).also { if (it !== bitmap) bitmap.recycle() }
+        return decodeIco(bytes) { png -> runBlocking { AppImages.decode(context, png, 256) } }
+    return runBlocking { AppImages.decode(context, bytes, 256) }
 }

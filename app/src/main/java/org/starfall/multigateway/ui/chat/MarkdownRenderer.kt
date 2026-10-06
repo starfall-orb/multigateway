@@ -5,99 +5,73 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.animateContentSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckBox
-import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mikepenz.markdown.compose.Markdown
+import com.mikepenz.markdown.compose.components.MarkdownComponentModel
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.annotator.annotatorSettings
+import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
+import com.mikepenz.markdown.m3.markdownColor
+import com.mikepenz.markdown.m3.markdownTypography
+import com.mikepenz.markdown.model.State
+import com.mikepenz.markdown.model.markdownPadding
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.collect
+import org.intellij.markdown.ast.getTextInNode
 
-/**
- * High-fidelity Markdown Composable for displaying AI chat responses
- * including syntax-styled code blocks, tables, task lists, blockquotes,
- * headings, and rich inline text formatting.
- */
+/** Library primitives with app-owned code toolbar, error/LaTeX UI and streaming fades. */
 @Composable
-fun MarkdownRenderer(
-    content: String,
-    modifier: Modifier = Modifier,
-    isStreaming: Boolean = false,
-    latexMode: String = "AUTO"
-) {
+fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming: Boolean = false, latexMode: String = "AUTO") {
     if (content.isBlank()) return
-
-    val blocks = remember(content) { parseMarkdown(content) }
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(if (isStreaming) Modifier else Modifier.animateContentSize()),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        blocks.forEachIndexed { index, block ->
-            key(index, block.javaClass.simpleName) {
-                when (block) {
-                    is MarkdownBlock.CodeBlock -> {
-                        RenderCodeBlock(
-                            language = block.language,
-                            code = block.code,
-                            isStreaming = isStreaming && index == blocks.lastIndex && !block.isClosed
-                        )
-                    }
-                    is MarkdownBlock.Heading -> {
-                        RenderHeading(block.level, block.text)
-                    }
-                    is MarkdownBlock.BlockQuote -> {
-                        RenderBlockQuote(block.text)
-                    }
-                    is MarkdownBlock.UnorderedList -> {
-                        RenderUnorderedList(block.items)
-                    }
-                    is MarkdownBlock.OrderedList -> {
-                        RenderOrderedList(block.items)
-                    }
-                    is MarkdownBlock.TaskList -> {
-                        RenderTaskList(block.items)
-                    }
-                    is MarkdownBlock.Table -> {
-                        RenderTable(block.headers, block.rows)
-                    }
-                    is MarkdownBlock.HorizontalRule -> {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            thickness = 1.dp
-                        )
-                    }
-                    is MarkdownBlock.Paragraph -> {
-                        RenderParagraph(block.text, latexMode)
-                    }
-                }
-            }
+    val latestContent by rememberUpdatedState(content)
+    var parsed by remember { mutableStateOf<State>(State.Loading()) }
+    LaunchedEffect(Unit) {
+        // Finish each off-main parse and retain its result while the next chunk is
+        // parsed. Fast token updates must not cancel parsing or flash a blank UI.
+        snapshotFlow { latestContent }.conflate().collect { input ->
+            parsed = parseLibraryMarkdown(input)
         }
     }
+    val type = MaterialTheme.typography
+    Markdown(
+        state = parsed,
+        modifier = modifier.fillMaxWidth().then(if (isStreaming) Modifier else Modifier.animateContentSize()),
+        colors = markdownColor(),
+        typography = markdownTypography(
+            h1 = type.headlineSmall.copy(fontWeight = FontWeight.Bold, fontSize = 22.sp, color = MaterialTheme.colorScheme.primary),
+            h2 = type.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+            h3 = type.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
+            h4 = type.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp),
+            h5 = type.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            h6 = type.bodyLarge.copy(fontWeight = FontWeight.Bold),
+            paragraph = type.bodyLarge.copy(lineHeight = 22.sp),
+            link = type.bodyLarge.copy(color = MaterialTheme.colorScheme.primary)
+        ),
+        padding = markdownPadding(block = 8.dp),
+        components = markdownComponents(
+            codeFence = { model ->
+                val fence = markdownFence(model.content, model.node)
+                RenderCodeBlock(fence.language, fence.code,
+                    isStreaming && !fence.closed && model.node.endOffset == model.content.length)
+            },
+            codeBlock = { model -> RenderCodeBlock("", model.node.getTextInNode(model.content).toString().trimEnd(), false) },
+            paragraph = { model -> RenderParagraph(model, latexMode) }
+        ),
+        error = { Text(content, style = type.bodyLarge) }
+    )
 }
 
 /**
@@ -138,287 +112,9 @@ fun StreamingMarkdownRenderer(
     }
 }
 
-// ----------------------------------------------------------------------------
-// Block Renderers
-// ----------------------------------------------------------------------------
-
 @Composable
-private fun RenderHeading(level: Int, text: String) {
-    val annotated = rememberMarkdownAnnotatedString(text)
-    val (style, color, topPad) = when (level) {
-        1 -> Triple(
-            MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold, fontSize = 22.sp),
-            MaterialTheme.colorScheme.primary,
-            8.dp
-        )
-        2 -> Triple(
-            MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-            MaterialTheme.colorScheme.onSurface,
-            6.dp
-        )
-        3 -> Triple(
-            MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
-            MaterialTheme.colorScheme.onSurface,
-            4.dp
-        )
-        4 -> Triple(
-            MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp),
-            MaterialTheme.colorScheme.onSurface,
-            2.dp
-        )
-        else -> Triple(
-            MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-            MaterialTheme.colorScheme.onSurface,
-            2.dp
-        )
-    }
-
-    Column(modifier = Modifier.padding(top = topPad, bottom = 2.dp)) {
-        MarkdownClickableText(
-            text = annotated,
-            style = style.copy(color = color)
-        )
-        if (level <= 2) {
-            HorizontalDivider(
-                modifier = Modifier.padding(top = 4.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                thickness = 1.dp
-            )
-        }
-    }
-}
-
-@Composable
-private fun RenderBlockQuote(text: String) {
-    val annotated = rememberMarkdownAnnotatedString(text)
-    Surface(
-        shape = RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(3.5.dp)
-                    .height(IntrinsicSize.Min)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
-            )
-            Spacer(Modifier.width(10.dp))
-            MarkdownClickableText(
-                text = annotated,
-                style = MaterialTheme.typography.bodyMedium.copy(
-                    fontStyle = FontStyle.Italic,
-                    lineHeight = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                ),
-                modifier = Modifier.padding(end = 8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun RenderUnorderedList(items: List<String>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items.forEach { item ->
-            val annotated = rememberMarkdownAnnotatedString(item)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
-            ) {
-                Box(
-                    modifier = Modifier
-                        .padding(top = 7.dp, start = 4.dp, end = 10.dp)
-                        .size(5.dp)
-                        .background(MaterialTheme.colorScheme.primary, CircleShape)
-                )
-                MarkdownClickableText(
-                    text = annotated,
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RenderOrderedList(items: List<Pair<String, String>>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items.forEach { (number, item) ->
-            val annotated = rememberMarkdownAnnotatedString(item)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
-            ) {
-                Text(
-                    text = "$number.",
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        lineHeight = 22.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier
-                        .widthIn(min = 22.dp)
-                        .padding(end = 6.dp)
-                )
-                MarkdownClickableText(
-                    text = annotated,
-                    style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RenderTaskList(items: List<Pair<Boolean, String>>) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items.forEach { (isChecked, item) ->
-            val annotated = rememberMarkdownAnnotatedString(item)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (isChecked) Icons.Outlined.CheckBox else Icons.Outlined.CheckBoxOutlineBlank,
-                    contentDescription = if (isChecked) "Checked" else "Unchecked",
-                    tint = if (isChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .padding(end = 8.dp)
-                )
-                MarkdownClickableText(
-                    text = annotated,
-                    style = MaterialTheme.typography.bodyLarge.copy(
-                        lineHeight = 22.sp,
-                        textDecoration = if (isChecked) TextDecoration.LineThrough else TextDecoration.None
-                    ),
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RenderTable(headers: List<String>, rows: List<List<String>>) {
-    val scrollState = rememberScrollState()
-
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .border(
-                1.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                RoundedCornerShape(8.dp)
-            )
-    ) {
-        Box(modifier = Modifier.horizontalScroll(scrollState)) {
-            Column(modifier = Modifier.padding(2.dp)) {
-                // Headers
-                if (headers.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .background(
-                                MaterialTheme.colorScheme.surfaceContainerHigh,
-                                RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)
-                            )
-                            .padding(vertical = 6.dp)
-                    ) {
-                        headers.forEach { header ->
-                            val annotated = rememberMarkdownAnnotatedString(header)
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(min = 90.dp, max = 220.dp)
-                                    .padding(horizontal = 10.dp, vertical = 2.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                MarkdownClickableText(
-                                    text = annotated,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                )
-                            }
-                        }
-                    }
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                        thickness = 1.dp
-                    )
-                }
-
-                // Rows
-                rows.forEachIndexed { rowIndex, row ->
-                    val bgColor = if (rowIndex % 2 == 0) {
-                        MaterialTheme.colorScheme.surface
-                    } else {
-                        MaterialTheme.colorScheme.surfaceContainerLowest
-                    }
-                    Row(
-                        modifier = Modifier
-                            .background(bgColor)
-                            .padding(vertical = 6.dp)
-                    ) {
-                        row.forEachIndexed { colIndex, cell ->
-                            val annotated = rememberMarkdownAnnotatedString(cell)
-                            Box(
-                                modifier = Modifier
-                                    .widthIn(min = 90.dp, max = 220.dp)
-                                    .padding(horizontal = 10.dp, vertical = 2.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                MarkdownClickableText(
-                                    text = annotated,
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                )
-                            }
-                        }
-                    }
-                    if (rowIndex < rows.lastIndex) {
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f),
-                            thickness = 0.5.dp
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
+private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
+    val text = model.node.getTextInNode(model.content).toString()
     val context = LocalContext.current
     val presentation = rememberStreamingTextPresentation(text)
     val isError = remember(text) { isErrorText(text) }
@@ -476,7 +172,10 @@ private fun RenderParagraph(text: String, latexMode: String = "AUTO") {
             RenderLatexBlock(text)
         }
         else -> {
-            val annotated = rememberMarkdownAnnotatedString(text)
+            val settings = annotatorSettings()
+            val annotated = buildAnnotatedString {
+                buildMarkdownAnnotatedString(model.content, model.node, settings)
+            }
             androidx.compose.foundation.text.selection.SelectionContainer {
                 MarkdownClickableText(
                     text = annotated,

@@ -54,7 +54,7 @@ internal fun ProviderOAuthAccountsDialog(
     AppDialog(onDismissRequest = { if (editing && !busy) editing = false else dismiss() }) {
         BackHandler(enabled = editing && !busy) { editing = false }
         Surface(shape = MaterialTheme.shapes.extraLarge,
-            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp).imePadding()) {
+            modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
             Column {
                 TopAppBar(title = { Text(stringResource(if (editing) {
                     if (editingId == null) R.string.provider_add_account else R.string.provider_edit_account

@@ -1,48 +1,59 @@
 package org.starfall.multigateway.data.service
 
 import android.content.Context
-import android.media.MediaPlayer
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class SpeechAudioPlayer(private val context: Context) {
-    private var player: MediaPlayer? = null
+    private var player: ExoPlayer? = null
     private var currentFile: File? = null
 
-    fun play(audio: ByteArray, onFinished: () -> Unit = {}, onError: () -> Unit = {}) {
-        stop()
-        val file = File.createTempFile("multigateway_tts_", ".mp3", context.cacheDir)
-        file.writeBytes(audio)
-        currentFile = file
-
-        player = MediaPlayer().apply {
-            setDataSource(file.absolutePath)
-            setOnPreparedListener { it.start() }
-            setOnCompletionListener {
-                it.release()
-                if (player === it) player = null
-                file.delete()
-                if (currentFile === file) currentFile = null
-                onFinished()
+    suspend fun play(audio: ByteArray, onFinished: () -> Unit = {}, onError: () -> Unit = {}) =
+        withContext(Dispatchers.Main.immediate) {
+            stop()
+            var file: File? = null
+            var ownedPlayer: ExoPlayer? = null
+            try {
+                withContext(Dispatchers.IO) {
+                    file = File.createTempFile("multigateway_tts_", ".mp3", context.cacheDir)
+                    file!!.writeBytes(audio)
+                }
+                val preparedFile = file!!
+                val next = MediaPlayers.create(context, speech = true)
+                ownedPlayer = next
+                currentFile = preparedFile
+                player = next
+                fun finish(error: Boolean) {
+                    if (player !== next) return
+                    stop()
+                    if (error) onError()
+                    onFinished()
+                }
+                next.addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        if (state == Player.STATE_ENDED) finish(false)
+                    }
+                    override fun onPlayerError(error: PlaybackException) = finish(true)
+                })
+                next.setMediaItem(MediaPlayers.item(preparedFile.path))
+                next.prepare()
+                next.play()
+            } catch (error: Throwable) {
+                // A cancelled file write must not stop a newer speech request.
+                if (ownedPlayer != null && player === ownedPlayer) stop()
+                file?.delete()
+                throw error
             }
-            setOnErrorListener { mediaPlayer, _, _ ->
-                mediaPlayer.release()
-                if (player === mediaPlayer) player = null
-                file.delete()
-                if (currentFile === file) currentFile = null
-                onError()
-                onFinished()
-                true
-            }
-            prepareAsync()
         }
-    }
 
     fun stop() {
-        player?.runCatching {
-            if (isPlaying) stop()
-            release()
-        }
+        val previous = player
         player = null
+        previous?.release()
         currentFile?.delete()
         currentFile = null
     }

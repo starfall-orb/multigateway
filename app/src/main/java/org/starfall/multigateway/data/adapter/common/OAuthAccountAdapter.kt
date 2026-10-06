@@ -1,16 +1,12 @@
 package org.starfall.multigateway.data.adapter.common
 
-import android.content.Context
-import android.net.Uri
-import java.security.MessageDigest
-import java.security.SecureRandom
 import java.util.Base64
+import android.content.Context
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
-import okhttp3.FormBody
 import org.starfall.multigateway.data.adapter.AccountProviderAdapter
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.data.service.AttachmentResolver
@@ -52,22 +48,13 @@ internal abstract class OAuthAccountAdapter(
         require(clientId.isNotBlank() && (clientSecret == null || clientSecret.isNotBlank())) {
             "${providerType.displayName} OAuth client configuration is missing from this build."
         }
-        val verifier = randomValue(32)
-        val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
-            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.UTF_8)))
-        val state = randomValue(32)
-        val fields = linkedMapOf("client_id" to clientId, "redirect_uri" to redirectUri,
-            "response_type" to "code", "scope" to scope, "state" to state,
-            "code_challenge" to challenge, "code_challenge_method" to "S256")
-        if (jsonTokens) fields["code"] = "true"
-        else { fields["access_type"] = "offline"; fields["prompt"] = "consent" }
-        val url = Uri.parse(authorizationUrl).buildUpon().apply {
-            fields.forEach { (key, value) -> appendQueryParameter(key, value) }
-        }.build().toString()
+        val extra = if (jsonTokens) mapOf("code" to "true")
+            else mapOf("access_type" to "offline", "prompt" to "consent")
+        val request = AppAuthTransactions.authorization(authorizationUrl, tokenUrl, clientId, redirectUri, scope, extra)
         OAuthCallbackService.keepAlive(appContext) {
-            val code = awaitCode(url, state)
+            val code = awaitCode(request.toUri().toString(), request.state!!)
             val token = enrichToken(exchange(mapOf("grant_type" to "authorization_code", "code" to code,
-                "redirect_uri" to redirectUri, "code_verifier" to verifier, "state" to state)))
+                "redirect_uri" to redirectUri, "code_verifier" to request.codeVerifier!!, "state" to request.state!!)))
             withContext(Dispatchers.IO) { store.save(provider.oauthCredentialId, token) }
             authorized(provider, token)
         }
@@ -91,9 +78,9 @@ internal abstract class OAuthAccountAdapter(
     }
 
     private suspend fun exchange(fields: Map<String, String>, previous: AccountTokenState? = null): AccountTokenState {
-        val values = fields + mapOf("client_id" to clientId) + (clientSecret?.let { mapOf("client_secret" to it) } ?: emptyMap())
-        val payload = if (jsonTokens) http.post(tokenUrl, JsonObject(values.mapValues { JsonPrimitive(it.value) }))
-        else http.json(http.request(tokenUrl).post(FormBody.Builder().apply { values.forEach { (k,v) -> add(k,v) } }.build()).build())
+        val payload = AppAuthTransactions.exchange(http, AppAuthTransactions.token(tokenUrl, clientId, fields),
+            AppAuthTransactions.authentication(if (clientSecret == null) "none" else "client_secret_post", clientSecret),
+            jsonBody = jsonTokens)
         return accountTokenFromResponse(payload, previous)
     }
 
@@ -231,5 +218,5 @@ internal abstract class OAuthAccountAdapter(
                 mapOf("reasoning" to obj("effort" to str(config.reasoningEffort))) else emptyMap())) else body
     }
 
-    private fun randomValue(size: Int) = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(size).also(SecureRandom()::nextBytes))
+
 }

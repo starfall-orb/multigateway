@@ -27,7 +27,7 @@ class FaviconServiceTest {
         val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
         return java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it); bitmap.recycle() }.toByteArray()
     }
-    private fun service() = FaviconService(ToolHttp(client = OkHttpClient.Builder().proxy(java.net.Proxy.NO_PROXY).dns(object : Dns {
+    private fun service() = FaviconService(ApplicationProvider.getApplicationContext(), ToolHttp(client = OkHttpClient.Builder().proxy(java.net.Proxy.NO_PROXY).dns(object : Dns {
         override fun lookup(hostname: String) = listOf(InetAddress.getByName("127.0.0.1"))
     }).followRedirects(false).build()))
     private fun image(bytes: ByteArray = png()) = MockResponse().setBody(okio.Buffer().write(bytes)).setHeader("Content-Type", "image/png")
@@ -122,18 +122,18 @@ class FaviconServiceTest {
             putShort(0); putShort(1); putShort(1); put(1); put(1); put(0); put(0)
             putShort(1); putShort(32); putInt(payload.size); putInt(22); put(payload)
         }.array()
-        val embedded = decodeFavicon(ico(png()))!!
+        val embedded = decodeFavicon(ApplicationProvider.getApplicationContext(), ico(png()))!!
         assertEquals(32, embedded.width); embedded.recycle()
         val dib = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN).apply {
             putInt(40); putInt(1); putInt(2); putShort(1); putShort(32)
             position(40); put(0); put(0); put(255.toByte()); put(0)
         }.array()
-        val opaque = decodeFavicon(ico(dib))!!
+        val opaque = decodeFavicon(ApplicationProvider.getApplicationContext(), ico(dib))!!
         assertEquals(android.graphics.Color.RED, opaque.getPixel(0, 0)); opaque.recycle()
         dib[44] = 128.toByte()
-        val transparent = decodeFavicon(ico(dib))!!
+        val transparent = decodeFavicon(ApplicationProvider.getApplicationContext(), ico(dib))!!
         assertEquals(0, android.graphics.Color.alpha(transparent.getPixel(0, 0))); transparent.recycle()
-        assertNull(decodeFavicon(ico(png()).apply { this[18] = 255.toByte() }))
+        assertNull(decodeFavicon(ApplicationProvider.getApplicationContext(), ico(png()).apply { this[18] = 255.toByte() }))
     }
 
     @Test fun allFailuresProduceAnExplicitMessageAndCancellationStopsTheRequest() = runBlocking {

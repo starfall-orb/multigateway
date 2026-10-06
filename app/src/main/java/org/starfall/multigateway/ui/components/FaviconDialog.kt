@@ -25,7 +25,7 @@ import org.starfall.multigateway.data.service.IconStore
 internal fun FaviconDialog(baseUrl: String, onSave: (String) -> Unit, onBusyChange: (Boolean) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val service = remember { FaviconService() }
+    val service = remember { FaviconService(context) }
     val store = remember(context) { IconStore(context) }
     var homepage by remember { mutableStateOf("") }
     var result by remember { mutableStateOf<FaviconResult?>(null) }

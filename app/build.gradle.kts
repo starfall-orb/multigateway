@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -17,6 +19,8 @@ android {
         targetSdk = 36
         versionCode = 22
         versionName = "1.2.1"
+
+        manifestPlaceholders["appAuthRedirectScheme"] = "multigateway-oauth"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -55,8 +59,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
     }
 
     packaging {
@@ -98,8 +104,26 @@ dependencies {
 
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
+    // Library-owned drag gestures, placement and edge autoscroll.
+    implementation("sh.calvin.reorderable:reorderable:3.1.0")
+
+    // Shared image decoding, request cancellation and caching.
+    val coilVersion = "3.0.4"
+    implementation("io.coil-kt.coil3:coil-compose:$coilVersion")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:$coilVersion")
+    implementation("io.coil-kt.coil3:coil-video:$coilVersion")
+
+    // GFM parsing/rendering; code toolbar and streaming presentation remain app-owned.
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.34.0")
+
+    // One playback engine for audio, video and synthesized speech.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+
+    // OAuth request/PKCE/client-auth mechanics and Custom Tabs lifecycle.
+    implementation("net.openid:appauth:0.11.1")
+
     // Room
-    val roomVersion = "2.6.1"
+    val roomVersion = "2.8.5"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
@@ -111,15 +135,19 @@ dependencies {
     implementation("com.openai:openai-java:4.63.1")
     implementation("com.anthropic:anthropic-java:2.62.0")
     implementation("com.google.genai:google-genai:1.71.0")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
 
     // Ktor
-    val ktorVersion = "2.3.12"
+    val ktorVersion = "3.5.2"
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-cio:$ktorVersion")
+    implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
     implementation("io.ktor:ktor-client-logging:$ktorVersion")
+
+    // Official Model Context Protocol client SDK.
+    implementation("io.modelcontextprotocol:kotlin-sdk-client:0.15.0")
 
     // KotlinX Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -131,7 +159,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.robolectric:robolectric:4.13")
-    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")

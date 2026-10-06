@@ -5,6 +5,9 @@ import android.content.ContextWrapper
 import android.graphics.drawable.ColorDrawable
 import android.view.View
 import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Modifier
@@ -94,7 +97,9 @@ fun AppDialog(
     AmoledDialogBackdrop()
     androidx.compose.ui.window.Dialog(onDismissRequest, properties = properties) {
         ConfigureAmoledDialogWindow()
-        content()
+        Box(Modifier.safeDrawingPadding().imePadding()) {
+            content()
+        }
     }
 }
 

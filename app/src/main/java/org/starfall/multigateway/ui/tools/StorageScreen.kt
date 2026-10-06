@@ -13,9 +13,7 @@ import org.starfall.multigateway.ui.components.windowHeight
 import org.starfall.multigateway.ui.components.windowHeightIn
 
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.widget.MediaController
-import android.widget.VideoView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult

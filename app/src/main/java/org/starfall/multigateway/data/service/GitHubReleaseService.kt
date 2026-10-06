@@ -11,7 +11,7 @@ internal data class GitHubReleaseInfo(val tagName: String, val title: String, va
     val pageUrl: String, val apkAssets: List<ApkAsset>)
 
 internal suspend fun fetchLatestGitHubRelease(): GitHubReleaseInfo = withContext(Dispatchers.IO) {
-    val connection = (URL("https://api.github.com/repos/starfall-orb/multigateway/releases/latest").openConnection() as HttpURLConnection).apply {
+    val connection = (URL("https://api.github.com/repos/starfall-org/multigateway/releases/latest").openConnection() as HttpURLConnection).apply {
         requestMethod = "GET"
         connectTimeout = 10_000
         readTimeout = 15_000

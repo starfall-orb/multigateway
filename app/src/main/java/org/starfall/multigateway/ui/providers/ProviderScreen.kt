@@ -76,7 +76,11 @@ import org.starfall.multigateway.ui.components.providerInitials
 import org.starfall.multigateway.ui.components.IconPickerRow
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.AdaptiveCardLayout
-import org.starfall.multigateway.ui.components.longPressReorder
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.ReorderableCollectionItemScope
+import sh.calvin.reorderable.rememberReorderableLazyGridState
+import sh.calvin.reorderable.ScrollMoveMode
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.starfall.multigateway.ui.components.moved
 import org.starfall.multigateway.ui.navigation.LocalScreenTransitionActive
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
@@ -380,14 +384,12 @@ fun ProviderScreen(
         }
     }
 
-    fun rootDragModifier(index: Int, groupId: String): Modifier = if (searching) Modifier else Modifier.longPressReorder(
-        index = index,
-        itemCount = rootItems.size,
-        columns = if (isGridView) 2 else 1,
-        onMove = { from, to -> rootItems = rootItems.moved(from, to) },
-        onDrop = ::persistRootOrder,
-        onDraggingChanged = { dragging -> draggedGroupId = groupId.takeIf { dragging } }
-    )
+    fun ReorderableCollectionItemScope.rootDragModifier(groupId: String): Modifier =
+        Modifier.longPressDraggableHandle(
+            enabled = !searching,
+            onDragStarted = { draggedGroupId = groupId },
+            onDragStopped = { persistRootOrder(); draggedGroupId = null }
+        )
 
     fun providerDragModifier(provider: LlmProviderInfo): Modifier = if (searching) Modifier.testTag("provider_${provider.id}") else Modifier
         .testTag("provider_${provider.id}")
@@ -710,17 +712,12 @@ fun ProviderScreen(
                                         }
                                     }
                                 }
-                                fun gridRootDragModifier(item: PackedProviderItem, slot: Int): Modifier = if (searching) Modifier else Modifier.longPressReorder(
-                                    index = slot, itemCount = packedItems.size, columns = 2,
-                                    onMove = { _, to ->
-                                        val target = packedItems.getOrNull(to)?.rootIndex
-                                        if (target != null && target != item.rootIndex)
-                                            rootItems = rootItems.moved(item.rootIndex, target)
-                                    },
-                                    onDrop = ::persistRootOrder,
-                                    onDraggingChanged = { dragging -> draggedGroupId = item.group?.id?.takeIf { dragging } }
-                                )
-                                PackedProviderGrid(packedItems.map { it.cell }, onCellBoundsChanged = { id, bounds ->
+                                PackedProviderGrid(packedItems.map { it.cell },
+                                    onMove = { fromKey, toKey ->
+                                        val from = packedItems.firstOrNull { it.cell.key == fromKey }?.rootIndex
+                                        val to = packedItems.firstOrNull { it.cell.key == toKey }?.rootIndex
+                                        if (from != null && to != null) rootItems = rootItems.moved(from, to)
+                                    }, onCellBoundsChanged = { id, bounds ->
                                     if (bounds == null) gridCellBounds.remove(id) else gridCellBounds[id] = bounds
                                 }, onGroupBoundsChanged = { id, regions ->
                                     if (regions.isEmpty()) {
@@ -746,7 +743,7 @@ fun ProviderScreen(
                                         group != null && item.expanded -> ProviderGroupGridHeading(
                                             group = group,
                                             modifier = Modifier.testTag("provider_group_${group.id}")
-                                                .then(gridRootDragModifier(item, index)),
+                                                .then(rootDragModifier(group.id)),
                                             onCollapse = { if (query.isEmpty()) toggleSection(group.id) },
                                             onAddProvider = { createProvider(group.id) },
                                             onEditGroup = { groupToRename = group },
@@ -755,7 +752,7 @@ fun ProviderScreen(
                                         group != null -> ProviderGroupCollapsedCard(
                                             group = group, isGrid = true,
                                             modifier = Modifier.testTag("provider_group_${group.id}")
-                                                .then(gridRootDragModifier(item, index)),
+                                                .then(rootDragModifier(group.id)),
                                             onBoundsChanged = { bounds ->
                                                 if (currentGridView) {
                                                     if (bounds == null) { if (group.id !in packedGroupBounds) groupCardBounds.remove(group.id) }
@@ -765,7 +762,14 @@ fun ProviderScreen(
                                         )
                                     }
                                 }
-                            } else LazyVerticalGrid(
+                            } else {
+                            val listGridState = rememberLazyGridState()
+                            val listReorderState = rememberReorderableLazyGridState(listGridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
+                                val fromIndex = rootItems.indexOfFirst { "${if (it is ProviderRootItem.GroupItem) "group" else "provider"}_${it.id}" == from.key }
+                                val toIndex = rootItems.indexOfFirst { "${if (it is ProviderRootItem.GroupItem) "group" else "provider"}_${it.id}" == to.key }
+                                rootItems = rootItems.moved(fromIndex, toIndex)
+                            }
+                            LazyVerticalGrid(state = listGridState,
                             columns = GridCells.Fixed(if (gridMode) 2 else 1),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -787,13 +791,8 @@ fun ProviderScreen(
                                         ) {
                                             // Lazy-grid placement animation belongs on the item
                                             // wrapper, not inside the expanded/collapsed content.
+                                            ReorderableItem(listReorderState, key = "group_${group.id}") { _ ->
                                             Box(Modifier
-                                                .animateItem(
-                                                    placementSpec = spring(
-                                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                                        stiffness = Spring.StiffnessMediumLow
-                                                    )
-                                                )
                                                 .zIndex(if (draggedGroupId == group.id) 100f else 0f)) {
                                             if (expanded) {
                                                 ProviderGroupExpandedContainer(
@@ -801,7 +800,7 @@ fun ProviderScreen(
                                                     providers = groupProviders,
                                                     isGrid = gridMode,
                                                     modifier = Modifier.testTag("provider_group_${group.id}"),
-                                                    headerDragModifier = rootDragModifier(rootIndex, group.id),
+                                                    headerDragModifier = rootDragModifier(group.id),
                                                     onBoundsChanged = { bounds ->
                                                         if (!currentGridView) {
                                                             if (bounds == null) groupCardBounds.remove(group.id)
@@ -823,7 +822,7 @@ fun ProviderScreen(
                                                     isGrid = gridMode,
                                                     modifier = Modifier
                                                         .testTag("provider_group_${group.id}")
-                                                        .then(rootDragModifier(rootIndex, group.id)),
+                                                        .then(rootDragModifier(group.id)),
                                                     onBoundsChanged = { bounds ->
                                                         if (!currentGridView) {
                                                             if (bounds == null) groupCardBounds.remove(group.id)
@@ -834,22 +833,18 @@ fun ProviderScreen(
                                                 )
                                             }
                                             }
+                                            }
                                         }
                                     }
 
                                     is ProviderRootItem.ProviderItem -> {
                                         val provider = rootItem.provider
                                         item(key = "provider_${provider.id}") {
+                                            ReorderableItem(listReorderState, key = "provider_${provider.id}") { _ ->
                                             ProviderUnifiedCard(
                                                 provider = provider,
                                                 isGrid = gridMode,
                                                 modifier = Modifier
-                                                    .animateItem(
-                                                        placementSpec = spring(
-                                                            dampingRatio = Spring.DampingRatioNoBouncy,
-                                                            stiffness = Spring.StiffnessMediumLow
-                                                        )
-                                                    )
                                                     .then(providerDragModifier(provider)),
                                                 onEdit = { editor = ProviderEditor(provider, false) },
                                                 onMoveToGroup = { movingProvider = provider },
@@ -857,8 +852,10 @@ fun ProviderScreen(
                                             )
                                         }
                                     }
+                                    }
                                 }
                             }
+                        }
                         }
                         }
                     }

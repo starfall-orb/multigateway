@@ -2,7 +2,6 @@ package org.starfall.multigateway.data.service
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
@@ -14,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CancellationException
 
 @Serializable
@@ -62,16 +62,11 @@ class IconStore(private val context: Context) {
         val revision = changes.asStateFlow()
         private val lookupChanges = MutableStateFlow(0L)
         val lookupRevision = lookupChanges.asStateFlow()
-        private val bitmaps = object : android.util.LruCache<String, Bitmap>(8 * 1024) {
-            override fun sizeOf(key: String, value: Bitmap): Int = (value.allocationByteCount / 1024).coerceAtLeast(1)
-        }
         private val storedIconName = Regex("^((?:entity-)?icon-[a-f0-9-]+|lobe-[a-z0-9-]+)\\.png$")
         private val downloadLock = Mutex()
         private val mutationLock = Any()
         private val source = LobeIconSource()
-        private val remoteClient = okhttp3.OkHttpClient.Builder()
-            .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
-        private val failedDownloads = mutableMapOf<String, Long>()
+        private val failedDownloads = java.util.concurrent.ConcurrentHashMap<String, Long>()
         private val missingDarkVariants = mutableSetOf<String>()
     }
 
@@ -120,7 +115,6 @@ class IconStore(private val context: Context) {
     fun delete(image: String) = synchronized(mutationLock) {
         require(storedIconName.matches(image))
         val file = File(directory, image)
-        bitmaps.remove(file.absolutePath)
         check(!file.exists() || file.delete())
         saveRules(rules().filterNot { it.image == image })
         val editor = automatic.edit()
@@ -162,9 +156,7 @@ class IconStore(private val context: Context) {
                     val file = File(directory, id)
                     if (!file.exists()) {
                         val bytes = iconSource.image(filename)
-                        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                        require(bounds.outWidth in 1..2048 && bounds.outHeight in 1..2048)
+                        require(AppImages.decode(context, bytes, 256) != null) { "Invalid icon image" }
                         synchronized(mutationLock) {
                             val staging = File.createTempFile("download-", ".tmp", directory)
                             try {
@@ -193,7 +185,7 @@ class IconStore(private val context: Context) {
         }
     }
 
-    private fun ensureDarkVariant(image: String, iconSource: LobeIconSource) {
+    private suspend fun ensureDarkVariant(image: String, iconSource: LobeIconSource) {
         if (!image.startsWith("lobe-") || image.startsWith("lobe-dark-") ||
             variants.contains("dark:$image") || image in missingDarkVariants) return
         val failureKey = "dark:$image"
@@ -206,9 +198,7 @@ class IconStore(private val context: Context) {
             val file = File(directory, id)
             if (!file.isFile) {
                 val bytes = iconSource.image(filename, dark = true)
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                require(bounds.outWidth in 1..2048 && bounds.outHeight in 1..2048)
+                require(AppImages.decode(context, bytes, 256) != null) { "Invalid icon image" }
                 val staging = File.createTempFile("download-", ".tmp", directory)
                 try { staging.writeBytes(bytes); check(staging.renameTo(file)) } finally { staging.delete() }
             }
@@ -216,7 +206,8 @@ class IconStore(private val context: Context) {
                 check(variants.edit().putString("dark:$image", id).commit())
                 changes.value += 1
             }
-        } catch (e: Exception) { failedDownloads[failureKey] = System.currentTimeMillis() + 60_000 }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { failedDownloads[failureKey] = System.currentTimeMillis() + 60_000 }
     }
 
     fun themedImage(image: String, dark: Boolean): String {
@@ -245,7 +236,7 @@ class IconStore(private val context: Context) {
         return null
     }
 
-    fun cache(name: String, image: String, model: Boolean = false) = synchronized(mutationLock) {
+    fun cache(name: String, image: String, model: Boolean = false): Unit = synchronized(mutationLock) {
         if (image.startsWith("entity-icon-")) return
         val candidate = iconMatchNames(name, model).firstOrNull() ?: return
         val pattern = Regex.escape(candidate)
@@ -273,26 +264,15 @@ class IconStore(private val context: Context) {
                     }
                 }
             }
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(staging.path, bounds)
-            require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Invalid image" }
-            var sample = 1
-            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
-            val bitmap = BitmapFactory.decodeFile(staging.path, BitmapFactory.Options().apply { inSampleSize = sample })
+            val bitmap = runBlocking { AppImages.decode(context, staging, 256) }
                 ?: error("Cannot decode image")
-            val scale = minOf(1f, 256f / maxOf(bitmap.width, bitmap.height))
-            val resized = Bitmap.createScaledBitmap(bitmap,
-                maxOf(1, (bitmap.width * scale).toInt()), maxOf(1, (bitmap.height * scale).toInt()), true)
             val id = "${if (shared) "" else "entity-"}icon-${UUID.randomUUID()}.png"
             val target = File(directory, id)
             try {
-                target.outputStream().use { check(resized.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                target.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
             } catch (error: Throwable) {
                 target.delete()
                 throw error
-            } finally {
-                if (resized !== bitmap) resized.recycle()
-                bitmap.recycle()
             }
             val filename = runCatching {
                 context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
@@ -316,54 +296,27 @@ class IconStore(private val context: Context) {
         } finally { staging.delete() }
     }
 
-    /** Explicit URL icons use the same app-owned, resized cache as imported pictures. Called on IO. */
-    internal suspend fun loadIcon(image: String?, dark: Boolean = false): Bitmap? {
+    /** Resolve explicit icons to Coil request data without decoding in the UI. */
+    fun imageData(image: String?, dark: Boolean = false): Any? {
         if (image == null) return null
-        val uri = Uri.parse(image)
-        if (uri.scheme?.lowercase() !in listOf("http", "https")) return load(themedImage(image, dark))
-        return downloadLock.withLock {
-            val cacheKey = "remote:$image"
-            automatic.getString(cacheKey, null)?.let { cached -> load(themedImage(cached, dark))?.let { return@withLock it } }
-            if ((failedDownloads[cacheKey] ?: 0L) > System.currentTimeMillis()) return@withLock null
-            val staging = File.createTempFile("remote-", ".tmp", directory)
-            try {
-                remoteClient.newCall(okhttp3.Request.Builder().url(image).build()).execute().use { response ->
-                    check(response.isSuccessful) { "Icon download failed" }
-                    val body = response.body ?: error("Empty icon response")
-                    require(body.contentLength() <= 20L * 1024 * 1024) { "Icon is too large" }
-                    body.byteStream().use { input ->
-                        staging.outputStream().use { output ->
-                            val buffer = ByteArray(8192)
-                            var total = 0L
-                            while (true) {
-                                val read = input.read(buffer)
-                                if (read < 0) break
-                                total += read
-                                require(total <= 20L * 1024 * 1024) { "Icon is too large" }
-                                output.write(buffer, 0, read)
-                            }
-                        }
-                    }
-                }
-                val id = importImage(Uri.fromFile(staging))
-                check(assets.edit().putString(id, uri.lastPathSegment ?: "Provider icon").commit())
-                check(automatic.edit().putString(cacheKey, id).commit())
-                load(themedImage(id, dark))
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                failedDownloads[cacheKey] = System.currentTimeMillis() + 60_000
-                null
-            } finally { staging.delete() }
-        }
+        if (Uri.parse(image).scheme?.lowercase() in listOf("http", "https")) return image
+        val id = themedImage(image, dark)
+        if (!storedIconName.matches(id)) return null
+        return File(directory, id).takeIf { it.isFile }
     }
 
-    fun load(id: String?): Bitmap? {
-        if (id == null || !storedIconName.matches(id)) return null
-        val file = File(directory, id)
-        if (!file.isFile) { bitmaps.remove(file.absolutePath); return null }
-        bitmaps.get(file.absolutePath)?.takeUnless { it.isRecycled }?.let { return it }
-        return BitmapFactory.decodeFile(file.path)?.also { bitmaps.put(file.absolutePath, it) }
+    /** Compatibility for IO-only import/export clients; Coil owns decoding and caching. */
+    internal suspend fun loadIcon(image: String?, dark: Boolean = false): Bitmap? {
+        val data = imageData(image, dark) ?: return null
+        if ((failedDownloads["remote:$image"] ?: 0L) > System.currentTimeMillis()) return null
+        val bitmap = AppImages.decode(context, data, 256)
+        if (bitmap == null) failedDownloads["remote:$image"] = System.currentTimeMillis() + 60_000
+        return bitmap
+    }
+
+    /** Called on IO, never from a composable. */
+    fun load(id: String?): Bitmap? = imageData(id)?.let { data ->
+        runBlocking { AppImages.decode(context, data, 256) }
     }
 
     /**

@@ -49,7 +49,10 @@ import java.util.UUID
 import org.starfall.multigateway.ui.components.ItemOverflowMenu
 import org.starfall.multigateway.ui.components.AdaptiveCardLayout
 import org.starfall.multigateway.ui.components.FadeGridListContent
-import org.starfall.multigateway.ui.components.longPressReorder
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
+import sh.calvin.reorderable.ScrollMoveMode
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import org.starfall.multigateway.ui.components.moved
 
 private data class ProfileEditor(val profile: ChatProfile?)
@@ -120,40 +123,35 @@ fun ProfileScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             FadeGridListContent(isGrid = isGridView, modifier = Modifier.fillMaxSize()) { gridMode ->
-                LazyVerticalGrid(
-                columns = GridCells.Fixed(if (gridMode) 2 else 1),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                itemsIndexed(orderedProfiles, key = { _, item -> item.id }) { index, profile ->
-                    val isSelected = profile.id == selectedProfileId
-                    ProfileUnifiedCard(
-                        profile = profile,
-                        isGrid = gridMode,
-                        isSelected = isSelected,
-                        modifier = Modifier
-                            .animateItem(
-                                placementSpec = spring(
-                                    dampingRatio = Spring.DampingRatioNoBouncy,
-                                    stiffness = Spring.StiffnessMediumLow
-                                )
-                            )
-                            .longPressReorder(
-                                index = index,
-                                itemCount = orderedProfiles.size,
-                                columns = if (gridMode) 2 else 1,
-                                onMove = { from, to -> orderedProfiles = orderedProfiles.moved(from, to) },
-                                onDrop = { onReorderProfiles(orderedProfiles.map { it.id }) }
-                            ),
-                        onSelect = { onSelectProfile(profile.id) },
-                        onEdit = {
-                            editor = ProfileEditor(profile)
-                        },
-                        onDelete = { deletingProfileId = profile.id }
-                    )
+                val gridState = rememberLazyGridState()
+                val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
+                    orderedProfiles = orderedProfiles.moved(from.index, to.index)
                 }
-            }
+                LazyVerticalGrid(state = gridState,
+                    columns = GridCells.Fixed(if (gridMode) 2 else 1),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(orderedProfiles, key = { _, item -> item.id }) { _, profile ->
+                        ReorderableItem(reorderState, key = profile.id) { _ ->
+                            val isSelected = profile.id == selectedProfileId
+                            ProfileUnifiedCard(
+                                profile = profile,
+                                isGrid = gridMode,
+                                isSelected = isSelected,
+                                modifier = Modifier.longPressDraggableHandle(
+                                    onDragStopped = { onReorderProfiles(orderedProfiles.map { it.id }) }
+                                ),
+                                onSelect = { onSelectProfile(profile.id) },
+                                onEdit = {
+                                    editor = ProfileEditor(profile)
+                                },
+                                onDelete = { deletingProfileId = profile.id }
+                            )
+                        }
+                    }
+                }
             }
         }
     }

@@ -3,6 +3,7 @@ import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,7 @@ internal fun McpConnectionSettings(
     headers: List<Pair<String, String>>, onHeadersChange: (List<Pair<String, String>>) -> Unit,
     oauthClientId: String, onOauthClientIdChange: (String) -> Unit,
     oauthClientSecret: String, onOauthClientSecretChange: (String) -> Unit,
+    oauthRedirectUri: String, onOauthRedirectUriChange: (String) -> Unit,
     oauthAuthorized: Boolean, onAuthorizeOAuth: suspend () -> Result<Unit>, onClearOAuth: suspend () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -84,10 +87,12 @@ internal fun McpConnectionSettings(
             label = { Text(if (authMethod == McpAuthMethod.BEARER_TOKEN) "Header key" else "Query parameter name") },
             isError = !authValid, singleLine = true, modifier = Modifier.fillMaxWidth())
         if (authMethod == McpAuthMethod.OAUTH2) McpOAuthFields(url, oauthClientId, onOauthClientIdChange,
-            oauthClientSecret, onOauthClientSecretChange, oauthAuthorized, onAuthorizeOAuth, onClearOAuth,
+            oauthClientSecret, onOauthClientSecretChange, oauthAuthorized, oauthRedirectUri, onOauthRedirectUriChange,
+            onAuthorizeOAuth, onClearOAuth,
             oauthAdvancedExpanded, { oauthAdvancedExpanded = !oauthAdvancedExpanded })
         if (authMethod != McpAuthMethod.NONE && authMethod != McpAuthMethod.OAUTH2) SelectableOutlinedTextField(authValue, onAuthValueChange,
             label = { Text(stringResource(if (authMethod == McpAuthMethod.BEARER_TOKEN) R.string.bearer_token else R.string.common_value)) },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             trailingIcon = {
                 IconButton(onClick = { authValueRevealed = !authValueRevealed }) {
                     Icon(

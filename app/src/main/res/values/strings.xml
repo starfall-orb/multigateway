@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">MultiGateway</string>
+    <string name="message_text_size">Message text size</string>
+    <string name="message_text_size_hint">%1$d sp</string>
+    <string name="message_font_family">Message font</string>
+    <string name="font_family_default">System default</string>
+    <string name="font_family_sans_serif">Sans serif</string>
+    <string name="font_family_serif">Serif</string>
+    <string name="font_family_monospace">Monospace</string>
+    <string name="font_family_cursive">Cursive</string>
+    <string name="crash_report_title">The app crashed last time</string>
+    <string name="crash_report_description">The previous session ended unexpectedly. The recorded error is shown below. You can create a GitHub issue with these details to help fix it.</string>
+    <string name="crash_create_issue">Create GitHub issue</string>
+    <string name="crash_issue_open_failed">Could not open GitHub. Please check that a browser is installed.</string>
     <string name="thinking">Thinking</string>
     <string name="thinking_streaming">Thinking...</string>
     <string name="generating">Generating...</string>
@@ -195,6 +207,7 @@
     <string name="client_secret">Client secret</string>
     <string name="mcp_oauth_client_secret_help">Optional. Only use a secret issued for a pre-registered confidential client.</string>
     <string name="redirect_uri">Redirect URI</string>
+    <string name="mcp_oauth_redirect_uri_help">Use the exact callback URL registered for this client. Default: %1$s</string>
     <string name="authorize_in_browser">Authorize in Browser</string>
     <string name="bearer_token">Bearer Token</string>
     <string name="mcp_custom_headers_help">Add custom HTTP headers for MCP server requests</string>
@@ -315,4 +328,5 @@
     <string name="provider_account_label">Label</string>
     <string name="provider_selected_account">Selected account</string>
     <string name="oauth_sign_in_cancelled">Sign-in cancelled.</string>
+    <string name="resend_message">Resend message</string>
 </resources>

@@ -24,6 +24,7 @@ data class McpAuthorization(
     val value: String? = null,
     val oauthClientId: String? = null,
     val oauthClientSecret: String? = null,
+    val oauthRedirectUri: String? = null,
     val oauthAuthorized: Boolean = false
 ) {
     val token: String get() = value.orEmpty()

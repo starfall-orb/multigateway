@@ -63,11 +63,12 @@ fun EntityIcon(
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
         color = backgroundColor ?: MaterialTheme.colorScheme.surfaceContainerHighest) {
         Box(contentAlignment = Alignment.Center) {
-            if (fallback != null) Icon(fallback, contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize().padding(9.dp))
-            else Text(text?.takeIf { it.isNotBlank() } ?: "?",
-                style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            if (data != null) AsyncImage(data, contentDescription = null,
+            if (data == null) {
+                if (fallback != null) Icon(fallback, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize().padding(9.dp))
+                else Text(text?.takeIf { it.isNotBlank() } ?: "?",
+                    style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            } else AsyncImage(data, contentDescription = null,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                 onError = { if (image != null && !explicitFailed) explicitFailed = true })
         }
@@ -75,7 +76,7 @@ fun EntityIcon(
 }
 
 @Composable
-fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = null, fallback: ImageVector? = null, onBusyChange: (Boolean) -> Unit = {}, matchName: String? = null, model: Boolean = false, faviconBaseUrl: String = "") {
+fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = null, fallback: ImageVector? = null, onBusyChange: (Boolean) -> Unit = {}, matchName: String? = null, model: Boolean = false, faviconBaseUrl: String = "", defaultImage: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentOnChange by rememberUpdatedState(onChange)
@@ -101,7 +102,7 @@ fun IconPickerRow(image: String?, onChange: (String?) -> Unit, text: String? = n
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        EntityIcon(image, Modifier.size(56.dp), text, fallback, matchName, model)
+        EntityIcon(image ?: defaultImage, Modifier.size(56.dp), text, fallback, matchName, model)
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.entity_icon), style = MaterialTheme.typography.titleSmall)
             Row(verticalAlignment = Alignment.CenterVertically) {

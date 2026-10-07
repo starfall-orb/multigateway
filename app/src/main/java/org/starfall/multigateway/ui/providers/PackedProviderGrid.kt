@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.*
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -39,10 +40,14 @@ internal fun packedGroupRegions(cells: List<PackedGridCell>, bounds: Map<String,
             val other = bounds[next.key] ?: continue
             val diagonal = nextIndex == index + 1 && index % 2 == 1
             if (diagonal) {
-                // Diagonal cells have a concave inner corner. Do not add a
-                // rectangular bridge: its stroke necessarily protrudes toward
-                // the lower-right outside of the folder. The two rounded cell
-                // outlines remain clean and meet at the shared folder region.
+                // With zero grid spacing, diagonal members meet at one corner.
+                // Join the rounded corners with a tiny connector so the folder
+                // outline does not show a pinhole at that shared corner.
+                val upper = if (rect.center.y <= other.center.y) rect else other
+                val x = if (rect.center.x < other.center.x) rect.right else rect.left
+                val y = upper.bottom
+                val connector = 2f
+                parts += Rect(x - connector, y - connector, x + connector, y + connector)
                 continue
             }
             val horizontal = nextIndex == index + 1
@@ -55,6 +60,22 @@ internal fun packedGroupRegions(cells: List<PackedGridCell>, bounds: Map<String,
             else Rect(maxOf(rect.left, other.left), rect.center.y, minOf(rect.right, other.right), other.center.y)
         }
     }
+    // If a folder ends on an incomplete grid row, reserve the missing partner
+    // slot only when that slot is genuinely empty. This keeps both bottom
+    // corners aligned without drawing the folder over a root provider card.
+    cells.map { it.groupId }.filterNotNull().distinct().forEach { group ->
+        val lastIndex = cells.indexOfLast { it.groupId == group && bounds.containsKey(it.key) }
+        val lastRect = cells.getOrNull(lastIndex)?.let { bounds[it.key] } ?: return@forEach
+        val partnerIndex = if (lastIndex % 2 == 0) lastIndex + 1 else lastIndex - 1
+        if (partnerIndex !in cells.indices) {
+            val partner = if (lastIndex % 2 == 0) {
+                Rect(lastRect.right, lastRect.top, lastRect.right + lastRect.width, lastRect.bottom)
+            } else {
+                Rect(lastRect.left - lastRect.width, lastRect.top, lastRect.left, lastRect.bottom)
+            }
+            regions.getOrPut(group) { mutableListOf() } += partner
+        }
+    }
     return regions
 }
 
@@ -62,10 +83,10 @@ internal fun packedGroupPath(parts: List<Rect>, cellRects: Set<Rect>, origin: Of
     var outline = Path()
     parts.forEach { rect ->
         val local = rect.translate(-origin)
-        val part = Path().apply {
-            if (rect in cellRects) addRoundRect(RoundRect(local, CornerRadius(corner)))
-            else addRect(local)
-        }
+        // Use rectangular primitives for the union. The result is one
+        // continuous region instead of a collection of independently rounded
+        // cards with visible seams between them.
+        val part = Path().apply { addRect(local) }
         outline = Path.combine(PathOperation.Union, outline, part)
     }
     return outline
@@ -142,12 +163,14 @@ internal fun PackedProviderGrid(
         regions.values.forEach { parts ->
             val outline = packedGroupPath(parts, cellRects, origin, 20.dp.toPx())
             drawPath(outline, background)
-            drawPath(outline, border, style = Stroke(1.5.dp.toPx()))
+            drawPath(outline, border, style = Stroke(1.5.dp.toPx(), join = StrokeJoin.Round))
         }
     }) {
         LazyVerticalGrid(state = gridState, columns = columns,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            // Each slot keeps 6.dp of internal padding around its card. Keeping
+            // the slots adjacent lets the shared folder outline remain closed.
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
             modifier = Modifier.fillMaxSize().testTag("provider_list")
         ) {
             items(displayCells, key = { it.key }, span = { cell ->
@@ -177,7 +200,16 @@ internal fun PackedProviderGrid(
                     isGrid -> 164.dp
                     else -> 100.dp
                 }
-                ReorderableItem(reorderState, key = cell.key) { dragging ->
+                ReorderableItem(
+                    reorderState,
+                    key = cell.key,
+                    // The reorderable state already tracks the dragged item and
+                    // the grid is being scrolled at the same time. A second
+                    // placement animation makes the item briefly use two
+                    // positions while previewMove updates the slots, which is
+                    // especially visible at the bottom edge.
+                    animateItemModifier = if (draggingKey == null) Modifier.animateItem() else Modifier
+                ) { dragging ->
                     val handle = Modifier.longPressDraggableHandle(enabled = dragEnabled && !cell.key.startsWith("root:"),
                         interactionSource = interaction, onDragStarted = {
                             active = true

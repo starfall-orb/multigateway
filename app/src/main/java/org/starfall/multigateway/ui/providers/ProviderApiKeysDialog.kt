@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +73,7 @@ internal fun ProviderApiKeysDialog(state: ProviderApiKeysState, identity: (Strin
                     SelectableOutlinedTextField(label, { label = it }, label = { Text(stringResource(R.string.provider_api_key_name)) },
                         singleLine = true, modifier = Modifier.fillMaxWidth().testTag("provider_api_key_label"))
                     SelectableOutlinedTextField(value, { value = it; error = null }, label = { Text(stringResource(R.string.provider_api_key_value)) },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                         visualTransformation = if (revealed) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = { IconButton(onClick = { revealed = !revealed }) {
                             Icon(if (revealed) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,

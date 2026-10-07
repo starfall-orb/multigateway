@@ -7,10 +7,18 @@ import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalTextToolbar
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.TextToolbar
@@ -25,9 +33,24 @@ fun PlatformTextSelection(content: @Composable () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val selectionClipboard = remember(clipboard) { SelectionClipboard(clipboard) }
     val toolbar = remember(view, selectionClipboard) { PlatformSelectionToolbar(view, selectionClipboard) }
+    val focusManager = LocalFocusManager.current
     DisposableEffect(toolbar) { onDispose { toolbar.hide() } }
-    CompositionLocalProvider(LocalClipboardManager provides selectionClipboard, LocalTextToolbar provides toolbar,
-        content = content)
+    CompositionLocalProvider(LocalClipboardManager provides selectionClipboard, LocalTextToolbar provides toolbar) {
+        Box(Modifier.fillMaxSize().pointerInput(toolbar, focusManager) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                if (toolbar.hasReadOnlySelection) {
+                    // SelectionContainer releases its highlight and handles on focus loss.
+                    // Observe before children so this same touch still activates its target.
+                    // Handles and Android's floating toolbar use separate popup windows.
+                    focusManager.clearFocus(force = true)
+                    toolbar.hide()
+                }
+            }
+        }) {
+            content()
+        }
+    }
 }
 
 internal class SelectionClipboard(private val delegate: ClipboardManager) : ClipboardManager by delegate {
@@ -58,16 +81,24 @@ internal class PlatformSelectionToolbar(
     private var selectAll: (() -> Unit)? = null
     override val status: TextToolbarStatus
         get() = if (mode == null) TextToolbarStatus.Hidden else TextToolbarStatus.Shown
+    // Android can dismiss the action mode while Compose still owns a selection.
+    var hasReadOnlySelection: Boolean = false
+        private set
 
     override fun showMenu(rect: Rect, onCopyRequested: (() -> Unit)?, onPasteRequested: (() -> Unit)?,
         onCutRequested: (() -> Unit)?, onSelectAllRequested: (() -> Unit)?) {
         this.rect = rect
         copy = onCopyRequested; paste = onPasteRequested; cut = onCutRequested; selectAll = onSelectAllRequested
+        hasReadOnlySelection = copy != null && paste == null && cut == null
         if (mode == null) mode = view.startActionMode(callback, ActionMode.TYPE_FLOATING)
         else { mode?.invalidate(); mode?.invalidateContentRect() }
     }
 
-    override fun hide() { mode?.finish(); mode = null }
+    override fun hide() {
+        hasReadOnlySelection = false
+        mode?.finish()
+        mode = null
+    }
 
     private val callback = object : ActionMode.Callback2() {
         private val processActions = mutableMapOf<Int, ComponentName>()

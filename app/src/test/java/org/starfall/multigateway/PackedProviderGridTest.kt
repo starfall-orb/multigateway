@@ -63,8 +63,8 @@ class PackedProviderGridTest {
     @Test fun diagonalFolderCellsDoNotCreateAnOutsideDropTarget() {
         val cells = listOf(PackedGridCell("root", null), PackedGridCell("folder", "g"), PackedGridCell("a", "g"))
         val regions = packedGroupRegions(cells, bounds(cells)).getValue("g")
-        assertEquals(2, regions.size)
-        assertFalse(regions.any { it.contains(Offset(106f, 170f)) })
+        assertEquals(4, regions.size)
+        assertTrue(regions.any { it.contains(Offset(112f, 164f)) })
         assertFalse(regions.any { it.contains(Offset(50f, 82f)) })
         assertFalse(regions.any { it.contains(Offset(162f, 258f)) })
     }
@@ -76,7 +76,7 @@ class PackedProviderGridTest {
         val regions = packedGroupRegions(cells, positions)
         assertEquals(1, regions.getValue("first").size)
         assertFalse(regions.getValue("first").any { it.contains(positions.getValue("g2").center) })
-        assertEquals(2, regions.getValue("second").size)
+        assertEquals(3, regions.getValue("second").size)
     }
     @org.junit.Test fun draggedFolderRetainsItsHandleAndRestoresAllMembersAfterCancel() {
         val cells = listOf(

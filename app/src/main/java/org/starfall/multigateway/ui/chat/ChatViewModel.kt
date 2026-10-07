@@ -99,7 +99,7 @@ class ChatViewModel(
         return provider.copy(
             config = provider.config.copy(
                 modelConfigs = provider.config.modelConfigs +
-                    (modelId to config.withConversationReasoning(effort))
+                    (modelId to config.withConversationReasoning(effort, provider.type))
             )
         )
     }
@@ -723,6 +723,27 @@ class ChatViewModel(
                 saveEditedConversation(conv, updated)
             }
         }
+    }
+
+    fun resendUserMessage(messageId: String): Boolean {
+        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
+        val current = _currentConversation.value ?: return false
+        val prefs = appPreferences.value
+        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return false
+        val model = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return false
+        val responseId = UUID.randomUUID().toString()
+        val conv = prepareUserMessageRetry(current, messageId, responseId,
+            generatedVersion(baseProvider, model, System.currentTimeMillis().toString()))?.copy(
+            providerId = baseProvider.id,
+            modelId = model,
+            profileId = null
+        ) ?: return false
+        val provider = providerWithReasoning(baseProvider, model, conv)
+        val contextMessages = conv.messages.takeWhile { it.id != responseId }
+        val context = effectiveContext(conv, contextMessages.dropLast(1), prefs.effectiveSystemPrompt)
+            .let { it.copy(messages = prefs.promptRoleMessages() + it.messages + contextMessages.last()) }
+        return generation.startEvents(conv, responseId,
+            toolEvents(provider, model, context.messages, context.systemPrompt))
     }
 
     fun regenerateMessage(messageId: String) {

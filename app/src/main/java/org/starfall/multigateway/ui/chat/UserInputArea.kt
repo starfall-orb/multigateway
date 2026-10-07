@@ -8,6 +8,12 @@ import kotlinx.coroutines.launch
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +24,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -37,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalFocusManager
@@ -50,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.LlmProviderInfo
+import org.starfall.multigateway.data.model.ModelConfiguration
 import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
 import org.starfall.multigateway.data.model.ModelType
@@ -146,6 +155,7 @@ fun UserInputArea(
 
     val focusManager = LocalFocusManager.current
     var showModelPicker by remember { mutableStateOf(false) }
+    var showSelectedModelOverview by remember { mutableStateOf(false) }
     var showQuickActions by remember { mutableStateOf(false) }
     var showConversationSummary by remember { mutableStateOf(false) }
     var showAddMenu by remember { mutableStateOf(false) }
@@ -220,10 +230,11 @@ fun UserInputArea(
         onAttachmentsChange((attachments + picked.map(Uri::toString)).distinct())
     }
 
-    val canSend = if (mediaKind == null) textState.isNotBlank() || attachments.isNotEmpty()
+    val hasContent = textState.isNotBlank() || attachments.isNotEmpty()
+    val canSend = if (mediaKind == null) hasContent
         else textState.isNotBlank() && textState.length <= 32000 &&
             attachments.size <= (if (mediaKind == ModelType.VIDEO_GENERATION) 1 else 16) && mediaModel != null && !isGenerating
-    val showStop = isGenerating && (mediaKind != null || (textState.isEmpty() && attachments.isEmpty()))
+    val showStop = isGenerating && (mediaKind != null || !hasContent)
     val mediaHint = when {
         mediaKind == ModelType.VIDEO_GENERATION && attachments.size > 1 -> "Choose one reference image for the video"
         mediaKind == ModelType.IMAGE_GENERATION && attachments.size > 16 -> "Choose up to 16 reference images"
@@ -325,7 +336,7 @@ fun UserInputArea(
                         .fillMaxWidth()
                         .padding(start = 6.dp, top = 6.dp, end = 6.dp, bottom = 6.dp)
                         .onSizeChanged { inputRowWidthPx = it.width },
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = if (stackInputActions) Alignment.Bottom else Alignment.CenterVertically
                 ) {
                     IconButton(
                         onClick = {
@@ -345,6 +356,7 @@ fun UserInputArea(
                     BasicTextField(
                         value = textFieldValue,
                         onValueChange = { textFieldValue = it },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                         textStyle = inputTextStyle,
                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                         modifier = Modifier
@@ -381,13 +393,15 @@ fun UserInputArea(
                     val actionButtons: @Composable () -> Unit = {
                     Box(
                         modifier = Modifier
-                            .padding(end = if (stackInputActions) 0.dp else 6.dp)
                             .size(44.dp)
                             .clip(CircleShape)
                             .background(if (mediaKind != null) MaterialTheme.colorScheme.primaryContainer
                                 else MaterialTheme.colorScheme.surfaceContainerHigh)
                             .semantics { contentDescription = if (mediaKind != null) "Select $mediaLabel model" else "Select model" }
-                            .clickable { showModelPicker = true },
+                            .clickable {
+                                if (mediaKind != null) showModelPicker = true
+                                else showSelectedModelOverview = true
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         if (mediaKind != null) {
@@ -411,13 +425,19 @@ fun UserInputArea(
                         }
                     }
 
+                    AnimatedVisibility(
+                        visible = showStop || hasContent,
+                        enter = expandHorizontally(tween(180), expandFrom = Alignment.End) + fadeIn(tween(140)),
+                        exit = shrinkHorizontally(tween(180), shrinkTowards = Alignment.End) + fadeOut(tween(100))
+                    ) {
                     Box(
                         modifier = Modifier
+                            .padding(start = 6.dp)
                             .size(48.dp)
                             .clip(CircleShape)
                             .background(
                                 when {
-                                    showStop -> MaterialTheme.colorScheme.errorContainer
+                                    showStop -> MaterialTheme.colorScheme.surfaceContainerHighest
                                     canSend -> MaterialTheme.colorScheme.primary
                                     else -> MaterialTheme.colorScheme.surfaceContainerHighest
                                 }
@@ -454,7 +474,7 @@ fun UserInputArea(
                             Icon(
                                 imageVector = Icons.Default.Stop,
                                 contentDescription = "Stop generation",
-                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp)
                             )
                         } else {
@@ -475,14 +495,8 @@ fun UserInputArea(
                         }
                     }
                     }
-                    if (stackInputActions) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) { actionButtons() }
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) { actionButtons() }
                     }
+                    Row(verticalAlignment = Alignment.CenterVertically) { actionButtons() }
                 }
             }
         }
@@ -515,6 +529,30 @@ fun UserInputArea(
         )
     }
 
+    if (showSelectedModelOverview && mediaKind == null) {
+        val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
+        val selectedConfig = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
+            ?: selectedProvider?.config?.modelConfigs?.values?.firstOrNull {
+                it.displayName.isNotBlank() && it.displayName == selectedModelName
+            }
+            // Keep the same fallback as the model picker: discovered/custom models without
+            // an explicit saved configuration still expose the reasoning control.
+            ?: ModelConfiguration(displayName = selectedModelName.ifBlank { "Select a model" })
+        val selectedFolderName = selectedProvider?.groupId?.let { groupId ->
+            providerGroups.firstOrNull { it.id == groupId }?.name
+        }
+        SelectedModelOverviewSheet(
+            provider = selectedProvider,
+            folderName = selectedFolderName,
+            modelId = selectedModelName.ifBlank { selectedConfig.displayName },
+            config = selectedConfig,
+            conversationReasoningEffort = conversationReasoningEffort,
+            onSetReasoningEffort = onSetReasoningEffort,
+            onOpenModelPicker = { showModelPicker = true },
+            onDismiss = { showSelectedModelOverview = false }
+        )
+    }
+
     if (showModelPicker) {
         ModelPickerSheet(
             providers = if (mediaKind != null) mediaProviders else providers,
@@ -525,13 +563,13 @@ fun UserInputArea(
             onCollapsedProviderIdsChange = onModelPickerCollapsedProvidersChange,
             selectedProviderId = if (mediaKind != null) mediaProviderId else selectedProviderId,
             selectedModelId = if (mediaKind != null) mediaModelId else selectedModelName,
-            conversationReasoningEffort = if (mediaKind != null) null else conversationReasoningEffort,
+            conversationReasoningEffort = null,
             onSelectModel = { provider, model ->
                 if (mediaKind != null) { mediaProviderId = provider; mediaModelId = model }
                 else onSelectModel(provider, model)
             },
-            onSetReasoningEffort = { if (mediaKind == null) onSetReasoningEffort(it) },
-            showReasoningEffort = mediaKind == null,
+            onSetReasoningEffort = {},
+            showReasoningEffort = false,
             dynamicModelsMap = if (mediaKind != null) emptyMap() else dynamicModelsMap.toMap(),
             modelFilter = if (mediaKind == null) chatModelPickerFilter else { _, _, config -> config.modelType == mediaKind },
             onDismiss = { showModelPicker = false }

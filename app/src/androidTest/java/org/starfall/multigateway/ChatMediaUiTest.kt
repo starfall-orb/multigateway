@@ -181,7 +181,7 @@ class ChatMediaUiTest {
             }
         }
         compose.onNodeWithContentDescription("Exit Video generation mode").performClick()
-        compose.onNodeWithContentDescription("Send message").assertExists()
+        compose.onNodeWithContentDescription("Send message").assertDoesNotExist()
     }
 
     @Test fun generatedImageIsVisibleInChatAndOpensViewerWithoutTextResponse() {

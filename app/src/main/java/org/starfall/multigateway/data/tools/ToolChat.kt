@@ -516,17 +516,15 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 }
                 val response = modelResponse(base.removeSuffix("/v1") + "/v1/messages", buildJsonObject {
                     put("model", model); put("max_tokens", p.config.maxTokens); put("system", prompt); put("messages", JsonArray(native))
-                    if (config.supportsThinking && config.reasoningEffort != null && !config.reasoningDisabled && p.config.maxTokens > 1024)
-                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(config.reasoningBudget(p.config.maxTokens))))
-                    if (config.reasoningDisabled) put("thinking", obj("type" to str("disabled")))
+                    config.claudeThinkingParameters(model, p.config.maxTokens).forEach { (key, value) -> put(key, value) }
                     if (tools.isNotEmpty()) put("tools", JsonArray(tools.map {
                         obj("name" to str(it.name), "description" to str(it.description), "input_schema" to it.schema)
                     }))
-                    if ((!config.supportsThinking || config.reasoningEffort == null || config.reasoningDisabled) || p.config.maxTokens <= 1024) {
+                    if (config.claudeAllowsSampling(model, p.config.maxTokens)) {
                         config.temperature?.let { put("temperature", it) }
                         config.topP?.let { put("top_p", it) }
+                        config.topK?.let { put("top_k", it) }
                     }
-                    config.topK?.let { put("top_k", it) }
                 }, wireProvider, p.streamEnabledFor(model), onText, onReasoning)
                 providerTurn(wireProvider.type, response)
             }

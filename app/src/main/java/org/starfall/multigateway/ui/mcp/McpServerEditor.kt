@@ -38,6 +38,9 @@ fun AddOrEditMcpScreenContent(
     val scope = rememberCoroutineScope()
     var oauthClientId by remember(initialServer.id) { mutableStateOf(initialServer.auth.oauthClientId.orEmpty()) }
     var oauthClientSecret by remember(initialServer.id) { mutableStateOf(initialServer.auth.oauthClientSecret.orEmpty()) }
+    var oauthRedirectUri by remember(initialServer.id) {
+        mutableStateOf(initialServer.auth.oauthRedirectUri ?: org.starfall.multigateway.data.service.McpOAuthService.REDIRECT_URI)
+    }
     var oauthAuthorized by remember(initialServer.id) { mutableStateOf(initialServer.auth.oauthAuthorized ||
         (initialServer.auth.method == McpAuthMethod.OAUTH2 && initialServer.auth.value?.isNotBlank() == true)) }
 
@@ -45,7 +48,9 @@ fun AddOrEditMcpScreenContent(
         McpAuthMethod.NONE -> McpAuthorization()
         McpAuthMethod.OAUTH2 -> McpAuthorization(method = McpAuthMethod.OAUTH2,
             value = authValue.trim().takeIf { it.isNotEmpty() }, oauthClientId = oauthClientId.trim().takeIf { it.isNotEmpty() },
-            oauthClientSecret = oauthClientSecret.takeIf { it.isNotBlank() }, oauthAuthorized = oauthAuthorized)
+            oauthClientSecret = oauthClientSecret.takeIf { it.isNotBlank() },
+            oauthRedirectUri = oauthRedirectUri.trim().takeIf { it.isNotEmpty() && it != org.starfall.multigateway.data.service.McpOAuthService.REDIRECT_URI },
+            oauthAuthorized = oauthAuthorized)
         McpAuthMethod.BEARER_TOKEN -> McpAuthorization(method = authMethod, key = authKey.trim(),
             value = bearerHeaderValue(authKey.ifBlank { "Authorization" }, authValue))
         McpAuthMethod.QUERY_PARAM -> McpAuthorization(method = authMethod, key = authKey.trim(), value = authValue.trim())
@@ -88,19 +93,23 @@ fun AddOrEditMcpScreenContent(
                         if (method != authMethod) { authValue = ""; if (method == McpAuthMethod.OAUTH2) oauthAuthorized = false }
                         authMethod = method; authKey = if (method == McpAuthMethod.QUERY_PARAM) "key" else "Authorization"
                     }, authKey = authKey, onAuthKeyChange = { authKey = it }, authValue = authValue, onAuthValueChange = { authValue = it }, authValid = authValid,
-                    headers = headers, onHeadersChange = { headers = it }, oauthClientId = oauthClientId,
-                    onOauthClientIdChange = { changed -> if (changed.trim() != oauthClientId.trim()) oauthAuthorized = false; oauthClientId = changed },
-                    oauthClientSecret = oauthClientSecret,
-                    onOauthClientSecretChange = { changed -> if (changed != oauthClientSecret) oauthAuthorized = false; oauthClientSecret = changed },
-                    oauthAuthorized = oauthAuthorized, onAuthorizeOAuth = {
-                        onAuthorizeOAuth(currentServer()).map { authorized ->
-                            oauthClientId = authorized.auth.oauthClientId.orEmpty(); oauthClientSecret = authorized.auth.oauthClientSecret.orEmpty()
-                            oauthAuthorized = authorized.auth.oauthAuthorized; authValue = authorized.auth.value.orEmpty()
-                        }
+                     headers = headers, onHeadersChange = { headers = it }, oauthClientId = oauthClientId,
+                     onOauthClientIdChange = { changed -> if (changed.trim() != oauthClientId.trim()) oauthAuthorized = false; oauthClientId = changed },
+                     oauthClientSecret = oauthClientSecret,
+                     onOauthClientSecretChange = { changed -> if (changed != oauthClientSecret) oauthAuthorized = false; oauthClientSecret = changed },
+                     oauthRedirectUri = oauthRedirectUri,
+                     onOauthRedirectUriChange = { changed -> if (changed.trim() != oauthRedirectUri.trim()) oauthAuthorized = false; oauthRedirectUri = changed },
+                     oauthAuthorized = oauthAuthorized, onAuthorizeOAuth = {
+                         onAuthorizeOAuth(currentServer()).map { authorized ->
+                             oauthClientId = authorized.auth.oauthClientId.orEmpty(); oauthClientSecret = authorized.auth.oauthClientSecret.orEmpty()
+                             oauthRedirectUri = authorized.auth.oauthRedirectUri ?: org.starfall.multigateway.data.service.McpOAuthService.REDIRECT_URI
+                             oauthAuthorized = authorized.auth.oauthAuthorized; authValue = authorized.auth.value.orEmpty()
+                         }
                     }, onClearOAuth = {
-                        val cleared = onClearOAuth(currentServer())
-                        oauthClientId = cleared.auth.oauthClientId.orEmpty(); oauthClientSecret = cleared.auth.oauthClientSecret.orEmpty()
-                        oauthAuthorized = false; authValue = cleared.auth.value.orEmpty()
+                         val cleared = onClearOAuth(currentServer())
+                         oauthClientId = cleared.auth.oauthClientId.orEmpty(); oauthClientSecret = cleared.auth.oauthClientSecret.orEmpty()
+                         oauthRedirectUri = cleared.auth.oauthRedirectUri ?: org.starfall.multigateway.data.service.McpOAuthService.REDIRECT_URI
+                         oauthAuthorized = false; authValue = cleared.auth.value.orEmpty()
                     }, modifier = Modifier.weight(1f)
                 ) else McpToolsTab(initialServer.id, cachedTools, cachedLoading, cachedError, canSave, toolSettings,
                     onSetToolEnabled, ::refreshTools, Modifier.weight(1f))

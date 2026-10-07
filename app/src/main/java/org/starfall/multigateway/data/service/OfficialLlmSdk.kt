@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.runInterruptible
 import okhttp3.OkHttpClient
 import org.starfall.multigateway.data.model.*
@@ -328,11 +329,12 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
         anthropic(provider).useClient { client ->
             val params = MessageCreateParams.builder().model(modelName).maxTokens(maxTokens.toLong())
             val modelConfig = provider.config.modelConfigs[modelName]
-            if (modelConfig?.reasoningDisabled == true) {
-                params.putAdditionalBodyProperty("thinking", com.anthropic.core.JsonValue.from(mapOf("type" to "disabled")))
-            } else if (modelConfig?.reasoningEffort != null && maxTokens > 1024) {
-                params.putAdditionalBodyProperty("thinking", com.anthropic.core.JsonValue.from(
-                    mapOf("type" to "enabled", "budget_tokens" to modelConfig.reasoningBudget(maxTokens))))
+            modelConfig?.claudeThinkingParameters(modelName, maxTokens)?.forEach { (key, value) ->
+                params.putAdditionalBodyProperty(key, com.anthropic.core.JsonValue.from(
+                    value.jsonObject.mapValues { (_, field) ->
+                        val primitive = field.jsonPrimitive
+                        if (primitive.isString) primitive.content else primitive.intOrNull ?: primitive.content
+                    }))
             }
             if (systemPrompt.isNotBlank()) params.system(systemPrompt)
             messages.forEach { message ->
@@ -367,9 +369,11 @@ internal class OfficialLlmSdk(private val attachments: AttachmentResolver) {
             }
             @Suppress("DEPRECATION")
             run {
-                temperature?.let { params.temperature(it) }
-                topP?.let { params.topP(it) }
-                topK?.let { params.topK(it.toLong()) }
+                if ((modelConfig ?: ModelConfiguration()).claudeAllowsSampling(modelName, maxTokens)) {
+                    temperature?.let { params.temperature(it) }
+                    topP?.let { params.topP(it) }
+                    topK?.let { params.topK(it.toLong()) }
+                }
             }
 
             if (!provider.config.supportStream) {

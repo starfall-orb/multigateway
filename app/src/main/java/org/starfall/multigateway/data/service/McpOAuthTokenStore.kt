@@ -21,7 +21,8 @@ internal data class McpOAuthTokenState(
     val tokenEndpoint: String,
     val resource: String,
     val mcpEndpoint: String? = null,
-    val scope: String? = null
+    val scope: String? = null,
+    val redirectUri: String = McpOAuthService.REDIRECT_URI
 )
 
 internal class McpOAuthTokenStore(context: Context) {

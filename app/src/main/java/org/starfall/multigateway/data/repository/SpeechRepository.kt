@@ -52,6 +52,7 @@ class SpeechRepository(private val db: AppDatabase) {
         return SpeechService(
             id = entity.id,
             name = entity.name,
+            icon = options?.get("icon")?.jsonPrimitive?.contentOrNull,
             provider = entity.provider,
             modelId = entity.modelId,
             voice = entity.voice,
@@ -78,6 +79,7 @@ class SpeechRepository(private val db: AppDatabase) {
             apiKey = SecretCipher.encrypt(service.apiKey),
             sortOrder = service.sortOrder,
             optionsJson = SecretCipher.encrypt(buildJsonObject {
+                service.icon?.let { put("icon", it) }
                 put("instructions", service.instructions)
                 put("responseFormat", service.responseFormat)
                 put("languageCode", service.languageCode)

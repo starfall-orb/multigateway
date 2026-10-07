@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.compose.Markdown
@@ -28,37 +30,53 @@ import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.State
 import com.mikepenz.markdown.model.markdownPadding
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.withContext
 import org.intellij.markdown.ast.getTextInNode
+import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 
 /** Library primitives with app-owned code toolbar, error/LaTeX UI and streaming fades. */
 @Composable
 fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming: Boolean = false, latexMode: String = "AUTO") {
     if (content.isBlank()) return
+    if (content.length > MAX_MARKDOWN_RENDER_CHARS) {
+        SelectionContainer {
+            Text(
+                text = content.take(MAX_MARKDOWN_RENDER_CHARS) + "\n\n[Response preview truncated for performance]",
+                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp),
+                modifier = modifier.fillMaxWidth()
+            )
+        }
+        return
+    }
     val latestContent by rememberUpdatedState(content)
     var parsed by remember { mutableStateOf<State>(State.Loading()) }
     LaunchedEffect(Unit) {
         // Finish each off-main parse and retain its result while the next chunk is
         // parsed. Fast token updates must not cancel parsing or flash a blank UI.
         snapshotFlow { latestContent }.conflate().collect { input ->
-            parsed = parseLibraryMarkdown(input)
+            parsed = withContext(Dispatchers.Default) { parseLibraryMarkdown(input) }
         }
     }
     val type = MaterialTheme.typography
+    val preferences = LocalCodeRenderingPreferences.current
+    val bodySize = preferences.messageFontSize.sp
+    val messageFont = preferences.messageFontFamily.toComposeFontFamily()
     Markdown(
         state = parsed,
         modifier = modifier.fillMaxWidth().then(if (isStreaming) Modifier else Modifier.animateContentSize()),
         colors = markdownColor(),
         typography = markdownTypography(
-            h1 = type.headlineSmall.copy(fontWeight = FontWeight.Bold, fontSize = 22.sp, color = MaterialTheme.colorScheme.primary),
-            h2 = type.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
-            h3 = type.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
-            h4 = type.titleSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp),
-            h5 = type.bodyLarge.copy(fontWeight = FontWeight.Bold),
-            h6 = type.bodyLarge.copy(fontWeight = FontWeight.Bold),
-            paragraph = type.bodyLarge.copy(lineHeight = 22.sp),
-            link = type.bodyLarge.copy(color = MaterialTheme.colorScheme.primary)
+            h1 = type.headlineSmall.copy(fontFamily = messageFont, fontWeight = FontWeight.Bold, fontSize = bodySize * 1.375f, color = MaterialTheme.colorScheme.primary),
+            h2 = type.titleLarge.copy(fontFamily = messageFont, fontWeight = FontWeight.Bold, fontSize = bodySize * 1.125f),
+            h3 = type.titleMedium.copy(fontFamily = messageFont, fontWeight = FontWeight.SemiBold, fontSize = bodySize),
+            h4 = type.titleSmall.copy(fontFamily = messageFont, fontWeight = FontWeight.SemiBold, fontSize = bodySize * .90625f),
+            h5 = type.bodyLarge.copy(fontFamily = messageFont, fontWeight = FontWeight.Bold, fontSize = bodySize),
+            h6 = type.bodyLarge.copy(fontFamily = messageFont, fontWeight = FontWeight.Bold, fontSize = bodySize),
+            paragraph = type.bodyLarge.copy(fontFamily = messageFont, fontSize = bodySize, lineHeight = bodySize * 1.375f),
+            textLink = TextLinkStyles(SpanStyle(color = MaterialTheme.colorScheme.primary))
         ),
         padding = markdownPadding(block = 8.dp),
         components = markdownComponents(
@@ -70,8 +88,18 @@ fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming
             codeBlock = { model -> RenderCodeBlock("", model.node.getTextInNode(model.content).toString().trimEnd(), false) },
             paragraph = { model -> RenderParagraph(model, latexMode) }
         ),
-        error = { Text(content, style = type.bodyLarge) }
+        error = { Text(content, style = type.bodyLarge.copy(fontFamily = messageFont, fontSize = bodySize)) }
     )
+}
+
+private const val MAX_MARKDOWN_RENDER_CHARS = 128_000
+
+internal fun MessageFontFamily.toComposeFontFamily(): FontFamily = when (this) {
+    MessageFontFamily.DEFAULT -> FontFamily.Default
+    MessageFontFamily.SANS_SERIF -> FontFamily.SansSerif
+    MessageFontFamily.SERIF -> FontFamily.Serif
+    MessageFontFamily.MONOSPACE -> FontFamily.Monospace
+    MessageFontFamily.CURSIVE -> FontFamily.Cursive
 }
 
 /**
@@ -119,6 +147,9 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
     val presentation = rememberStreamingTextPresentation(text)
     val isError = remember(text) { isErrorText(text) }
     val isLatex = remember(text, latexMode) { LatexDetector.shouldRenderLatex(text, latexMode) }
+    val preferences = LocalCodeRenderingPreferences.current
+    val bodySize = preferences.messageFontSize.sp
+    val messageFont = preferences.messageFontFamily.toComposeFontFamily()
 
     when {
         isError -> {
@@ -142,7 +173,9 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
                                 modifier = presentation.modifier,
                                 onTextLayout = presentation.onTextLayout,
                                 style = MaterialTheme.typography.bodyLarge.copy(
-                                    lineHeight = 22.sp,
+                                     fontFamily = messageFont,
+                                     fontSize = bodySize,
+                                     lineHeight = bodySize * 1.375f,
                                     color = errorColor,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -174,13 +207,15 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
         else -> {
             val settings = annotatorSettings()
             val annotated = buildAnnotatedString {
-                buildMarkdownAnnotatedString(model.content, model.node, settings)
+                    buildMarkdownAnnotatedString(model.content, model.node, settings)
             }
             androidx.compose.foundation.text.selection.SelectionContainer {
                 MarkdownClickableText(
                     text = annotated,
                     style = MaterialTheme.typography.bodyLarge.copy(
-                        lineHeight = 22.sp,
+                        fontFamily = messageFont,
+                        fontSize = bodySize,
+                        lineHeight = bodySize * 1.375f,
                         color = MaterialTheme.colorScheme.onSurface
                     ),
                     modifier = Modifier.fillMaxWidth()

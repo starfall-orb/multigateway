@@ -21,7 +21,16 @@ enum class WordWrapMode(val value: String) {
     }
 }
 
+enum class MessageFontFamily(val value: String) {
+    DEFAULT("default"), SANS_SERIF("sans_serif"), SERIF("serif"), MONOSPACE("monospace"), CURSIVE("cursive");
+
+    companion object {
+        fun fromValue(value: String?) = entries.firstOrNull { it.value == value } ?: DEFAULT
+    }
+}
+
 const val DEFAULT_WORD_WRAP_COLUMN = 80
+const val DEFAULT_MESSAGE_FONT_SIZE = 16
 
 data class AppPreferences(
     val sidebar: SidebarOrganization = SidebarOrganization(),
@@ -56,7 +65,9 @@ data class AppPreferences(
     val latexMode: String = "AUTO", // ON, OFF, AUTO
     val wordWrapMode: WordWrapMode = WordWrapMode.OFF,
     val wordWrapColumn: Int = DEFAULT_WORD_WRAP_COLUMN,
-    val codePreviewEnabled: Boolean = true
+    val codePreviewEnabled: Boolean = true,
+    val messageFontSize: Int = DEFAULT_MESSAGE_FONT_SIZE,
+    val messageFontFamily: MessageFontFamily = MessageFontFamily.DEFAULT
 ) {
     val effectiveSystemPrompt: String get() = promptLibrary?.systemPrompt() ?: defaultSystemPrompt
     fun promptRoleMessages() = promptLibrary?.roleMessages().orEmpty()
@@ -98,6 +109,8 @@ class AppPreferencesRepository(private val context: Context) {
         val WORD_WRAP_MODE = stringPreferencesKey("word_wrap_mode")
         val WORD_WRAP_COLUMN = intPreferencesKey("word_wrap_column")
         val CODE_PREVIEW_ENABLED = booleanPreferencesKey("code_preview_enabled")
+        val MESSAGE_FONT_SIZE = intPreferencesKey("message_font_size")
+        val MESSAGE_FONT_FAMILY = stringPreferencesKey("message_font_family")
     }
 
     private val storedPreferences: Flow<AppPreferences> = context.dataStore.data
@@ -140,7 +153,9 @@ class AppPreferencesRepository(private val context: Context) {
                 latexMode = preferences[PreferenceKeys.LATEX_MODE] ?: "AUTO",
                 wordWrapMode = WordWrapMode.fromValue(preferences[PreferenceKeys.WORD_WRAP_MODE]),
                 wordWrapColumn = preferences[PreferenceKeys.WORD_WRAP_COLUMN]?.takeIf { it > 0 } ?: DEFAULT_WORD_WRAP_COLUMN,
-                codePreviewEnabled = preferences[PreferenceKeys.CODE_PREVIEW_ENABLED] ?: true
+                codePreviewEnabled = preferences[PreferenceKeys.CODE_PREVIEW_ENABLED] ?: true,
+                messageFontSize = preferences[PreferenceKeys.MESSAGE_FONT_SIZE]?.coerceIn(12, 24) ?: DEFAULT_MESSAGE_FONT_SIZE,
+                messageFontFamily = MessageFontFamily.fromValue(preferences[PreferenceKeys.MESSAGE_FONT_FAMILY])
             )
         }
 
@@ -407,6 +422,19 @@ class AppPreferencesRepository(private val context: Context) {
     suspend fun setCodePreviewEnabled(enabled: Boolean) {
         state.mutate({ it.copy(codePreviewEnabled = enabled) }) {
             context.dataStore.edit { it[PreferenceKeys.CODE_PREVIEW_ENABLED] = enabled }
+        }
+    }
+
+    suspend fun setMessageFontSize(size: Int) {
+        require(size in 12..24)
+        state.mutate({ it.copy(messageFontSize = size) }) {
+            context.dataStore.edit { it[PreferenceKeys.MESSAGE_FONT_SIZE] = size }
+        }
+    }
+
+    suspend fun setMessageFontFamily(family: MessageFontFamily) {
+        state.mutate({ it.copy(messageFontFamily = family) }) {
+            context.dataStore.edit { it[PreferenceKeys.MESSAGE_FONT_FAMILY] = family.value }
         }
     }
 

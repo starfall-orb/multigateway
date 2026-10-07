@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -39,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -164,8 +166,10 @@ fun SpeechScreen(
                             service.provider.equals("system", ignoreCase = true) -> "Android System TTS"
                             else -> providersById[service.provider]?.name ?: service.provider
                         }
+                        val provider = providersById[service.provider]
                         SpeechServiceUnifiedCard(
                             service = service,
+                            provider = provider,
                             isGrid = gridMode,
                             modifier = Modifier.longPressDraggableHandle(
                                 onDragStopped = { onReorderServices(orderedServices.map { it.id }) }
@@ -241,6 +245,7 @@ fun SpeechScreen(
 @Composable
 private fun SpeechServiceUnifiedCard(
     service: SpeechService,
+    provider: LlmProviderInfo? = null,
     isGrid: Boolean,
     modifier: Modifier = Modifier,
     providerName: String,
@@ -282,8 +287,13 @@ private fun SpeechServiceUnifiedCard(
                 .fillMaxWidth()
                 .padding(14.dp),
             icon = {
-                EntityIcon(service.icon, Modifier.size(42.dp), text = providerInitials(service.name),
-                    fallback = Icons.Outlined.RecordVoiceOver, matchName = service.name)
+                EntityIcon(
+                    image = service.icon ?: provider?.icon,
+                    modifier = Modifier.size(42.dp),
+                    text = providerInitials(provider?.name ?: service.name),
+                    fallback = Icons.Outlined.RecordVoiceOver,
+                    matchName = provider?.name ?: service.name
+                )
             },
             actions = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -404,6 +414,7 @@ private fun AddOrEditSpeechDialog(
 
     val availableModels = ttsModelsByProvider[providerId].orEmpty()
     val system = providerId.equals("system", true)
+    val selectedProvider = providers.firstOrNull { it.id == providerId }
     val google = providers.find { it.id == providerId }?.type == ProviderType.GOOGLE
     val providerBaseUrl = providers.find { it.id == providerId }?.baseUrl.orEmpty()
     val supportsInstructions = google || modelId !in listOf("tts-1", "tts-1-hd")
@@ -421,6 +432,7 @@ private fun AddOrEditSpeechDialog(
 
     fun currentService() = initialService.copy(
         name = name.trim(),
+        // A provider icon is only the default. A saved service icon always wins.
         icon = serviceIcon,
         provider = providerId,
         modelId = modelId,
@@ -453,8 +465,19 @@ private fun AddOrEditSpeechDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                IconPickerRow(serviceIcon, { serviceIcon = it }, text = providerInitials(name), fallback = Icons.Outlined.RecordVoiceOver,
-                    onBusyChange = { iconImporting = it }, matchName = name, faviconBaseUrl = providerBaseUrl)
+                IconPickerRow(
+                    // Keep the provider icon visible while no service-specific icon
+                    // is saved. Choosing or importing an icon replaces it; removing
+                    // that icon falls back to the provider again.
+                    image = serviceIcon,
+                    onChange = { serviceIcon = it },
+                    text = providerInitials(name),
+                    fallback = Icons.Outlined.RecordVoiceOver,
+                    onBusyChange = { iconImporting = it },
+                    matchName = name,
+                    faviconBaseUrl = providerBaseUrl,
+                    defaultImage = selectedProvider?.icon
+                )
 
                 Box {
                     OutlinedButton(
@@ -605,6 +628,7 @@ private fun AddOrEditSpeechDialog(
                     SelectableOutlinedTextField(
                         value = apiKey, onValueChange = { apiKey = it },
                         label = { Text("API key override (optional)") },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                         supportingText = { Text("Leave empty to use the provider's authentication.") },
                         visualTransformation = PasswordVisualTransformation(), singleLine = true,
                         modifier = Modifier.fillMaxWidth()

@@ -2,11 +2,15 @@ package org.starfall.multigateway.ui.chat
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import kotlinx.coroutines.flow.first
+import kotlin.math.roundToInt
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +44,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -122,6 +128,12 @@ private fun Modifier.folderOutline(first: Boolean, last: Boolean, color: Color):
     }
 }
 
+private data class ModelPickerTab(
+    val folderId: String?,
+    val label: String,
+    val ungroupedOnly: Boolean
+)
+
 fun matchesModel(selectedModelId: String, itemModelId: String, itemDisplayName: String): Boolean {
     if (selectedModelId.isBlank()) return false
     val s = selectedModelId.trim().lowercase()
@@ -146,6 +158,8 @@ fun computeModelPickerItems(
     collapsedGroupIds: Set<String> = emptySet(),
     collapsedProviderIds: Set<String> = emptySet(),
     expandSearchResults: Boolean = true,
+    selectedFolderId: String? = null,
+    ungroupedOnly: Boolean = false,
     modelFilter: (LlmProviderInfo, String, ModelConfiguration) -> Boolean = { _, _, _ -> true }
 ): List<ModelPickerItem> {
     data class ProviderNode(val provider: LlmProviderInfo, val models: List<String>)
@@ -155,6 +169,8 @@ fun computeModelPickerItems(
     val groupById = providerGroups.associateBy { it.id }
     val visibleProviders = providers.mapNotNull { provider ->
         if (providerFilterId != null && provider.id != providerFilterId) return@mapNotNull null
+        if (selectedFolderId != null && provider.groupId != selectedFolderId) return@mapNotNull null
+        if (ungroupedOnly && provider.groupId != null && provider.groupId in groupById) return@mapNotNull null
 
         val groupMatches = provider.groupId
             ?.let(groupById::get)
@@ -200,33 +216,13 @@ fun computeModelPickerItems(
         }
 
     return buildList {
-        providerGroups.sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
-            .forEach { group ->
-                val nodes = visibleProviders.filter { it.provider.groupId == group.id }
-                if (nodes.isEmpty()) return@forEach
-
-                add(ModelPickerItem.Group(group, nodes.size))
-                val groupCollapsed = !forceExpanded && group.id in collapsedGroupIds
-                nodes.forEach { node ->
-                    val models = modelItems(node, depth = 2)
-                    if (!groupCollapsed || models.any { it.isSelected }) {
-                        add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 1))
-                        addAll(if (groupCollapsed || (!forceExpanded && node.provider.id in collapsedProviderIds)) {
-                            models.filter { it.isSelected }
-                        } else models)
-                    }
-                }
-            }
-
-        visibleProviders
-            .filter { it.provider.groupId == null || it.provider.groupId !in groupById }
-            .forEach { node ->
-                add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 0))
-                val models = modelItems(node, depth = 1)
-                addAll(if (!forceExpanded && node.provider.id in collapsedProviderIds) {
-                    models.filter { it.isSelected }
-                } else models)
-            }
+        visibleProviders.forEach { node ->
+            add(ModelPickerItem.Provider(node.provider, node.models.size, depth = 0))
+            val models = modelItems(node, depth = 1)
+            addAll(if (!forceExpanded && node.provider.id in collapsedProviderIds) {
+                models.filter { it.isSelected }
+            } else models)
+        }
     }
 }
 
@@ -255,6 +251,31 @@ fun ModelPickerSheet(
     val forceExpanded = query.isNotBlank() && expandSearchResults
     var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
     var collapsedProviderIds by remember { mutableStateOf(collapsedProviderIdsState) }
+    val folderTabs = remember(providers, providerGroups) {
+        val groupsById = providerGroups.associateBy { it.id }
+        buildList {
+            val addedFolders = mutableSetOf<String>()
+            var addedUngrouped = false
+            providers.forEach { provider ->
+                val groupId = provider.groupId?.takeIf { it in groupsById }
+                if (groupId == null) {
+                    if (!addedUngrouped) {
+                        add(ModelPickerTab(folderId = null, label = "Default", ungroupedOnly = true))
+                        addedUngrouped = true
+                    }
+                } else if (addedFolders.add(groupId)) {
+                    add(ModelPickerTab(folderId = groupId, label = groupsById.getValue(groupId).name, ungroupedOnly = false))
+                }
+            }
+        }
+    }
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    LaunchedEffect(folderTabs) {
+        selectedTabIndex = selectedTabIndex.coerceIn(0, (folderTabs.size - 1).coerceAtLeast(0))
+    }
+    val selectedTab = folderTabs.getOrNull(selectedTabIndex)
+    val selectedFolderId = selectedTab?.folderId
+    val ungroupedOnly = selectedTab?.ungroupedOnly == true
     LaunchedEffect(collapsedGroupIdsState) {
         collapsedGroupIds = collapsedGroupIdsState
     }
@@ -282,6 +303,8 @@ fun ModelPickerSheet(
         expandSearchResults,
         collapsedGroupIds,
         collapsedProviderIds,
+        selectedFolderId,
+        ungroupedOnly,
         modelFilter
     ) {
         computeModelPickerItems(
@@ -294,6 +317,8 @@ fun ModelPickerSheet(
             expandSearchResults = expandSearchResults,
             collapsedGroupIds = collapsedGroupIds,
             collapsedProviderIds = collapsedProviderIds,
+            selectedFolderId = selectedFolderId,
+            ungroupedOnly = ungroupedOnly,
             modelFilter = modelFilter
         )
     }
@@ -330,9 +355,7 @@ fun ModelPickerSheet(
             listState.scrollToItem(0)
         }
     }
-    val allCollapsed = !forceExpanded &&
-        providerGroups.all { it.id in collapsedGroupIds } &&
-        providers.all { it.id in collapsedProviderIds }
+    val allCollapsed = !forceExpanded && providers.all { it.id in collapsedProviderIds }
 
     AppBottomSheet(
         onDismissRequest = onDismiss
@@ -354,7 +377,6 @@ fun ModelPickerSheet(
                             setCollapsedGroups(emptySet())
                             setCollapsedProviders(emptySet())
                         } else {
-                            setCollapsedGroups(providerGroups.map { it.id }.toSet())
                             setCollapsedProviders(providers.map { it.id }.toSet())
                         }
                     },
@@ -376,6 +398,29 @@ fun ModelPickerSheet(
                     shape = RoundedCornerShape(28.dp),
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            if (folderTabs.size > 1) {
+                ScrollableTabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    edgePadding = 12.dp,
+                    containerColor = Color.Transparent,
+                    divider = {}
+                ) {
+                    folderTabs.forEachIndexed { index, tab ->
+                        Tab(
+                            selected = selectedTabIndex == index,
+                            onClick = {
+                                selectedTabIndex = index
+                                initialPositionApplied = false
+                            },
+                            modifier = Modifier.testTag("model-picker-tab_${tab.folderId ?: "default"}"),
+                            text = {
+                                Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        )
+                    }
+                }
             }
 
             LazyColumn(
@@ -433,21 +478,7 @@ fun ModelPickerSheet(
                                     )
                             ) {
                             when (item) {
-                                is ModelPickerItem.Group -> {
-                                    val collapsed = item.group.id in collapsedGroupIds &&
-                                        !forceExpanded
-                                    ModelPickerGroupRow(
-                                        group = item.group,
-                                        collapsed = collapsed,
-                                        onToggle = {
-                                            expandSearchResults = false
-                                            setCollapsedGroups(
-                                                if (collapsed) collapsedGroupIds - item.group.id
-                                                else collapsedGroupIds + item.group.id
-                                            )
-                                        }
-                                    )
-                                }
+                                is ModelPickerItem.Group -> Unit
 
                                 is ModelPickerItem.Provider -> {
                                     val collapsed = item.provider.id in collapsedProviderIds &&
@@ -469,6 +500,8 @@ fun ModelPickerSheet(
                                     Box(Modifier.fillMaxWidth().testTag("model-picker-model_${item.provider.id}_${item.modelId}")) {
                                         ModelPickerCard(
                                             modelId = item.modelId,
+                                            providerType = item.provider.type,
+                                            maxTokens = item.provider.config.maxTokens,
                                             config = item.config,
                                             isSelected = item.isSelected,
                                             conversationReasoningEffort = conversationReasoningEffort,
@@ -486,6 +519,46 @@ fun ModelPickerSheet(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+internal fun SelectedModelOverviewSheet(
+    provider: LlmProviderInfo?,
+    folderName: String?,
+    modelId: String,
+    config: ModelConfiguration,
+    conversationReasoningEffort: String?,
+    onSetReasoningEffort: (String?) -> Unit,
+    onOpenModelPicker: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AppBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            ModelPickerCard(
+                modelId = modelId,
+                providerType = provider?.type,
+                maxTokens = provider?.config?.maxTokens ?: Int.MAX_VALUE,
+                config = config,
+                isSelected = true,
+                providerName = provider?.name,
+                folderName = folderName,
+                conversationReasoningEffort = conversationReasoningEffort,
+                onSetReasoningEffort = onSetReasoningEffort,
+                showReasoningEffort = true,
+                onClick = onOpenModelPicker
+            )
+            Text(
+                "Tap the model card to choose another model",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -582,18 +655,38 @@ private fun ModelPickerProviderRow(
 @Composable
 private fun ModelPickerCard(
     modelId: String,
+    providerType: ProviderType?,
+    maxTokens: Int,
     config: ModelConfiguration,
     isSelected: Boolean,
+    providerName: String? = null,
+    folderName: String? = null,
     conversationReasoningEffort: String?,
     onSetReasoningEffort: (String?) -> Unit,
     showReasoningEffort: Boolean,
     onClick: () -> Unit
 ) {
+    val effortOptions = remember(providerType, modelId, maxTokens) {
+        reasoningEffortOptions(providerType, modelId, maxTokens)
+    }
+    var previewReasoningValue by remember(conversationReasoningEffort, isSelected, effortOptions) {
+        mutableFloatStateOf(reasoningEffortIndex(conversationReasoningEffort, effortOptions).toFloat())
+    }
+    val maximumThinking = isSelected && showReasoningEffort && config.supportsThinking &&
+        previewReasoningValue.roundToInt() >= effortOptions.lastIndex
+    val cardTint by animateFloatAsState(
+        if (maximumThinking) 1f else 0f,
+        tween(900, easing = FastOutSlowInEasing),
+        label = "thinkingCardTint"
+    )
+    val cardBrush = maximumThinkingCardBrush(MaterialTheme.colorScheme.surfaceContainerLow)
+    val cardBurst = rememberThinkingColorBurst()
+    var cardOrigin by remember { mutableStateOf(Offset.Zero) }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f)
         } else {
@@ -606,42 +699,71 @@ private fun ModelPickerCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp)
+                .onGloballyPositioned { cardOrigin = it.positionInRoot() }
+                .drawBehind {
+                    revealThinkingColor(cardBurst) { drawRect(cardBrush, alpha = cardTint) }
+                    drawThinkingColorBurst(cardBurst)
+                }
+                .padding(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                EntityIcon(config.icon, Modifier.size(52.dp), text = modelInitial(modelId), matchName = config.displayName.ifBlank { modelId }, model = true)
+                EntityIcon(config.icon, Modifier.size(40.dp), text = modelInitial(modelId), matchName = config.displayName.ifBlank { modelId }, model = true)
 
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(10.dp))
 
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = config.displayName.ifBlank { modelId },
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (!providerName.isNullOrBlank() || !folderName.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            providerName?.takeIf { it.isNotBlank() }?.let {
+                                ModelContextChip(
+                                    text = it,
+                                    modifier = Modifier.weight(1f),
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            folderName?.takeIf { it.isNotBlank() }?.let {
+                                ModelContextChip(
+                                    text = "Folder: $it",
+                                    modifier = Modifier.weight(1f),
+                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                    }
                     ModelCapabilityBadges(config)
                 }
 
                 if (isSelected) {
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(6.dp))
                     Surface(
                         shape = CircleShape,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(22.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = "Selected",
                                 tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
@@ -650,13 +772,11 @@ private fun ModelPickerCard(
 
             // Keep the control available when the conversation disables reasoning on a thinking model.
             if (showReasoningEffort && isSelected && config.supportsThinking) {
-                val activeLabel = if (reasoningEffortEnabled(conversationReasoningEffort)) {
-                    reasoningEffortLabels[reasoningEffortIndex(conversationReasoningEffort)]
-                } else "Off"
+                val activeLabel = effortOptions[previewReasoningValue.roundToInt().coerceIn(effortOptions.indices)].label
 
-                Spacer(modifier = Modifier.height(14.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
                 Spacer(modifier = Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -671,11 +791,12 @@ private fun ModelPickerCard(
                             imageVector = Icons.Outlined.Psychology,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Reasoning Effort",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            text = if (usesThinkingBudget(providerType, modelId))
+                                "Thinking Budget (tokens)" else "Reasoning Effort",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -688,19 +809,47 @@ private fun ModelPickerCard(
                             text = activeLabel,
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 ReasoningEffortControl(
                     effort = conversationReasoningEffort,
-                    onEffortChange = onSetReasoningEffort
+                    onEffortChange = onSetReasoningEffort,
+                    onPreviewValueChange = { previewReasoningValue = it },
+                    options = effortOptions,
+                    onColorBurst = { origin, maximum ->
+                        if (maximum) cardBurst.start(origin - cardOrigin, Color(0xFFA78BFA))
+                    }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ModelContextChip(
+    text: String,
+    modifier: Modifier = Modifier,
+    containerColor: Color,
+    contentColor: Color
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(7.dp),
+        color = containerColor.copy(alpha = 0.78f),
+        contentColor = contentColor
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -825,15 +974,15 @@ private fun ModelBadge(
         shape = RoundedCornerShape(8.dp),
         color = colors.containerColor,
         contentColor = colors.labelColor,
-        modifier = Modifier.height(28.dp)
+        modifier = Modifier.height(24.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            icon?.let { Icon(it, contentDescription = if (iconOnly) label else null, modifier = Modifier.size(14.dp)) }
-            if (!iconOnly) Text(label, fontSize = 11.sp)
+            icon?.let { Icon(it, contentDescription = if (iconOnly) label else null, modifier = Modifier.size(12.dp)) }
+            if (!iconOnly) Text(label, fontSize = 10.sp)
         }
     }
 }

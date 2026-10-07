@@ -195,6 +195,7 @@
     <string name="client_secret">Client secret</string>
     <string name="mcp_oauth_client_secret_help">Không bắt buộc. Chỉ dùng secret được cấp cho confidential client đã đăng ký trước.</string>
     <string name="redirect_uri">Redirect URI</string>
+    <string name="mcp_oauth_redirect_uri_help">Nhập chính xác callback URL đã đăng ký cho client này. Mặc định: %1$s</string>
     <string name="authorize_in_browser">Xác thực trong trình duyệt</string>
     <string name="bearer_token">Bearer Token</string>
     <string name="mcp_custom_headers_help">Thêm HTTP header tùy chỉnh cho yêu cầu MCP server</string>
@@ -299,4 +300,5 @@
     <string name="provider_account_label">Nhãn</string>
     <string name="provider_selected_account">Tài khoản đang chọn</string>
     <string name="oauth_sign_in_cancelled">Đã hủy đăng nhập.</string>
+    <string name="resend_message">Gửi lại tin nhắn</string>
 </resources>

@@ -262,13 +262,21 @@ fun LlmProviderInfo.streamEnabledFor(modelId: String): Boolean =
 val ModelConfiguration.reasoningDisabled: Boolean
     get() = reasoningEffort in listOf("none", "off")
 
-fun ModelConfiguration.withConversationReasoning(effort: String?): ModelConfiguration =
-    if (effort.isNullOrBlank()) this else copy(reasoningEffort = if (effort == "off") "none" else effort)
+fun ModelConfiguration.withConversationReasoning(effort: String?, providerType: ProviderType? = null): ModelConfiguration {
+    if (effort.isNullOrBlank()) return this
+    val normalized = when {
+        effort == "off" -> "none"
+        effort == "max" && providerType in listOf(ProviderType.OPENAI, ProviderType.OPENAI_RESPONSES,
+            ProviderType.OPENAI_CODEX, ProviderType.GOOGLE, ProviderType.ANTIGRAVITY) -> "xhigh"
+        else -> effort
+    }
+    return copy(reasoningEffort = normalized)
+}
 
 
 // Keep Claude budgets inside its output token limit.
 fun ModelConfiguration.reasoningBudget(maxTokens: Int): Int =
-    minOf(when (reasoningEffort) { "low" -> 1024; "medium" -> 2048; "high" -> 4096; "xhigh" -> 8192; else -> 1024 }, maxTokens - 1)
+    minOf(when (reasoningEffort) { "low" -> 1024; "medium" -> 2048; "high" -> 4096; "xhigh", "max" -> 8192; else -> 1024 }, maxTokens - 1)
 
 fun ModelConfiguration.googleThinkingConfig(): kotlinx.serialization.json.JsonObject? =
     when {

@@ -186,6 +186,7 @@ fun MainScreen(
                                 selectedModelName = appPrefs.selectedModelId,
                                 autoScroll = appPrefs.autoScroll,
                                 onSendMedia = viewModel::sendMedia,
+                                onResendUserMessage = viewModel::resendUserMessage,
                                 onSendMessage = { text, files ->
                                     viewModel.sendMessage(text, files)
                                 },
@@ -378,7 +379,9 @@ fun MainScreen(
                             onAutoScrollChange = settingsViewModel::setAutoScroll,
                             onWordWrapModeChange = settingsViewModel::setWordWrapMode,
                             onWordWrapColumnChange = settingsViewModel::setWordWrapColumn,
-                            onCodePreviewEnabledChange = settingsViewModel::setCodePreviewEnabled,
+                             onCodePreviewEnabledChange = settingsViewModel::setCodePreviewEnabled,
+                             onMessageFontSizeChange = settingsViewModel::setMessageFontSize,
+                             onMessageFontFamilyChange = settingsViewModel::setMessageFontFamily,
                             onTtsReadCodeBlocksChange = settingsViewModel::setTtsReadCodeBlocks,
                             onEnableVibrationChange = { value ->
                                 settingsViewModel.setEnableVibration(value)

@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.settings
 
 import org.starfall.multigateway.data.local.preferences.WordWrapMode
+import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 import org.starfall.multigateway.data.model.SidebarOrganization
 import org.starfall.multigateway.data.repository.LocalWriteErrors
 import androidx.lifecycle.ViewModel
@@ -72,6 +73,12 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     }
     fun setCodePreviewEnabled(value: Boolean) {
         viewModelScope.launch(LocalWriteErrors.handler) { repository.setCodePreviewEnabled(value) }
+    }
+    fun setMessageFontSize(value: Int) {
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setMessageFontSize(value) }
+    }
+    fun setMessageFontFamily(value: MessageFontFamily) {
+        viewModelScope.launch(LocalWriteErrors.handler) { repository.setMessageFontFamily(value) }
     }
 
 }

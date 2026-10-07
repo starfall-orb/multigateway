@@ -94,4 +94,24 @@ class PlatformTextSelectionTest {
         assertEquals("Existing clipboard", clipboard.content.text)
         activity.finish()
     }
+
+    @Test fun selectionRemainsDismissibleWhenAndroidClosesItsToolbar() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val view = SelectionView(activity)
+        val toolbar = PlatformSelectionToolbar(view, SelectionClipboard(Clipboard()))
+        toolbar.showMenu(Rect.Zero, {}, null, null, {})
+        assertTrue(toolbar.hasReadOnlySelection)
+
+        view.actionMode.finish()
+        assertEquals(TextToolbarStatus.Hidden, toolbar.status)
+        assertTrue(toolbar.hasReadOnlySelection)
+
+        toolbar.hide()
+        assertFalse(toolbar.hasReadOnlySelection)
+
+        toolbar.showMenu(Rect.Zero, {}, {}, {}, {})
+        assertFalse(toolbar.hasReadOnlySelection)
+        toolbar.hide()
+        activity.finish()
+    }
 }

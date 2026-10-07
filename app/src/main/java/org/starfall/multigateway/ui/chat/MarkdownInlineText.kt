@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.TextUnit
 
 @Composable
 internal fun MarkdownClickableText(text: AnnotatedString, style: TextStyle, modifier: Modifier = Modifier) {
@@ -39,9 +40,15 @@ fun rememberMarkdownAnnotatedString(text: String): AnnotatedString {
 /** Delegate inline recognition and nested formatting to the same GFM parser as blocks. */
 @Suppress("DEPRECATION")
 fun buildMarkdownAnnotatedString(text: String, primaryColor: Color, codeBackgroundColor: Color, textColor: Color): AnnotatedString =
+    buildMarkdownAnnotatedString(text, primaryColor, codeBackgroundColor, textColor, FontFamily.Default, TextUnit.Unspecified)
+
+@Suppress("DEPRECATION")
+fun buildMarkdownAnnotatedString(text: String, primaryColor: Color, codeBackgroundColor: Color, textColor: Color,
+    fontFamily: FontFamily, fontSize: TextUnit): AnnotatedString =
     text.libraryAnnotatedString(
-        style = TextStyle(color = textColor),
+        style = TextStyle(color = textColor, fontFamily = fontFamily, fontSize = fontSize),
         linkTextSpanStyle = SpanStyle(color = primaryColor, textDecoration = TextDecoration.Underline, fontWeight = FontWeight.SemiBold),
         codeSpanStyle = SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackgroundColor,
-            color = primaryColor, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+            color = primaryColor, fontWeight = FontWeight.Medium,
+            fontSize = if (fontSize == TextUnit.Unspecified) 13.sp else fontSize)
     )

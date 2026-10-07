@@ -13,15 +13,22 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
+import org.starfall.multigateway.data.model.ProviderType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReasoningEffortSheet(
     currentEffort: String?,
     onApply: (String?) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    providerType: ProviderType? = null,
+    modelId: String = "",
+    maxTokens: Int = Int.MAX_VALUE
 ) {
     var effort by remember(currentEffort) { mutableStateOf(currentEffort) }
+    val options = remember(providerType, modelId, maxTokens) {
+        reasoningEffortOptions(providerType, modelId, maxTokens)
+    }
 
     AppBottomSheet(
         onDismissRequest = onDismiss
@@ -41,10 +48,10 @@ fun ReasoningEffortSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                if (reasoningEffortEnabled(effort)) reasoningEffortLabels[reasoningEffortIndex(effort)] else "Off",
+                options[reasoningEffortIndex(effort, options)].label,
                 style = MaterialTheme.typography.headlineSmall
             )
-            ReasoningEffortControl(effort = effort, onEffortChange = { effort = it })
+            ReasoningEffortControl(effort = effort, onEffortChange = { effort = it }, options = options)
             Button(
                 onClick = {
                     onApply(effort)

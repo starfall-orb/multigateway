@@ -4,7 +4,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.starfall.multigateway.data.model.*
 
-private const val STREAM_RENDER_INTERVAL_MS = 24L
+private const val STREAM_RENDER_INTERVAL_MS = 48L
+private const val LARGE_STREAM_RENDER_INTERVAL_MS = 160L
+private const val LARGE_STREAM_THRESHOLD_CHARS = 32_000
+private const val VERY_LARGE_STREAM_THRESHOLD_CHARS = 128_000
+private const val MAX_GENERATION_TEXT_CHARS = 512_000
+private const val MAX_GENERATION_SIGNATURE_CHARS = 64_000
 
 /** A single generation owns its conversation snapshot, independently of navigation. */
 internal class ChatGeneration(
@@ -33,19 +38,31 @@ internal class ChatGeneration(
         snapshot = conversation
         publish(conversation)
         job = scope.launch(start = CoroutineStart.LAZY) {
-            var output = ""
-            var reasoningOutput = ""
-            var reasoningSignatureOutput = ""
+            val output = StringBuilder()
+            val reasoningOutput = StringBuilder()
+            val reasoningSignatureOutput = StringBuilder()
             var renderJob: Job? = null
             var lastRenderAt = 0L
+
+            fun appendLimited(target: StringBuilder, text: String, limit: Int, label: String) {
+                check(target.length.toLong() + text.length <= limit) {
+                    "$label exceeds the safe response size limit"
+                }
+                target.append(text)
+            }
+
+            fun appendError(text: String) {
+                if (output.length >= MAX_GENERATION_TEXT_CHARS) return
+                output.append(text.take(MAX_GENERATION_TEXT_CHARS - output.length))
+            }
 
             fun update() {
                 snapshot = updateResponse(
                     snapshot!!,
                     messageId,
-                    output,
-                    reasoningOutput.takeIf { it.isNotBlank() },
-                    reasoningSignatureOutput.takeIf { it.isNotBlank() }
+                    output.toString(),
+                    reasoningOutput.toString().takeIf { it.isNotBlank() },
+                    reasoningSignatureOutput.toString().takeIf { it.isNotBlank() }
                 )
                 publish(snapshot!!)
                 lastRenderAt = System.currentTimeMillis()
@@ -54,7 +71,13 @@ internal class ChatGeneration(
             fun scheduleUpdate() {
                 if (renderJob?.isActive == true) return
                 val elapsed = System.currentTimeMillis() - lastRenderAt
-                val waitMs = (STREAM_RENDER_INTERVAL_MS - elapsed).coerceAtLeast(0L)
+                val responseSize = maxOf(output.length, reasoningOutput.length)
+                val interval = when {
+                    responseSize >= VERY_LARGE_STREAM_THRESHOLD_CHARS -> LARGE_STREAM_RENDER_INTERVAL_MS * 2
+                    responseSize >= LARGE_STREAM_THRESHOLD_CHARS -> LARGE_STREAM_RENDER_INTERVAL_MS
+                    else -> STREAM_RENDER_INTERVAL_MS
+                }
+                val waitMs = (interval - elapsed).coerceAtLeast(0L)
                 if (waitMs == 0L) {
                     update()
                 } else {
@@ -70,12 +93,14 @@ internal class ChatGeneration(
                 chunks.collect { chunk ->
                     when (chunk) {
                         is GenerationEvent.Text -> {
-                            output += chunk.text
+                            appendLimited(output, chunk.text, MAX_GENERATION_TEXT_CHARS, "Answer")
                             scheduleUpdate()
                         }
                         is GenerationEvent.Reasoning -> {
-                            reasoningOutput += chunk.text
-                            chunk.signature?.let { reasoningSignatureOutput += it }
+                            appendLimited(reasoningOutput, chunk.text, MAX_GENERATION_TEXT_CHARS, "Reasoning")
+                            chunk.signature?.let {
+                                appendLimited(reasoningSignatureOutput, it, MAX_GENERATION_SIGNATURE_CHARS, "Reasoning signature")
+                            }
                             scheduleUpdate()
                         }
                         is GenerationEvent.Tool -> {
@@ -84,7 +109,7 @@ internal class ChatGeneration(
                             renderJob = null
                             update()
 
-                            val contentOffset = visibleResponseContent(output).length
+                            val contentOffset = visibleResponseContent(output.toString()).length
                             snapshot = snapshot!!.copy(messages = snapshot!!.messages.map { message ->
                                 if (message.id != messageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->
                                     if (index != message.activeVersionIndex) version else {
@@ -98,7 +123,7 @@ internal class ChatGeneration(
                                         } else {
                                             chunk.activity.copy(
                                                 contentOffset = contentOffset,
-                                                reasoningOffset = reasoningOutput.length
+                                                 reasoningOffset = reasoningOutput.length
                                             )
                                         }
                                         val updatedActivities = version.toolActivity.toMutableList().apply {
@@ -122,7 +147,7 @@ internal class ChatGeneration(
                 renderJob?.cancel()
                 renderJob = null
                 _error.value = e.localizedMessage ?: "Generation failed"
-                output += "\n[Error: ${_error.value}]"
+                appendError("\n[Error: ${_error.value}]")
                 update()
             } finally {
                 renderJob?.cancel()
@@ -132,9 +157,9 @@ internal class ChatGeneration(
                         snapshot = updateResponse(
                             snapshot!!,
                             messageId,
-                            output,
-                            reasoningOutput.takeIf { it.isNotBlank() },
-                            reasoningSignatureOutput.takeIf { it.isNotBlank() }
+                            output.toString(),
+                            reasoningOutput.toString().takeIf { it.isNotBlank() },
+                            reasoningSignatureOutput.toString().takeIf { it.isNotBlank() }
                         )
                         snapshot = snapshot!!.copy(messages = snapshot!!.messages.map { message ->
                             if (message.id != messageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->

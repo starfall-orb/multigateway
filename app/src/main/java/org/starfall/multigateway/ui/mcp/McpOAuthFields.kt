@@ -3,6 +3,7 @@ import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -12,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -24,6 +26,7 @@ import org.starfall.multigateway.ui.components.rememberOAuthStart
 @Composable
 internal fun McpOAuthFields(url: String, clientId: String, onClientIdChange: (String) -> Unit,
     clientSecret: String, onClientSecretChange: (String) -> Unit, authorized: Boolean,
+    redirectUri: String, onRedirectUriChange: (String) -> Unit,
     authorize: suspend () -> Result<Unit>, clear: suspend () -> Unit, advanced: Boolean, onToggleAdvanced: () -> Unit) {
     Text(stringResource(R.string.mcp_oauth_discovery_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Row(Modifier.fillMaxWidth().clickable(onClick = onToggleAdvanced).padding(vertical = 4.dp),
@@ -37,12 +40,14 @@ internal fun McpOAuthFields(url: String, clientId: String, onClientIdChange: (St
         SelectableOutlinedTextField(clientId, onClientIdChange, placeholder = { Text(stringResource(R.string.mcp_oauth_client_id_optional)) },
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_id_help)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
         SelectableOutlinedTextField(clientSecret, onClientSecretChange, label = { Text(stringResource(R.string.client_secret)) },
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
             supportingText = { Text(stringResource(R.string.mcp_oauth_client_secret_help)) }, singleLine = true,
             visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Text(stringResource(R.string.redirect_uri), style = MaterialTheme.typography.titleSmall)
-        SelectableOutlinedTextField(McpOAuthService.REDIRECT_URI, {}, readOnly = true, singleLine = true, modifier = Modifier.fillMaxWidth(),
+        SelectableOutlinedTextField(redirectUri, onRedirectUriChange, singleLine = true, modifier = Modifier.fillMaxWidth(),
             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant))
+                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
+            supportingText = { Text(stringResource(R.string.mcp_oauth_redirect_uri_help, McpOAuthService.REDIRECT_URI)) })
     }
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }

@@ -1,18 +1,13 @@
 package org.starfall.multigateway.ui.chat
 
-import com.mikepenz.markdown.model.Input
-import com.mikepenz.markdown.model.MarkdownState
-import com.mikepenz.markdown.model.ReferenceLinkHandlerImpl
 import com.mikepenz.markdown.model.State
+import com.mikepenz.markdown.model.parseMarkdown
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.getTextInNode
-import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
-import org.intellij.markdown.parser.MarkdownParser
 
 internal suspend fun parseLibraryMarkdown(content: String): State {
-    val flavour = GFMFlavourDescriptor()
-    return MarkdownState(Input(content, true, flavour, MarkdownParser(flavour), ReferenceLinkHandlerImpl())).parse()
+    return parseMarkdown(content)
 }
 
 internal data class MarkdownFence(val language: String, val code: String, val closed: Boolean)

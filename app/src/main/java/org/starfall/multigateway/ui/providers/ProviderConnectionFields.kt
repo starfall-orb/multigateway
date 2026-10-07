@@ -2,6 +2,7 @@ package org.starfall.multigateway.ui.providers
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.ArrowDropUp
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.Box
@@ -105,6 +107,9 @@ internal fun ProviderAuthField(
             }
         }) else null,
         visualTransformation = if (revealed || !hasKey) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(
+            capitalization = if (hasKey) KeyboardCapitalization.None else KeyboardCapitalization.Sentences
+        ),
         maxLines = 3,
         modifier = Modifier
             .fillMaxWidth()

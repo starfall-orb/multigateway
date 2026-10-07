@@ -79,6 +79,7 @@ fun ChatScreen(
     autoScroll: Boolean = false,
     contextWindowStatus: ContextWindowStatus? = null,
     speakingMessageId: String? = null,
+    onResendUserMessage: (String) -> Boolean = { false },
     modifier: Modifier = Modifier
 ) {
     val listState = key(conversation?.id) { rememberLazyListState() }
@@ -87,6 +88,9 @@ fun ChatScreen(
     val seenMessageIds = remember(conversation?.id) { mutableSetOf<String>() }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
+    val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
+    val selectedModelDisplayName = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
+        ?.displayName?.takeIf { it.isNotBlank() } ?: selectedModelName
 
     val conversationMessages = conversation?.messages.orEmpty()
     val messages = remember(conversationMessages, queuedMessages) {
@@ -107,8 +111,10 @@ fun ChatScreen(
     var showSummaryDialog by remember(conversation?.id) { mutableStateOf(false) }
     val streamingHere = isGenerating && generatingConversationId == conversation?.id
     val lastMessage = conversationMessages.lastOrNull()
+    val streamingMessage = if (streamingHere) conversationMessages.lastOrNull { it.role == ChatRole.MODEL } else null
+    val unansweredMessages = remember(conversationMessages) { unansweredUserMessageIds(conversationMessages) }
     val autoScrollTick = if (!autoScroll) null else if (streamingHere) {
-        ((lastMessage?.content?.length ?: 0) + (lastMessage?.reasoningContent?.length ?: 0)) / 48
+        ((streamingMessage?.content?.length ?: 0) + (streamingMessage?.reasoningContent?.length ?: 0)) / 48
     } else {
         lastMessage?.activeVersionIndex
     }
@@ -253,6 +259,11 @@ fun ChatScreen(
                             message = msg,
                             selectedImageAttachments = inputAttachments,
                             onToggleChatImage = toggleChatImage,
+                            onResend = if (msg.id in unansweredMessages) ({
+                                if (onResendUserMessage(msg.id)) followBottom = true
+                            }) else null,
+                            resendEnabled = !isGenerating && summaryProgress == null &&
+                                selectedModelName.isNotBlank() && providers.any { it.id == selectedProviderId },
                             onEdit = {
                                 if (msg.isQueued) {
                                     editDraft = ChatInputEditDraft(
@@ -296,7 +307,7 @@ fun ChatScreen(
                                 ?.ifBlank { conversation?.modelId.orEmpty() } ?: conversation?.modelId.orEmpty(),
                             selectedImageAttachments = inputAttachments,
                             onToggleChatImage = toggleChatImage,
-                            isStreaming = streamingHere && isLast,
+                            isStreaming = streamingHere && msg.id == streamingMessage?.id,
                             onCopy = {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 clipboard.setPrimaryClip(ClipData.newPlainText("Copied", msg.content))
@@ -428,7 +439,8 @@ fun ChatScreen(
 
         }
         ChatAppBar(
-            currentSession = conversation,
+            modelName = selectedModelDisplayName,
+            providerName = selectedProvider?.name.orEmpty(),
             onOpenDrawer = onOpenDrawer,
             onOpenSettings = onOpenSettings,
             modifier = Modifier.align(Alignment.TopCenter)

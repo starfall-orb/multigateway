@@ -41,6 +41,7 @@ class McpOAuthService(
         require(discovery.metadata.codeChallengeMethods.any { it.equals("S256", true) }) {
             "Authorization server does not advertise PKCE S256 support."
         }
+        val redirectUri = redirectUri(info.auth.oauthRedirectUri)
 
         val previous = store.load(info.id)
         val configuredClientId = info.auth.oauthClientId?.trim().orEmpty()
@@ -59,13 +60,14 @@ class McpOAuthService(
             )
             previous != null &&
                 sameUri(previous.authorizationServer, discovery.authorizationServer) &&
-                sameUri(previous.resource, resource) -> ClientRegistration(
+                sameUri(previous.resource, resource) &&
+                sameUri(previous.redirectUri, redirectUri) -> ClientRegistration(
                     previous.clientId,
                     previous.clientSecret,
                     previous.tokenEndpointAuthMethod
                 )
             discovery.metadata.registrationEndpoint != null ->
-                registerClient(discovery.metadata.registrationEndpoint)
+                registerClient(discovery.metadata.registrationEndpoint, redirectUri)
             else -> error(
                 "This authorization server does not support dynamic client registration. " +
                     "Register MultiGateway as a public OAuth client and enter its Client ID."
@@ -80,9 +82,9 @@ class McpOAuthService(
 
         val request = AppAuthTransactions.authorization(
             discovery.metadata.authorizationEndpoint, discovery.metadata.tokenEndpoint,
-            registration.clientId, REDIRECT_URI, discovery.scope, mapOf("resource" to resource))
+            registration.clientId, redirectUri, discovery.scope, mapOf("resource" to resource))
         val code = OAuthCallbackService.keepAlive(appContext) {
-            awaitLoopbackAuthorizationCode(REDIRECT_URI, request.toUri().toString(), request.state!!, openBrowser)
+            awaitLoopbackAuthorizationCode(redirectUri, request.toUri().toString(), request.state!!, openBrowser)
         }
 
         val token = exchangeAuthorizationCode(
@@ -92,7 +94,8 @@ class McpOAuthService(
             scope = discovery.scope,
             code = code,
             verifier = request.codeVerifier!!,
-            mcpEndpoint = mcpEndpoint
+            mcpEndpoint = mcpEndpoint,
+            redirectUri = redirectUri
         )
         store.save(info.id, token)
         return info.copy(
@@ -100,6 +103,7 @@ class McpOAuthService(
                 value = null,
                 oauthClientId = configuredClientId.ifEmpty { null },
                 oauthClientSecret = configuredClientSecret,
+                oauthRedirectUri = info.auth.oauthRedirectUri?.trim()?.takeIf { it.isNotEmpty() },
                 oauthAuthorized = true
             )
         )
@@ -254,7 +258,7 @@ class McpOAuthService(
         throw lastError ?: IllegalStateException("Unable to discover OAuth authorization server metadata.")
     }
 
-    private suspend fun registerClient(endpoint: String): ClientRegistration {
+    private suspend fun registerClient(endpoint: String, redirectUri: String): ClientRegistration {
         val url = endpoint.toHttpUrl()
         requireSecureOAuthUrl(url, "registration endpoint")
         val response = http.post(
@@ -262,7 +266,7 @@ class McpOAuthService(
             buildJsonObject {
                 put("client_name", "MultiGateway")
                 put("application_type", "native")
-                put("redirect_uris", JsonArray(listOf(JsonPrimitive(REDIRECT_URI))))
+                put("redirect_uris", JsonArray(listOf(JsonPrimitive(redirectUri))))
                 put("grant_types", JsonArray(listOf(
                     JsonPrimitive("authorization_code"),
                     JsonPrimitive("refresh_token")
@@ -287,12 +291,13 @@ class McpOAuthService(
         scope: String?,
         code: String,
         verifier: String,
-        mcpEndpoint: String
+        mcpEndpoint: String,
+        redirectUri: String
     ): McpOAuthTokenState {
         val fields = linkedMapOf(
             "grant_type" to "authorization_code",
             "code" to code,
-            "redirect_uri" to REDIRECT_URI,
+            "redirect_uri" to redirectUri,
             "code_verifier" to verifier,
             "resource" to resource
         )
@@ -308,7 +313,8 @@ class McpOAuthService(
             discovery = discovery,
             resource = resource,
             mcpEndpoint = mcpEndpoint,
-            scope = scope
+            scope = scope,
+            redirectUri = redirectUri
         )
     }
 
@@ -345,7 +351,8 @@ class McpOAuthService(
             ),
             resource = previous.resource,
             mcpEndpoint = previous.mcpEndpoint ?: previous.resource,
-            scope = response.text("scope").takeIf { it.isNotBlank() } ?: previous.scope
+            scope = response.text("scope").takeIf { it.isNotBlank() } ?: previous.scope,
+            redirectUri = previous.redirectUri
         )
     }
 
@@ -366,7 +373,8 @@ class McpOAuthService(
         discovery: OAuthDiscovery,
         resource: String,
         mcpEndpoint: String,
-        scope: String?
+        scope: String?,
+        redirectUri: String
     ): McpOAuthTokenState {
         val accessToken = response.text("access_token")
         require(accessToken.isNotBlank()) { "OAuth token response has no access_token." }
@@ -386,7 +394,8 @@ class McpOAuthService(
             tokenEndpoint = discovery.metadata.tokenEndpoint,
             resource = resource,
             mcpEndpoint = mcpEndpoint,
-            scope = response.text("scope").takeIf { it.isNotBlank() } ?: scope
+            scope = response.text("scope").takeIf { it.isNotBlank() } ?: scope,
+            redirectUri = redirectUri
         )
     }
 
@@ -449,6 +458,22 @@ class McpOAuthService(
         }
     }
 
+    private fun redirectUri(configured: String?): String {
+        val value = configured?.trim().takeUnless { it.isNullOrEmpty() } ?: REDIRECT_URI
+        val uri = runCatching { value.toHttpUrl() }
+            .getOrElse { error("OAuth redirect URI is invalid.") }
+        require(uri.scheme == "http" && uri.host in setOf("localhost", "127.0.0.1", "::1")) {
+            "OAuth redirect URI must use http://localhost or http://127.0.0.1."
+        }
+        require(uri.port in 1..65535 && uri.query == null && uri.fragment == null) {
+            "OAuth redirect URI must include a port and must not contain a query or fragment."
+        }
+        require(uri.encodedPath.isNotEmpty() && uri.encodedPath.startsWith("/")) {
+            "OAuth redirect URI must include a callback path."
+        }
+        return value
+    }
+
     private fun bearerParameter(header: String, name: String): String? {
         val escaped = Regex.escape(name)
         val quoted = Regex("(?:^|[,\\s])$escaped\\s*=\\s*\"([^\"]*)\"", RegexOption.IGNORE_CASE)
@@ -497,6 +522,6 @@ class McpOAuthService(
     )
 
     companion object {
-        const val REDIRECT_URI = "http://127.0.0.1:53682/oauth-callback"
+        const val REDIRECT_URI = "http://localhost:53682/oauth-callback"
     }
 }

@@ -11,7 +11,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.data.local.preferences.WordWrapMode
+import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -19,7 +21,9 @@ internal fun CodeRenderingPreferences(
     preferences: AppPreferences,
     onModeChange: (WordWrapMode) -> Unit,
     onColumnChange: (Int) -> Unit,
-    onPreviewChange: (Boolean) -> Unit
+    onPreviewChange: (Boolean) -> Unit,
+    onFontSizeChange: (Int) -> Unit,
+    onFontFamilyChange: (MessageFontFamily) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     val labels = mapOf(
@@ -61,4 +65,40 @@ internal fun CodeRenderingPreferences(
     }
     PreferenceToggle(stringResource(R.string.code_preview), stringResource(R.string.code_preview_hint),
         preferences.codePreviewEnabled, onPreviewChange)
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    Text(stringResource(R.string.message_text_size), style = MaterialTheme.typography.titleMedium)
+    Text(stringResource(R.string.message_text_size_hint, preferences.messageFontSize),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Slider(
+        value = preferences.messageFontSize.toFloat(),
+        onValueChange = { onFontSizeChange(it.roundToInt()) },
+        valueRange = 12f..24f,
+        steps = 11,
+        modifier = Modifier.fillMaxWidth().testTag("message-font-size")
+    )
+
+    var fontExpanded by remember { mutableStateOf(false) }
+    val fontLabels = mapOf(
+        MessageFontFamily.DEFAULT to stringResource(R.string.font_family_default),
+        MessageFontFamily.SANS_SERIF to stringResource(R.string.font_family_sans_serif),
+        MessageFontFamily.SERIF to stringResource(R.string.font_family_serif),
+        MessageFontFamily.MONOSPACE to stringResource(R.string.font_family_monospace),
+        MessageFontFamily.CURSIVE to stringResource(R.string.font_family_cursive)
+    )
+    ExposedDropdownMenuBox(fontExpanded, { fontExpanded = !fontExpanded }) {
+        SelectableOutlinedTextField(
+            value = fontLabels.getValue(preferences.messageFontFamily), onValueChange = {}, readOnly = true,
+            label = { Text(stringResource(R.string.message_font_family)) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(fontExpanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor().testTag("message-font-family")
+        )
+        ExposedDropdownMenu(fontExpanded, { fontExpanded = false }) {
+            fontLabels.forEach { (family, label) ->
+                DropdownMenuItem(text = { Text(label) }, onClick = {
+                    onFontFamilyChange(family)
+                    fontExpanded = false
+                })
+            }
+        }
+    }
 }

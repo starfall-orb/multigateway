@@ -15,11 +15,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.starfall.multigateway.data.model.Conversation
 
 @Composable
 fun ChatAppBar(
-    currentSession: Conversation?,
+    modelName: String,
+    providerName: String,
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
@@ -53,13 +53,14 @@ fun ChatAppBar(
 
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
+                .align(Alignment.CenterStart)
+                .fillMaxWidth()
                 .padding(horizontal = 68.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
         ) {
             Text(
-                text = currentSession?.title ?: "New Chat",
+                text = modelName.ifBlank { "Select a model" },
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp
@@ -68,7 +69,15 @@ fun ChatAppBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-
+            if (providerName.isNotBlank()) {
+                Text(
+                    text = providerName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         Surface(

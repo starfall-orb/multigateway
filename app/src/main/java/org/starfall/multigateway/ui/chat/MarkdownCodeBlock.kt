@@ -56,7 +56,9 @@ internal fun RenderCodeBlock(language: String, code: String, isStreaming: Boolea
     var sessionWrap by remember(language) { mutableStateOf(false) }
     val mode = if (preferences.wordWrapMode == WordWrapMode.OFF && sessionWrap) WordWrapMode.VIEWPORT else preferences.wordWrapMode
     val wrapCode = mode != WordWrapMode.OFF
-    val textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 12.5.sp, lineHeight = 18.sp)
+    val codeSize = (preferences.messageFontSize * 0.78f).sp
+    val textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace,
+        fontSize = codeSize, lineHeight = codeSize * 1.44f)
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val characterWidth = remember(textStyle, density) { (measurer.measure("0".repeat(100), textStyle, softWrap = false).size.width / 100f).coerceAtLeast(1f) }

@@ -43,13 +43,14 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
 import org.starfall.multigateway.data.local.preferences.WordWrapMode
+import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 import org.starfall.multigateway.ui.theme.ThemePresets
 
 enum class SettingsCategory(val title: String, val subtitle: String, val icon: ImageVector) {
-    APPEARANCE("Appearance", "Theme, color palette & dynamic color", Icons.Outlined.Palette),
-    PREFERENCES("Preferences", "Behavior, vibrations & display", Icons.Outlined.Tune),
+    APPEARANCE("Appearance", "Theme, colors & message display", Icons.Outlined.Palette),
+    PREFERENCES("Preferences", "Behavior, feedback & integrations", Icons.Outlined.Tune),
     ICONS("Icons & Cache", "Manage shared icons and matching rules", Icons.Outlined.Image),
     USER_DATA("App Data", "Conversation history & application reset", Icons.Outlined.ManageHistory),
     ABOUT("About", "App information, software updates & license", Icons.Outlined.Info)
@@ -83,7 +84,9 @@ fun SettingsScreen(
     onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
     onWordWrapModeChange: (WordWrapMode) -> Unit = {},
     onWordWrapColumnChange: (Int) -> Unit = {},
-    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
+    onCodePreviewEnabledChange: (Boolean) -> Unit = {},
+    onMessageFontSizeChange: (Int) -> Unit = {},
+    onMessageFontFamilyChange: (MessageFontFamily) -> Unit = {}
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     BackHandler(enabled = selectedCategory != null) {
@@ -160,7 +163,12 @@ fun SettingsScreen(
                             onAmoledChange = onAmoledChange,
                             onDynamicColorChange = onDynamicColorChange,
                             onColorSchemeChange = onColorSchemeChange,
-                            onTtsReadCodeBlocksChange = onTtsReadCodeBlocksChange
+                            onHideStatusBarChange = onHideStatusBarChange,
+                            onWordWrapModeChange = onWordWrapModeChange,
+                            onWordWrapColumnChange = onWordWrapColumnChange,
+                            onCodePreviewEnabledChange = onCodePreviewEnabledChange,
+                            onMessageFontSizeChange = onMessageFontSizeChange,
+                            onMessageFontFamilyChange = onMessageFontFamilyChange
                         )
                     }
 
@@ -171,12 +179,9 @@ fun SettingsScreen(
                             onPersistChatSelectionChange = onPersistChatSelectionChange,
                             onAutoScrollChange = onAutoScrollChange,
                             onEnableVibrationChange = onEnableVibrationChange,
-                            onHideStatusBarChange = onHideStatusBarChange,
                             onDebugModeChange = onDebugModeChange,
                             onLatexModeChange = onLatexModeChange,
-                            onWordWrapModeChange = onWordWrapModeChange,
-                            onWordWrapColumnChange = onWordWrapColumnChange,
-                            onCodePreviewEnabledChange = onCodePreviewEnabledChange
+                            onTtsReadCodeBlocksChange = onTtsReadCodeBlocksChange
                         )
                     }
 
@@ -215,10 +220,12 @@ fun AppearanceSettingsView(
     onAmoledChange: (Boolean) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
     onColorSchemeChange: (String) -> Unit,
-    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
+    onHideStatusBarChange: (Boolean) -> Unit = {},
     onWordWrapModeChange: (WordWrapMode) -> Unit = {},
     onWordWrapColumnChange: (Int) -> Unit = {},
-    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
+    onCodePreviewEnabledChange: (Boolean) -> Unit = {},
+    onMessageFontSizeChange: (Int) -> Unit = {},
+    onMessageFontFamilyChange: (MessageFontFamily) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -268,9 +275,12 @@ fun AppearanceSettingsView(
             }
         }
         item {
-            SettingsSection("Text-to-speech") {
-                PreferenceToggle("Read code blocks", "Include fenced and indented code blocks when reading messages aloud",
-                    appPreferences.ttsReadCodeBlocks, onTtsReadCodeBlocksChange)
+            SettingsSection("Message display") {
+                CodeRenderingPreferences(appPreferences, onWordWrapModeChange, onWordWrapColumnChange,
+                    onCodePreviewEnabledChange, onMessageFontSizeChange, onMessageFontFamilyChange)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                PreferenceToggle("Immersive Mode", "Hide the status bar while chatting",
+                    appPreferences.hideStatusBar, onHideStatusBarChange)
             }
         }
     }
@@ -284,12 +294,9 @@ fun PreferencesSettingsView(
     onPersistChatSelectionChange: (Boolean) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onEnableVibrationChange: (Boolean) -> Unit,
-    onHideStatusBarChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
     onLatexModeChange: (String) -> Unit,
-    onWordWrapModeChange: (WordWrapMode) -> Unit = {},
-    onWordWrapColumnChange: (Int) -> Unit = {},
-    onCodePreviewEnabledChange: (Boolean) -> Unit = {}
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -305,18 +312,19 @@ fun PreferencesSettingsView(
             }
         }
         item {
-            SettingsSection("Feedback & display") {
+            SettingsSection("Feedback") {
                 PreferenceToggle("Haptic Vibration", "Vibrate on taps and generation events",
                     appPreferences.enableVibration, onEnableVibrationChange)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                PreferenceToggle("Immersive Mode", "Hide the status bar while chatting",
-                    appPreferences.hideStatusBar, onHideStatusBarChange)
             }
         }
         item {
-            SettingsSection("Rendering") {
-                CodeRenderingPreferences(appPreferences, onWordWrapModeChange, onWordWrapColumnChange, onCodePreviewEnabledChange)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            SettingsSection("Text-to-speech") {
+                PreferenceToggle("Read code blocks", "Include fenced and indented code blocks when reading messages aloud",
+                    appPreferences.ttsReadCodeBlocks, onTtsReadCodeBlocksChange)
+            }
+        }
+        item {
+            SettingsSection("Content") {
                 Text("LaTeX Equation Rendering", style = MaterialTheme.typography.titleMedium)
                 Text("Auto-detect renders formulas while leaving prices as plain text.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

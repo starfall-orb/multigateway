@@ -76,7 +76,7 @@ class GeneralSettingsTest {
     @Test fun chatToolbarOpensDrawerOnLeftAndSettingsOnRight() {
         var drawer = 0
         var settings = 0
-        compose.setContent { MaterialTheme { ChatAppBar(null, { drawer++ }, { settings++ }) } }
+        compose.setContent { MaterialTheme { ChatAppBar("Selected model", "Provider", { drawer++ }, { settings++ }) } }
         val left = compose.onNodeWithContentDescription("Open side navigation")
         val right = compose.onNodeWithContentDescription("General Settings")
         assertTrue(left.fetchSemanticsNode().boundsInRoot.left < right.fetchSemanticsNode().boundsInRoot.left)

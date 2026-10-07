@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -33,6 +36,7 @@ import org.starfall.multigateway.ui.chat.ChatViewModel
 import org.starfall.multigateway.ui.configuration.ConfigurationViewModel
 import org.starfall.multigateway.ui.settings.SettingsViewModel
 import org.starfall.multigateway.data.model.parseProviderLink
+import org.starfall.multigateway.ui.components.CrashReportDialog
 
 class MainActivity : ComponentActivity() {
 
@@ -67,6 +71,8 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val crashReports = (application as MultiGatewayApplication).crashReports
+            var pendingCrash by remember { mutableStateOf(crashReports.pending()) }
             val appPrefs by settingsViewModel.preferences.collectAsStateWithLifecycle()
             MultiGatewayTheme(
                 themeMode = appPrefs.themeMode,
@@ -89,6 +95,19 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     MainScreen(viewModel, configurationViewModel, settingsViewModel, container.toolFiles)
+                }
+                pendingCrash?.let { report ->
+                    CrashReportDialog(report,
+                        onCreateIssue = {
+                            runCatching { startActivity(Intent(Intent.ACTION_VIEW, report.issueUri())) }
+                                .onFailure {
+                                    Toast.makeText(this, R.string.crash_issue_open_failed, Toast.LENGTH_LONG).show()
+                                }
+                        },
+                        onDismiss = {
+                            crashReports.dismiss(report.id)
+                            pendingCrash = null
+                        })
                 }
             }
         }

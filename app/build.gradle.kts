@@ -10,15 +10,15 @@ plugins {
 
 android {
     namespace = "org.starfall.multigateway"
-    compileSdk = 36
+    compileSdk = 37
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "org.starfall.multigateway"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "1.2.2"
+        versionCode = 24
+        versionName = "1.2.3"
 
         manifestPlaceholders["appAuthRedirectScheme"] = "multigateway-oauth"
 
@@ -114,7 +114,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-video:$coilVersion")
 
     // GFM parsing/rendering; code toolbar and streaming presentation remain app-owned.
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.34.0")
+    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.45.0")
 
     // One playback engine for audio, video and synthesized speech.
     implementation("androidx.media3:media3-exoplayer:1.8.0")

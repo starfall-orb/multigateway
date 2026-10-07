@@ -23,7 +23,7 @@ class SpeechServiceStorageTest {
         installTestAndroidKeyStore()
         val db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext<Context>(), AppDatabase::class.java).build()
         try {
-            val service = SpeechService("s", "Voice", provider = "p", modelId = "tts", voice = "Kore",
+            val service = SpeechService("s", "Voice", icon = "https://example.com/voice.png", provider = "p", modelId = "tts", voice = "Kore",
                 instructions = "Speak calmly", responseFormat = "wav", languageCode = "vi-VN",
                 extraBody = buildJsonObject { put("custom", "value") })
             SpeechRepository(db).saveService(service)

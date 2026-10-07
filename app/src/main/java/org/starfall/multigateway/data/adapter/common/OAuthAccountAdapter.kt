@@ -186,16 +186,13 @@ internal abstract class OAuthAccountAdapter(
                 })
             } else {
                 put("model", model); put("max_tokens", maxTokens)
-                if (type != ProviderType.ANTHROPIC || (!config.supportsThinking || config.reasoningEffort == null || config.reasoningDisabled) || maxTokens <= 1024) {
+                if (type != ProviderType.ANTHROPIC || config.claudeAllowsSampling(model, maxTokens)) {
                     config.temperature?.let { put("temperature", it) }; config.topP?.let { put("top_p", it) }
                 }
-                if (type == ProviderType.ANTHROPIC) config.topK?.let { put("top_k", it) }
+                if (type == ProviderType.ANTHROPIC && config.claudeAllowsSampling(model, maxTokens)) config.topK?.let { put("top_k", it) }
                 if (type == ProviderType.ANTHROPIC) {
                     put("system", prompt)
-                    if (config.reasoningDisabled) put("thinking", obj("type" to str("disabled")))
-                    if (config.supportsThinking && config.reasoningEffort != null && !config.reasoningDisabled && maxTokens > 1024) {
-                        put("thinking", obj("type" to str("enabled"), "budget_tokens" to JsonPrimitive(config.reasoningBudget(maxTokens))))
-                    }
+                    config.claudeThinkingParameters(model, maxTokens).forEach { (key, value) -> put(key, value) }
                 }
                 if (type == ProviderType.OPENAI && config.supportsThinking)
                     config.reasoningEffort?.let { put("reasoning_effort", it) }

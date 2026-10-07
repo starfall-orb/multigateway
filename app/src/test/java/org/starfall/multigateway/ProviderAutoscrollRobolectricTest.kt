@@ -84,18 +84,8 @@ class ProviderAutoscrollRobolectricTest {
         val source = sourceNode.center - root.topLeft
         val height = root.height
 
-        try { java.io.File("/tmp/scroll_state.txt").writeText("0,0") } catch (e: Exception) {}
-        fun scrollPosition(): Float {
-            return try {
-                val text = java.io.File("/tmp/scroll_state.txt").readText().trim()
-                val parts = text.split(",")
-                val idx = parts[0].toFloat()
-                val off = parts[1].toFloat()
-                idx * 1000000f + off
-            } catch (e: Exception) {
-                0f
-            }
-        }
+        fun scrollPosition(): Float = surface.fetchSemanticsNode()
+            .config[SemanticsProperties.VerticalScrollAxisRange].value()
 
         val before = scrollPosition()
         println("BEFORE scrollPosition: $before, source=$source, grid=$grid")
@@ -103,9 +93,7 @@ class ProviderAutoscrollRobolectricTest {
         var forward = before
         var reversed = before
 
-        val col0 = root.width * 0.25f
         val col1 = root.width * 0.75f
-        val startX = if (grid) col0 else source.x
         val targetX = if (grid) col1 else source.x
         val targetY = height - 20f
 

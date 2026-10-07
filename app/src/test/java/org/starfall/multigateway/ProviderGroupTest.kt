@@ -167,7 +167,7 @@ class ProviderGroupTest {
     }
 
     @Test
-    fun pickerTreeRespectsGroupAndProviderCollapseButSearchExpandsMatches() {
+    fun pickerTabsFilterFoldersAndProviderCollapseButSearchExpandsMatches() {
         val group = ProviderGroup("g1", "Work", 0)
         val grouped = LlmProviderInfo(
             id = "p1",
@@ -197,11 +197,13 @@ class ProviderGroupTest {
             dynamicModelsMap = emptyMap(),
             selectedProviderId = "",
             selectedModelId = "",
-            collapsedGroupIds = setOf(group.id)
+            collapsedGroupIds = setOf(group.id),
+            selectedFolderId = group.id
         )
-        assertTrue(groupCollapsed.any { it is ModelPickerItem.Group && it.group.id == group.id })
-        assertFalse(groupCollapsed.any { it is ModelPickerItem.Provider && it.provider.id == grouped.id })
-        assertTrue(groupCollapsed.any { it is ModelPickerItem.Model && it.modelId == "gamma" })
+        assertTrue(groupCollapsed.none { it is ModelPickerItem.Group })
+        assertTrue(groupCollapsed.any { it is ModelPickerItem.Provider && it.provider.id == grouped.id })
+        assertEquals(listOf("alpha", "beta"), groupCollapsed.filterIsInstance<ModelPickerItem.Model>().map { it.modelId })
+        assertFalse(groupCollapsed.any { it is ModelPickerItem.Provider && it.provider.id == root.id })
 
         val providerCollapsed = computeModelPickerItems(
             providers = listOf(grouped),
@@ -224,7 +226,7 @@ class ProviderGroupTest {
             collapsedGroupIds = setOf(group.id),
             collapsedProviderIds = setOf(grouped.id)
         )
-        assertTrue(searched.any { it is ModelPickerItem.Group && it.group.id == group.id })
+        assertTrue(searched.none { it is ModelPickerItem.Group })
         assertTrue(searched.any { it is ModelPickerItem.Provider && it.provider.id == grouped.id })
         assertEquals(listOf("beta"), searched.filterIsInstance<ModelPickerItem.Model>().map { it.modelId })
     }

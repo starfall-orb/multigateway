@@ -6,3 +6,4 @@ build/
 *.aar
 local.properties
 .audit/
+multigateway.jks

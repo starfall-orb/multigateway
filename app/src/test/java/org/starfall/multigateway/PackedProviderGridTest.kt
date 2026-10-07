@@ -60,13 +60,16 @@ class PackedProviderGridTest {
         assertTrue(regions.any { it.contains(Offset(162f, 170f)) }) // vertical seam
     }
 
-    @Test fun diagonalFolderCellsDoNotCreateAnOutsideDropTarget() {
+    @Test fun diagonalFolderCellsKeepRootOutsideAndReserveEmptyPartnerSlot() {
         val cells = listOf(PackedGridCell("root", null), PackedGridCell("folder", "g"), PackedGridCell("a", "g"))
         val regions = packedGroupRegions(cells, bounds(cells)).getValue("g")
         assertEquals(4, regions.size)
         assertTrue(regions.any { it.contains(Offset(112f, 164f)) })
         assertFalse(regions.any { it.contains(Offset(50f, 82f)) })
-        assertFalse(regions.any { it.contains(Offset(162f, 258f)) })
+        assertTrue(regions.any { it.contains(Offset(162f, 258f)) })
+        val withRootPartner = cells + PackedGridCell("tail", null)
+        val occupiedRegions = packedGroupRegions(withRootPartner, bounds(withRootPartner)).getValue("g")
+        assertFalse(occupiedRegions.any { it.contains(Offset(162f, 258f)) })
     }
 
     @Test fun differentFoldersAndOffscreenCellsDoNotCreateFalseDropTargets() {

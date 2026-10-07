@@ -97,47 +97,46 @@ class ProviderAutoscrollRobolectricTest {
         val targetX = if (grid) col1 else source.x
         val targetY = height - 20f
 
+        // Dispatch each step before advancing frames: performTouchInput batches
+        // events until its block returns, so frames inside that block cannot scroll.
+        fun holdFinger(milliseconds: Long) {
+            surface.performTouchInput { advanceEventTime(milliseconds) }
+            compose.mainClock.advanceTimeBy(milliseconds)
+            compose.waitForIdle()
+        }
+        fun moveFinger(point: Offset) {
+            surface.performTouchInput {
+                advanceEventTime(50)
+                moveTo(point)
+            }
+            compose.mainClock.advanceTimeBy(50)
+            compose.waitForIdle()
+        }
         surface.performTouchInput {
             down(source)
             advanceEventTime(650)
-            compose.mainClock.advanceTimeBy(650)
-            compose.waitForIdle()
-
-            var currentY = source.y
-            while (currentY < targetY) {
-                currentY = (currentY + 20f).coerceAtMost(targetY)
-                val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
-                moveTo(Offset(currentX, currentY))
-                advanceEventTime(50)
-                compose.mainClock.advanceTimeBy(50)
-                compose.waitForIdle()
-            }
-
-            repeat(30) {
-                advanceEventTime(100)
-                compose.mainClock.advanceTimeBy(100)
-                compose.waitForIdle()
-            }
-            forward = scrollPosition()
-
-            val topY = 20f
-            while (currentY > topY) {
-                currentY = (currentY - 20f).coerceAtLeast(topY)
-                val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
-                moveTo(Offset(currentX, currentY))
-                advanceEventTime(50)
-                compose.mainClock.advanceTimeBy(50)
-                compose.waitForIdle()
-            }
-
-            repeat(30) {
-                advanceEventTime(100)
-                compose.mainClock.advanceTimeBy(100)
-                compose.waitForIdle()
-            }
-            reversed = scrollPosition()
-            cancel()
+            moveBy(Offset(0f, 1f))
         }
+        holdFinger(50)
+        compose.onNodeWithTag("dragged_provider").assertExists()
+        var currentY = source.y
+        while (currentY < targetY) {
+            currentY = (currentY + 20f).coerceAtMost(targetY)
+            val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
+            moveFinger(Offset(currentX, currentY))
+        }
+        repeat(30) { holdFinger(100) }
+        compose.onNodeWithTag("dragged_provider").assertExists()
+        forward = scrollPosition()
+        val topY = 20f
+        while (currentY > topY) {
+            currentY = (currentY - 20f).coerceAtLeast(topY)
+            val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
+            moveFinger(Offset(currentX, currentY))
+        }
+        repeat(30) { holdFinger(100) }
+        reversed = scrollPosition()
+        surface.performTouchInput { cancel() }
         compose.waitForIdle()
 
         println("RESULTS: grid=$grid, before=$before, forward=$forward, reversed=$reversed, writes=$writes")

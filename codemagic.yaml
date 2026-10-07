@@ -6,7 +6,7 @@ workflows:
     environment:
       java: 17
     scripts:
-      - name: Set up Android SDK 36
+      - name: Set up Android SDK 37
         script: |
           set -euo pipefail
           SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
@@ -14,7 +14,7 @@ workflows:
             SDKMANAGER="$(command -v sdkmanager)"
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
       - name: Build debug APK
         script: |
@@ -37,7 +37,7 @@ workflows:
       android_signing:
         - MultiGateway
     scripts:
-      - name: Set up Android SDK 36
+      - name: Set up Android SDK 37
         ignore_failure: false
         script: |
           set -euo pipefail
@@ -46,7 +46,7 @@ workflows:
             SDKMANAGER="$(command -v sdkmanager)"
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
       - name: Check release signing credentials
         ignore_failure: false

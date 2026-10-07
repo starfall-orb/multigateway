@@ -28,12 +28,6 @@ android {
     }
 
     signingConfigs {
-        create("debugConfig") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
         create("release") {
             storeFile = System.getenv("CM_KEYSTORE_PATH")?.let { file(it) }
             storePassword = System.getenv("CM_KEYSTORE_PASSWORD")
@@ -44,7 +38,7 @@ android {
 
     buildTypes {
         debug {
-            signingConfig = signingConfigs.getByName("debugConfig")
+            // Use Android Gradle Plugin's default debug signing config; it creates the key when needed.
         }
         release {
             signingConfig = signingConfigs.getByName("release")

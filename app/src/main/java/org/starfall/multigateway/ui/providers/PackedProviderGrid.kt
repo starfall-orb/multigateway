@@ -19,7 +19,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.rememberReorderableLazyGridState
@@ -104,31 +103,9 @@ internal fun PackedProviderGrid(
     var draggingKey by remember { mutableStateOf<String?>(null) }
     var draggingSpan by remember { mutableIntStateOf(1) }
     val displayCells = providerDragCells(cells, isGrid, draggingKey)
-    val coroutineScope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
     val reorderState = rememberReorderableLazyGridState(gridState, scrollMoveMode = ScrollMoveMode.INSERT) { from, to ->
-        println("PackedProviderGrid onMove: from=${from.key} (index ${from.index}) to=${to.key} (index ${to.index})")
         onMove(from.key as String, to.key as String)
-        val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-        val firstVisible = gridState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: 0
-        if (to.index >= lastVisible - 1) {
-            coroutineScope.launch {
-                gridState.animateScrollToItem((to.index + 1).coerceAtMost(gridState.layoutInfo.totalItemsCount - 1))
-            }
-        } else if (to.index <= firstVisible + 1) {
-            coroutineScope.launch {
-                gridState.animateScrollToItem((to.index - 1).coerceAtLeast(0))
-            }
-        }
-    }
-    LaunchedEffect(gridState.firstVisibleItemScrollOffset, gridState.firstVisibleItemIndex) {
-        val info = gridState.layoutInfo
-        try {
-            java.io.File("/tmp/scroll_state.txt").writeText("${gridState.firstVisibleItemIndex},${gridState.firstVisibleItemScrollOffset}")
-        } catch (e: Exception) {
-            // ignore
-        }
-        println("PackedProviderGrid scroll changed: index=${gridState.firstVisibleItemIndex}, offset=${gridState.firstVisibleItemScrollOffset}, canForward=${gridState.canScrollForward}, totalItems=${info.totalItemsCount}, visibleCount=${info.visibleItemsInfo.size}, viewport=${info.viewportSize}")
     }
     val bounds = remember { mutableStateMapOf<String, Rect>() }
     var origin by remember { mutableStateOf(Offset.Zero) }

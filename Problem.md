@@ -6,13 +6,41 @@ The six planned library integrations are present. The architectural migration is
 
 Current build validation passes, but device acceptance is **not complete** because the provider drag autoscroll device regression test fails and several remaining UI regressions are being interrupted by severe device memory pressure.
 
-## Outstanding issues — updated 2026-10-06
+## Progress checklist — reviewed 2026-10-07
 
-Work is incomplete. Investigation stopped at the status report without an isolated cause or a verified fix for the autoscroll test failure. This remains unfinished work.
+Checked items have recorded completion at the stated scope. Unchecked items remain unresolved or lack successful acceptance results. This review adds status markers; it does not record a new test run.
+
+### Completed
+
+- [x] Integrate the six planned libraries.
+- [x] Remove the custom provider drag engine and use Calvin Reorderable on the keyed lazy surface (architectural completion).
+- [x] Align the bottom-sheet compatibility adapter with `PLANS.md` (architectural completion).
+- [x] Separate standard AppAuth execution from documented OAuth compatibility paths (architectural completion).
+- [x] Align the migration completion definition in `PLANS.md` and `docs/LIBRARY_MIGRATION.md`.
+- [x] Pass recorded build validation and 305 unit tests.
+- [x] Pass `BottomSheetInsetsTest.expandedSheetStopsBelowStatusBarAndAboveNavigationBar`.
+- [x] Pass the isolated `BottomSheetScrollBehaviorTest.draggingDownAtListStartMovesTheSheet` case.
+
+### Remaining
+
+- [ ] Isolate and fix grid edge autoscroll; rerun the failing `before=0.0 after=0.0` regression successfully.
+- [ ] Validate list-mode edge autoscroll in both directions and root/folder transfers.
+- [ ] Validate lifted-provider visibility, finger tracking, drop persistence and cancellation rollback.
+- [ ] Validate model-picker viewport retention and late dynamic discovery on device.
+- [ ] Measure cold-start/model-list loading with fresh, expired and unavailable-provider caches.
+- [ ] Validate continuous list-to-sheet gesture handoff and scrolling without a reverse swipe.
+- [ ] Update outdated reasoning-control and provider-layout instrumentation assumptions.
+- [ ] Complete the instrumentation suite without concurrent deployment; distinguish assertions from process interruptions.
+- [ ] Verify APK retention after a complete Gradle instrumentation run.
+- [ ] Complete manual acceptance for startup, persistence, navigation/system bars/IME, icons, Markdown, media and live OAuth flows.
+
+## Outstanding issues — updated 2026-10-07
+
+Work is incomplete. Code inspection found an app-owned `animateScrollToItem` launched from the reorder callback alongside Calvin's edge scroller. That extra scroll can interfere with the library's own `animateScrollBy` loop. The competing scroll and temporary `/tmp`/log diagnostics have been removed from `PackedProviderGrid.kt`. `:app:compileDebugKotlin` passes, but no Android device is connected in this workspace, so the grid regression has not been rerun and the fix remains unverified on device.
 
 | Area | Current status | Required follow-up |
 | --- | --- | --- |
-| Provider edge autoscroll in grid mode | Completed test failed: `before=0.0 after=0.0` | Isolate the cause, fix it and rerun; test coordinates or clock timing have not been ruled out |
+| Provider edge autoscroll in grid mode | Previous completed test failed: `before=0.0 after=0.0`; competing app scroll removed, device rerun pending | Rerun and confirm autoscroll; test coordinates and clock timing still need to be ruled out |
 | List autoscroll, folder/root transfers, drop and cancellation | Insufficient results on the current APK | Validate scrolling in both directions, persistence on drop and rollback on cancellation |
 | Model picker folder/provider toggles | Scroll-state retention implemented; device validation incomplete | Verify that the viewport does not jump back to the selected model |
 | Slow model-picker loading after app startup | Caching and parallel discovery implemented; no before/after measurement | Measure cold startup, cache hits/misses and time to display the model list |

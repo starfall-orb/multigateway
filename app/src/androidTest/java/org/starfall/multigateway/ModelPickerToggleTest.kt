@@ -73,7 +73,23 @@ class ModelPickerToggleTest {
         }
         val collapse = compose.activity.getString(R.string.collapse_all_model_sections)
         val expand = compose.activity.getString(R.string.expand_all_model_sections)
+        compose.onNodeWithTag("model-picker-tab_default").assertIsDisplayed().assertIsSelected()
+        compose.onNodeWithTag("model-picker-tab_folder_folder").assertIsDisplayed()
+        compose.onNodeWithTag("model-picker-tab_ungrouped").assertIsDisplayed()
         compose.onNode(hasText("alpha") and !hasSetTextAction()).assertIsDisplayed()
+        compose.onNode(hasText("gamma") and !hasSetTextAction()).assertIsDisplayed()
+
+        compose.onNodeWithTag("model-picker-tab_folder_folder").performClick()
+        compose.onNode(hasText("alpha") and !hasSetTextAction()).assertIsDisplayed()
+        compose.onNode(hasText("gamma") and !hasSetTextAction()).assertDoesNotExist()
+
+        compose.onNodeWithTag("model-picker-tab_ungrouped").performClick()
+        compose.onNode(hasText("alpha") and !hasSetTextAction()).assertDoesNotExist()
+        compose.onNode(hasText("gamma") and !hasSetTextAction()).assertIsDisplayed()
+
+        compose.onNodeWithTag("model-picker-tab_default").performClick()
+        compose.onNode(hasText("alpha") and !hasSetTextAction()).assertIsDisplayed()
+        compose.onNode(hasText("gamma") and !hasSetTextAction()).assertIsDisplayed()
         assertFolderOutline(3, outlineColor)
         compose.onNodeWithText(compose.activity.getString(R.string.common_all)).assertDoesNotExist()
         compose.onNodeWithContentDescription(collapse).performClick()

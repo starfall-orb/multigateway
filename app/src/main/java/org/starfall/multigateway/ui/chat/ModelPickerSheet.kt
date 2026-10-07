@@ -129,9 +129,10 @@ private fun Modifier.folderOutline(first: Boolean, last: Boolean, color: Color):
 }
 
 private data class ModelPickerTab(
+    val key: String,
     val folderId: String?,
     val label: String,
-    val ungroupedOnly: Boolean
+    val ungroupedOnly: Boolean = false
 )
 
 fun matchesModel(selectedModelId: String, itemModelId: String, itemDisplayName: String): Boolean {
@@ -251,21 +252,25 @@ fun ModelPickerSheet(
     val forceExpanded = query.isNotBlank() && expandSearchResults
     var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
     var collapsedProviderIds by remember { mutableStateOf(collapsedProviderIdsState) }
-    val folderTabs = remember(providers, providerGroups) {
+    val defaultTabLabel = stringResource(R.string.common_default)
+    val ungroupedTabLabel = stringResource(R.string.ungrouped)
+    val folderTabs = remember(providers, providerGroups, defaultTabLabel, ungroupedTabLabel) {
         val groupsById = providerGroups.associateBy { it.id }
+        val providerGroupIds = providers.mapNotNull { it.groupId }.filter { it in groupsById }.toSet()
+        val hasUngroupedProviders = providers.any { provider ->
+            provider.groupId == null || provider.groupId !in groupsById
+        }
         buildList {
-            val addedFolders = mutableSetOf<String>()
-            var addedUngrouped = false
-            providers.forEach { provider ->
-                val groupId = provider.groupId?.takeIf { it in groupsById }
-                if (groupId == null) {
-                    if (!addedUngrouped) {
-                        add(ModelPickerTab(folderId = null, label = "Default", ungroupedOnly = true))
-                        addedUngrouped = true
-                    }
-                } else if (addedFolders.add(groupId)) {
-                    add(ModelPickerTab(folderId = groupId, label = groupsById.getValue(groupId).name, ungroupedOnly = false))
+            add(ModelPickerTab(key = "default", folderId = null, label = defaultTabLabel))
+            providerGroups
+                .asSequence()
+                .filter { it.id in providerGroupIds }
+                .sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
+                .forEach { group ->
+                    add(ModelPickerTab(key = "folder_${group.id}", folderId = group.id, label = group.name))
                 }
+            if (hasUngroupedProviders) {
+                add(ModelPickerTab(key = "ungrouped", folderId = null, label = ungroupedTabLabel, ungroupedOnly = true))
             }
         }
     }
@@ -414,7 +419,7 @@ fun ModelPickerSheet(
                                 selectedTabIndex = index
                                 initialPositionApplied = false
                             },
-                            modifier = Modifier.testTag("model-picker-tab_${tab.folderId ?: "default"}"),
+                            modifier = Modifier.testTag("model-picker-tab_${tab.key}"),
                             text = {
                                 Text(tab.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }

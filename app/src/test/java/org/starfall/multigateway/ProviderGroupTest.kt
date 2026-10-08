@@ -167,6 +167,39 @@ class ProviderGroupTest {
     }
 
     @Test
+    fun defaultPickerOrdersProvidersByFolderThenProviderSortOrder() {
+        val first = ProviderGroup("first", "First", sortOrder = 0)
+        val second = ProviderGroup("second", "Second", sortOrder = 1)
+        fun provider(id: String, groupId: String?, sortOrder: Int) = LlmProviderInfo(
+            id = id,
+            name = id,
+            type = ProviderType.OPENAI,
+            baseUrl = "",
+            groupId = groupId,
+            sortOrder = sortOrder,
+            config = ProviderConfiguration(modelIds = listOf("model-$id"))
+        )
+        val rows = computeModelPickerItems(
+            providers = listOf(
+                provider("second-0", second.id, 0),
+                provider("first-1", first.id, 1),
+                provider("root-0", null, 0),
+                provider("first-0", first.id, 0),
+                provider("second-1", second.id, 1)
+            ),
+            providerGroups = listOf(second, first),
+            dynamicModelsMap = emptyMap(),
+            selectedProviderId = "",
+            selectedModelId = ""
+        )
+
+        assertEquals(
+            listOf("first-0", "first-1", "second-0", "second-1", "root-0"),
+            rows.filterIsInstance<ModelPickerItem.Provider>().map { it.provider.id }
+        )
+    }
+
+    @Test
     fun pickerTabsFilterFoldersAndProviderCollapseButSearchExpandsMatches() {
         val group = ProviderGroup("g1", "Work", 0)
         val grouped = LlmProviderInfo(

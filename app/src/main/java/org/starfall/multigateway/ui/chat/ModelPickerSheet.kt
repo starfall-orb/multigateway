@@ -168,10 +168,29 @@ fun computeModelPickerItems(
     val defaultConfig = ModelConfiguration()
     val normalizedQuery = query.trim()
     val groupById = providerGroups.associateBy { it.id }
-    val visibleProviders = providers.mapNotNull { provider ->
+    val providerOrder = compareBy<LlmProviderInfo> { it.sortOrder }.thenBy { it.id }
+    val orderedProviders = when {
+        selectedFolderId != null -> providers
+            .filter { it.groupId == selectedFolderId }
+            .sortedWith(providerOrder)
+        ungroupedOnly -> providers
+            .filter { it.groupId == null || it.groupId !in groupById }
+            .sortedWith(providerOrder)
+        else -> buildList {
+            providerGroups
+                .sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
+                .forEach { group ->
+                    addAll(providers.filter { it.groupId == group.id }.sortedWith(providerOrder))
+                }
+            addAll(
+                providers
+                    .filter { it.groupId == null || it.groupId !in groupById }
+                    .sortedWith(providerOrder)
+            )
+        }
+    }
+    val visibleProviders = orderedProviders.mapNotNull { provider ->
         if (providerFilterId != null && provider.id != providerFilterId) return@mapNotNull null
-        if (selectedFolderId != null && provider.groupId != selectedFolderId) return@mapNotNull null
-        if (ungroupedOnly && provider.groupId != null && provider.groupId in groupById) return@mapNotNull null
 
         val groupMatches = provider.groupId
             ?.let(groupById::get)

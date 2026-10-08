@@ -38,7 +38,9 @@ android {
             // Use Android Gradle Plugin's default debug signing config; it creates the key when needed.
         }
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // Codemagic provides CM_KEYSTORE_PATH and signs in Gradle. On Appcircle it is absent, so the
+            // APK stays unsigned here and the "Android Sign" workflow step signs it with the selected keystore.
+            if (System.getenv("CM_KEYSTORE_PATH") != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

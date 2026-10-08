@@ -243,10 +243,6 @@ fun ProviderScreen(
             val layout = ProviderDragLayout(orderedProviders, rootItems.map { it.toOrderItem() })
             val next = moveProviderDrag(layout, fromKey.removePrefix("provider_"), target, atStart = toKey == "root:start")
             if (next == layout) return
-            if (target?.isGroup == true && target.id in collapsedSections) {
-                // Preview only; persist expansion after a successful drop.
-                collapsedSections = collapsedSections - target.id
-            }
             orderedProviders = next.providers
             val groups = rootItems.filterIsInstance<ProviderRootItem.GroupItem>().associateBy { it.id }
             val byId = next.providers.associateBy { it.id }
@@ -393,6 +389,7 @@ fun ProviderScreen(
         }
     }
     LaunchedEffect(validGroupIds) {
+        if (validGroupIds.isEmpty()) return@LaunchedEffect // groups not loaded yet; don't wipe the saved collapsed state
         val cleaned = collapsedSections.filterTo(linkedSetOf()) { it in validGroupIds }
         if (cleaned != collapsedSections) setCollapsedSections(cleaned)
     }

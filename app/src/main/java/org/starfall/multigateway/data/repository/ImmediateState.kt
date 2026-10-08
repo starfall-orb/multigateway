@@ -30,10 +30,12 @@ internal class ImmediateState<T : Any>(
     init {
         scope.launch {
             try {
-                source.collect {
+                var firstEmission = true
+                source.collect { emitted ->
                     disk.withLock {
-                        // Re-read under the writer lock: the triggering emission may be stale.
-                        val latest = source.first()
+                        // First emission is already the committed snapshot (writes wait on `ready`), so skip
+                        // the second full decrypt/decode. Later emissions re-read under the writer lock: they may be stale.
+                        val latest = if (firstEmission) { firstEmission = false; emitted } else source.first()
                         synchronized(guard) { committed = latest; publish() }
                         ready.complete(Unit)
                     }

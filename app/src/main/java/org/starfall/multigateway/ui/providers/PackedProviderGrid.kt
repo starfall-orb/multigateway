@@ -203,12 +203,10 @@ internal fun PackedProviderGrid(
                 ReorderableItem(
                     reorderState,
                     key = cell.key,
-                    // The reorderable state already tracks the dragged item and
-                    // the grid is being scrolled at the same time. A second
-                    // placement animation makes the item briefly use two
-                    // positions while previewMove updates the slots, which is
-                    // especially visible at the bottom edge.
-                    animateItemModifier = if (draggingKey == null) Modifier.animateItem() else Modifier
+                    // Other items animate to their new slots while dragging. The dragged item is excluded:
+                    // the reorderable state positions it under the finger, and a placement animation on top
+                    // of that makes it jump around the finger while the grid scrolls at the bottom edge.
+                    animateItemModifier = if (cell.key == draggingKey) Modifier else Modifier.animateItem()
                 ) { dragging ->
                     val handle = Modifier.longPressDraggableHandle(enabled = dragEnabled && !cell.key.startsWith("root:"),
                         interactionSource = interaction, onDragStarted = {

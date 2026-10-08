@@ -28,8 +28,8 @@ internal fun moveProviderDrag(layout: ProviderDragLayout, id: String, target: Pr
         val index = remaining.indexOfFirst { it.id == targetProvider.id }
         remaining.add(index + if (after) 1 else 0, moved)
     } else if (destination != null) {
-        val first = remaining.indexOfFirst { it.groupId == destination }
-        remaining.add(if (first < 0) remaining.size else first, moved)
+        val last = remaining.indexOfLast { it.groupId == destination }
+        remaining.add(if (last < 0) remaining.size else last + 1, moved)
     } else remaining.add(if (atStart) 0 else remaining.size, moved)
     val root = layout.root.filterNot { !it.isGroup && it.id == id }.toMutableList()
     if (destination == null) {

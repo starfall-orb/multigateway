@@ -13,14 +13,18 @@ import javax.crypto.spec.GCMParameterSpec
 internal object SecretCipher {
     private const val PREFIX = "keystore:v1:"
     private const val ALIAS = "multigateway.credentials.v1"
+    // The AndroidKeyStore handle is just a reference to the non-exportable key, safe to reuse.
+    // Looking it up on every call costs a Keystore IPC round trip per decrypt.
+    @Volatile private var cachedKey: SecretKey? = null
     @Synchronized private fun key(create: Boolean): SecretKey {
+        cachedKey?.let { return it }
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        (store.getKey(ALIAS, null) as? SecretKey)?.let { cachedKey = it; return it }
         check(create) { "Credential key unavailable. Restore access on the original device." }
         return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
             init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
-        }.generateKey()
+        }.generateKey().also { cachedKey = it }
     }
     fun isEncrypted(value: String) = value.startsWith(PREFIX)
     fun encrypt(value: String): String {

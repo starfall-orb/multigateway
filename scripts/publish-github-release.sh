@@ -5,11 +5,12 @@ GITHUB_RELEASE_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 : "${GITHUB_RELEASE_TOKEN:?Set secret GITHUB_TOKEN (or GH_TOKEN) in Codemagic environment group github_release}"
 export GH_TOKEN="$GITHUB_RELEASE_TOKEN"
 repo="${GITHUB_RELEASE_REPO:-starfall-org/multigateway}"
-cd "${CM_BUILD_DIR:-$(git rev-parse --show-toplevel)}"
+cd "${CM_BUILD_DIR:-${AC_REPOSITORY_DIR:-$(git rev-parse --show-toplevel)}}"
 command -v gh >/dev/null || { echo 'GitHub CLI (gh) is required.' >&2; exit 1; }
 
 # Keep the GitHub tag in sync with the version embedded in the APK.
-version="$(python3 -c 'import json; print(json.load(open("app/build/outputs/apk/release/output-metadata.json"))["elements"][0]["versionName"])')"
+metadata_json="${RELEASE_METADATA_JSON:-app/build/outputs/apk/release/output-metadata.json}"
+version="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["elements"][0]["versionName"])' "$metadata_json")"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo 'Invalid app version.' >&2; exit 1; }
 expected_tag="$version"
 tag="${GITHUB_RELEASE_TAG:-$expected_tag}"
@@ -22,7 +23,8 @@ fi
 commit="$(git rev-parse HEAD)"
 short_commit="$(git rev-parse --short=12 HEAD)"
 shopt -s nullglob
-apks=(app/build/outputs/apk/release/*.apk)
+apk_dir="${RELEASE_APK_DIR:-app/build/outputs/apk/release}"
+apks=("$apk_dir"/*.apk)
 (( ${#apks[@]} > 0 )) || { echo 'Missing release APKs.' >&2; exit 1; }
 checksums=()
 for apk in "${apks[@]}"; do

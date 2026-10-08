@@ -1,0 +1,174 @@
+---
+# Appcircle build workflow: MultiGateway release APK, signed with the keystore selected in the
+# build configuration (multigateway.jks). Based on Appcircle's default Android Java/Kotlin workflow.
+# Import it in the workflow editor, or recreate the same steps in the UI.
+#
+# Build configuration (Appcircle UI) must have:
+#   Module: app | Variant: release | Output type: APK | Keystore: multigateway.jks
+directories:
+- AC_OUTPUT_DIR
+- AC_SOURCE
+steps:
+- componentType: appcircle_activate_ssh_key
+  componentVersion: 1.0.*
+  stepName: Activate SSH Private Key
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-activate-ssh-key-component
+  repoUrl: https://github.com/appcircleio/appcircle-activate-ssh-key-component.git
+  commit: 6f58522
+  inputs:
+  - AC_REPOSITORY_SSH_KEY: $AC_REPOSITORY_SSH_KEY
+  outputs:
+  - SSH_AUTH_SOCK: SSH_AUTH_SOCK
+- componentType: appcircle_git_clone
+  componentVersion: 1.1.*
+  stepName: Git Clone
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-git-clone-component
+  repoUrl: https://github.com/appcircleio/appcircle-git-clone-component.git
+  commit: 2f9d1f5
+  inputs:
+  - AC_GIT_URL: $AC_GIT_URL
+  - AC_GIT_COMMIT: $AC_GIT_COMMIT
+  - AC_GIT_BRANCH: $AC_GIT_BRANCH
+  - AC_GIT_TAG: ""
+  - AC_GIT_LFS: "false"
+  - AC_GIT_SUBMODULE: ""
+  - AC_GIT_CACHE_CREDENTIALS: "true"
+  - AC_GIT_EXTRA_PARAMS: $AC_GIT_EXTRA_PARAMS
+  outputs:
+  - AC_REPOSITORY_DIR: AC_REPOSITORY_DIR
+- componentType: appcircle_select_java_version
+  componentVersion: 1.0.*
+  stepName: Select Java Version
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-select-java-version-component
+  repoUrl: https://github.com/appcircleio/appcircle-select-java-version-component.git
+  commit: 0c841de
+  inputs:
+  - AC_SELECTED_JAVA_VERSION: "21"
+- componentType: appcircle_custom_script
+  componentVersion: 1.0.*
+  stepName: Set up Android SDK 37
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-custom-script-component
+  repoUrl: https://github.com/appcircleio/appcircle-custom-script-component.git
+  commit: ed1b419
+  inputs:
+  - Execute: bash
+  - Script: |
+      set -eu
+      SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+      : "${SDK_ROOT:?ANDROID_HOME is not set}"
+      printf 'sdk.dir=%s\n' "$SDK_ROOT" > "$AC_REPOSITORY_DIR/local.properties"
+      SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+      if [ ! -x "$SDKMANAGER" ]; then
+        SDKMANAGER="$(command -v sdkmanager || true)"
+      fi
+      if [ -n "$SDKMANAGER" ]; then
+        yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+        "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0"
+      else
+        echo "sdkmanager not found; relying on Gradle to download the SDK components"
+      fi
+- componentType: appcircle_android_build
+  componentVersion: 1.0.*
+  stepName: Android Build
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-android-build-component
+  repoUrl: https://github.com/appcircleio/appcircle-android-build-component.git
+  commit: c7c17e3
+  inputs:
+  - AC_REPOSITORY_DIR: $AC_REPOSITORY_DIR
+  - AC_PROJECT_PATH: $AC_PROJECT_PATH
+  - AC_MODULE: $AC_MODULE
+  - AC_VARIANTS: $AC_VARIANTS
+  - AC_OUTPUT_TYPE: $AC_OUTPUT_TYPE
+  - AC_GRADLE_BUILD_EXTRA_ARGS: --stacktrace
+  outputs:
+  - AC_APK_PATH: AC_APK_PATH
+  - AC_AAB_PATH: AC_AAB_PATH
+- componentType: appcircle_android_sign
+  componentVersion: 1.0.*
+  stepName: Android Sign
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-android-sign-component
+  repoUrl: https://github.com/appcircleio/appcircle-android-sign-component.git
+  commit: b767c18
+  inputs:
+  - AC_APK_PATH: $AC_APK_PATH
+  - AC_AAB_PATH: $AC_AAB_PATH
+  - AC_ANDROID_KEYSTORE_PATH: $AC_ANDROID_KEYSTORE_PATH
+  - AC_ANDROID_KEYSTORE_PASSWORD: $AC_ANDROID_KEYSTORE_PASSWORD
+  - AC_ANDROID_ALIAS: $AC_ANDROID_ALIAS
+  - AC_ANDROID_ALIAS_PASSWORD: $AC_ANDROID_ALIAS_PASSWORD
+  # targetSdk 36: Android 11+ refuses APKs without a v2+ signature, so v2 must be on.
+  - AC_V2_SIGN: "true"
+  outputs:
+  - AC_SIGNED_APK_PATH: AC_SIGNED_APK_PATH
+  - AC_SIGNED_AAB_PATH: AC_SIGNED_AAB_PATH
+- componentType: appcircle_custom_script
+  componentVersion: 1.0.*
+  stepName: Publish APK to GitHub Release
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-custom-script-component
+  repoUrl: https://github.com/appcircleio/appcircle-custom-script-component.git
+  commit: ed1b419
+  inputs:
+  - Execute: bash
+  - Script: |
+      set -euo pipefail
+      # Opt-in: the publish script moves the version tag to HEAD and replaces release assets,
+      # so only run it for builds where PUBLISH_GITHUB_RELEASE=true (set it per build configuration).
+      if [ "${PUBLISH_GITHUB_RELEASE:-false}" != "true" ]; then
+        echo "PUBLISH_GITHUB_RELEASE is not 'true'; skipping GitHub Release upload."
+        exit 0
+      fi
+      # Secret environment variable (token with contents:write on the repo).
+      : "${GITHUB_TOKEN:?Set secret GITHUB_TOKEN (or GH_TOKEN) in Appcircle environment variables}"
+      cd "$AC_REPOSITORY_DIR"
+      : "${AC_SIGNED_APK_PATH:?Missing signed APK; the Android Sign step must run first}"
+      STAGE="$AC_OUTPUT_DIR/github-release"
+      mkdir -p "$STAGE"
+      cp "$AC_SIGNED_APK_PATH" "$STAGE/MultiGateway.apk"
+      METADATA="app/build/outputs/apk/release/output-metadata.json"
+      if [ ! -f "$METADATA" ]; then
+        VERSION="$(grep -oE 'versionName = "[^"]+"' app/build.gradle.kts | head -1 | cut -d'"' -f2)"
+        printf '{"elements":[{"versionName":"%s"}]}\n' "$VERSION" > "$STAGE/output-metadata.json"
+        METADATA="$STAGE/output-metadata.json"
+      fi
+      if ! command -v gh >/dev/null 2>&1; then
+        brew install gh --quiet
+      fi
+      export GITHUB_RELEASE_REPO="starfall-org/multigateway"
+      export RELEASE_APK_DIR="$STAGE"
+      export RELEASE_METADATA_JSON="$METADATA"
+      bash scripts/publish-github-release.sh
+- componentType: appcircle_android_post_process
+  componentVersion: 1.0.*
+  stepName: Android App Post-Processor
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-android-post-process-component
+  repoUrl: https://github.com/appcircleio/appcircle-android-post-process-component.git
+  commit: 9498afa
+  outputs:
+  - AC_ANDROID_POST_PROCESS_OUTPUT_PATH: AC_ANDROID_POST_PROCESS_OUTPUT_PATH
+- componentType: appcircle_export_build_artifacts
+  componentVersion: 1.0.*
+  stepName: Export Build Artifacts
+  alwaysRun: true
+  enabled: true
+  onError: $exit
+  webUrl: https://github.com/appcircleio/appcircle-export-build-artifacts
+  repoUrl: https://github.com/appcircleio/appcircle-export-build-artifacts.git
+  commit: f8aa050
+  inputs:
+  - AC_UPLOAD_DIR: $AC_OUTPUT_DIR

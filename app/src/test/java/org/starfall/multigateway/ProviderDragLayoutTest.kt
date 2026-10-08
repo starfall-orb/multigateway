@@ -42,7 +42,12 @@ class ProviderDragLayoutTest {
         assertEquals(next, moveProviderDrag(next, "a", slot("a")))
     }
 
-    @Test fun folderHeaderAcceptsFirstMemberAndEmptyAreaUngroupsLastMember() {
+    @Test fun folderHeaderAppendsProviderToTheEndOfTheFolder() {
+        val next = moveProviderDrag(original, "outside", slot("g", true))
+        assertEquals(listOf("a", "b", "outside"), next.members("g"))
+    }
+
+    @Test fun emptyFolderHeaderAcceptsFirstMemberAndEmptyAreaUngroupsLastMember() {
         val layout = original.copy(providers = listOf(p("outside"), p("tail")))
         val next = moveProviderDrag(layout, "outside", slot("g", true))
         assertEquals(listOf("outside"), next.members("g"))

@@ -30,10 +30,18 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
 
     private val providerDao = db.llmProviderDao()
     private val groupDao = db.providerGroupDao()
+
+    // Rows are re-decoded on every Room invalidation; unchanged rows (same entity) reuse the previous result
+    // so we don't pay Keystore decrypt + JSON decode for every provider on each emission.
+    // Must be declared before `state`, which starts collecting from its constructor.
+    private val decodedProviders = java.util.concurrent.ConcurrentHashMap<String, Pair<LlmProviderEntity, LlmProviderInfo>>()
     private val modelsDao = db.llmModelsDao()
 
     private val storedProviders: Flow<List<LlmProviderInfo>> = providerDao.getAllProviders().map { entities ->
-        entities.map { providerEntityToModel(it) }
+        entities.map { providerEntityToModel(it) }.also {
+            // Drop cached decodes of providers that no longer exist.
+            decodedProviders.keys.retainAll(entities.mapTo(hashSetOf()) { e -> e.id })
+        }
     }
 
     private val storedGroups: Flow<List<ProviderGroup>> = groupDao.getAllGroups().map { groups ->
@@ -313,7 +321,13 @@ class LlmRepository(private val db: AppDatabase, private val service: LlmService
         )
     }
 
+    // (decoded-provider cache lives near the top of the class; it must exist before `state` starts collecting)
     private fun providerEntityToModel(entity: LlmProviderEntity): LlmProviderInfo {
+        decodedProviders[entity.id]?.let { (cachedEntity, model) -> if (cachedEntity == entity) return model }
+        return decodeProviderEntity(entity).also { decodedProviders[entity.id] = entity to it }
+    }
+
+    private fun decodeProviderEntity(entity: LlmProviderEntity): LlmProviderInfo {
         val type = try {
             ProviderType.valueOf(entity.type)
         } catch (e: Exception) {

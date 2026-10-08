@@ -145,8 +145,19 @@ steps:
         METADATA="$STAGE/output-metadata.json"
       fi
       if ! command -v gh >/dev/null 2>&1; then
-        brew install gh --quiet
+        case "$(uname -s)" in
+          Darwin) brew install gh --quiet ;;
+          *)
+            # Linux runners have no brew: use the official release tarball.
+            case "$(uname -m)" in aarch64|arm64) GH_ARCH=arm64 ;; *) GH_ARCH=amd64 ;; esac
+            GH_VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/cli/cli/releases/latest | sed 's#.*/tag/v##')"
+            GH_DIR="$(mktemp -d)"
+            curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" | tar -xz -C "$GH_DIR"
+            export PATH="$GH_DIR/gh_${GH_VERSION}_linux_${GH_ARCH}/bin:$PATH"
+            ;;
+        esac
       fi
+      gh --version
       export GITHUB_RELEASE_REPO="starfall-org/multigateway"
       export RELEASE_APK_DIR="$STAGE"
       export RELEASE_METADATA_JSON="$METADATA"

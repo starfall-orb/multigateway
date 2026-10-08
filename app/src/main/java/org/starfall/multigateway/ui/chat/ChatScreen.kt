@@ -201,7 +201,7 @@ fun ChatScreen(
                 scrollToBottom(includeQueued = false)
                 continue
             }
-            val remaining = item.offset + item.size - (layout.viewportEndOffset - layout.afterContentPadding)
+            val remaining = (item.offset + item.size - (layout.viewportEndOffset - layout.afterContentPadding)).toFloat()
             if (remaining > 0.5f) {
                 val step = (remaining * (1f - exp(-elapsedMs / 120f))).coerceAtLeast(min(remaining, elapsedMs * 0.05f))
                 try { listState.scrollBy(step) } catch (e: CancellationException) { currentCoroutineContext().ensureActive() }

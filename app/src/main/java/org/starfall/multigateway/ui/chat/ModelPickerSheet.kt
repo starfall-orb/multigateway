@@ -382,7 +382,8 @@ fun ModelPickerSheet(
     val allCollapsed = !forceExpanded && providers.all { it.id in collapsedProviderIds }
 
     AppBottomSheet(
-        onDismissRequest = onDismiss
+        onDismissRequest = onDismiss,
+        fixedHeightFraction = 0.75f
     ) {
         Column(
             modifier = Modifier
@@ -451,7 +452,7 @@ fun ModelPickerSheet(
                 state = listState,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f, fill = false)
+                    .weight(1f)
                     .testTag("model-picker-list"),
                 contentPadding = PaddingValues(start = 20.dp, top = 10.dp, end = 20.dp, bottom = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)

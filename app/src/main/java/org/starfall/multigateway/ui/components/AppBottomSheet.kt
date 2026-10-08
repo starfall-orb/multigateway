@@ -46,6 +46,8 @@ fun AppBottomSheet(
     containerColor: Color = BottomSheetDefaults.ContainerColor,
     dragHandleHeight: Dp = 48.dp,
     dragHandleWidth: Dp = 32.dp,
+    /** When set, the sheet is this fraction of the available height regardless of content; null wraps content. */
+    fixedHeightFraction: Float? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -96,8 +98,16 @@ fun AppBottomSheet(
                 }
             }) { measurables, constraints ->
                 val ceiling = bounds.heightFor(bounds.maximum, requestedHeight)
-                val placeable = measurables.single().measure(constraints.copy(minHeight = 0, maxHeight = ceiling))
-                layout(placeable.width, bounds.heightFor(placeable.height, requestedHeight)) { placeable.placeRelative(0, 0) }
+                // Fixed mode is content-independent: provider/model expansion and folder-tab
+                // changes cannot resize the sheet. requestedHeight changes only through the resize handle.
+                val fixedHeight = fixedHeightFraction?.let { fraction ->
+                    val initialHeight = (bounds.maximum * fraction.coerceIn(0f, 1f)).roundToInt()
+                    bounds.heightFor(initialHeight, requestedHeight)
+                }
+                val placeable = measurables.single().measure(
+                    constraints.copy(minHeight = fixedHeight ?: 0, maxHeight = fixedHeight ?: ceiling)
+                )
+                layout(placeable.width, fixedHeight ?: bounds.heightFor(placeable.height, requestedHeight)) { placeable.placeRelative(0, 0) }
             }
         }
     }

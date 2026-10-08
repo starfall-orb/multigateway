@@ -161,6 +161,58 @@ class ModelPickerToggleTest {
         }
     }
 
+    @Test fun sheetHeightStaysFixedWhenProvidersCollapseAndFolderTabChanges() {
+        val group = ProviderGroup("folder", "Work")
+        fun provider(id: String, groupId: String? = null, models: List<String> = listOf("model-$id")) =
+            LlmProviderInfo(
+                id = id,
+                name = "Provider $id",
+                type = ProviderType.OPENAI,
+                baseUrl = "",
+                groupId = groupId,
+                config = ProviderConfiguration(modelIds = models)
+            )
+
+        val providers = listOf(
+            provider("grouped", group.id, (0..12).map { "model-$it" }),
+            provider("root", null, (0..12).map { "root-model-$it" })
+        )
+
+        compose.setContent {
+            MaterialTheme {
+                ModelPickerSheet(
+                    providers = providers,
+                    providerGroups = listOf(group),
+                    selectedProviderId = "grouped",
+                    selectedModelId = "model-0",
+                    conversationReasoningEffort = null,
+                    onSelectModel = { _, _ -> },
+                    onSetReasoningEffort = {},
+                    onDismiss = {}
+                )
+            }
+        }
+
+        val sheet = compose.onNodeWithTag("bottom-sheet-window")
+        val initialHeight = sheet.fetchSemanticsNode().boundsInRoot.height
+
+        compose.onNodeWithTag("model-picker-provider_grouped").performClick()
+        compose.waitForIdle()
+        assertEquals(initialHeight, sheet.fetchSemanticsNode().boundsInRoot.height, 1f)
+
+        compose.onNodeWithTag("model-picker-provider_grouped").performClick()
+        compose.waitForIdle()
+        assertEquals(initialHeight, sheet.fetchSemanticsNode().boundsInRoot.height, 1f)
+
+        compose.onNodeWithTag("model-picker-tab_folder_folder").performClick()
+        compose.waitForIdle()
+        assertEquals(initialHeight, sheet.fetchSemanticsNode().boundsInRoot.height, 1f)
+
+        compose.onNodeWithTag("model-picker-tab_default").performClick()
+        compose.waitForIdle()
+        assertEquals(initialHeight, sheet.fetchSemanticsNode().boundsInRoot.height, 1f)
+    }
+
     @Test fun lateDynamicDiscoveryAppearsWithoutReopeningThePicker() {
         val models = mutableStateMapOf<String, List<String>>()
         compose.setContent { MaterialTheme {

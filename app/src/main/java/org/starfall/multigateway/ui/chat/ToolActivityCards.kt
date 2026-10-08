@@ -22,18 +22,21 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.WrapText
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import org.starfall.multigateway.R
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,6 +46,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.starfall.multigateway.data.model.ToolActivity
+import org.starfall.multigateway.data.local.preferences.WordWrapMode
 import org.starfall.multigateway.data.tools.ToolFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -279,6 +283,20 @@ private fun PrettyArguments(raw: String) {
 private fun RawValueBlock(value: String) {
     val context = LocalContext.current
     val label = if (looksLikeJson(value)) "json" else "text"
+    val preferences = LocalCodeRenderingPreferences.current
+    var sessionWrap by remember { mutableStateOf(false) }
+    val mode = if (preferences.wordWrapMode == WordWrapMode.OFF && sessionWrap) WordWrapMode.VIEWPORT else preferences.wordWrapMode
+    val density = LocalDensity.current
+    val textStyle = MaterialTheme.typography.bodySmall.copy(
+        fontFamily = FontFamily.Monospace,
+        fontSize = 12.sp,
+        lineHeight = 17.sp
+    )
+    val measurer = rememberTextMeasurer()
+    val characterWidth = remember(textStyle, density) {
+        (measurer.measure("0".repeat(100), textStyle, softWrap = false).size.width / 100f).coerceAtLeast(1f)
+    }
+    val scrollState = rememberScrollState()
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -299,6 +317,16 @@ private fun RawValueBlock(value: String) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
+                if (preferences.wordWrapMode == WordWrapMode.OFF) {
+                    IconButton(onClick = { sessionWrap = !sessionWrap }, modifier = Modifier.size(34.dp)) {
+                        Icon(
+                            imageVector = Icons.Outlined.WrapText,
+                            contentDescription = stringResource(if (sessionWrap) R.string.code_wrap_disable else R.string.code_wrap_enable),
+                            modifier = Modifier.size(18.dp),
+                            tint = if (sessionWrap) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                        )
+                    }
+                }
                 IconButton(
                     onClick = {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -316,22 +344,24 @@ private fun RawValueBlock(value: String) {
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(12.dp)
-            ) {
-                SelectionContainer {
-                    Text(
-                        text = value,
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+            // Same wrap rules as chat code blocks: the saved word-wrap mode decides width and horizontal scrolling.
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val viewport = with(density) { (maxWidth - 24.dp).coerceAtLeast(1.dp).toPx() }
+                val target = codeWrapWidth(mode, viewport, (characterWidth * preferences.wordWrapColumn).coerceAtMost(200_000f))
+                val bodyModifier = if (target == null) Modifier else Modifier.width(with(density) { target.toDp() } + 24.dp)
+                Box(
+                    Modifier.fillMaxWidth()
+                        .then(if (mode == WordWrapMode.OFF || mode == WordWrapMode.COLUMN) Modifier.horizontalScroll(scrollState) else Modifier)
+                ) {
+                    SelectionContainer {
+                        Text(
+                            text = value,
+                            style = textStyle,
+                            softWrap = mode != WordWrapMode.OFF,
+                            modifier = bodyModifier.padding(12.dp),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
             }
         }

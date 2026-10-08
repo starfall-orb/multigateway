@@ -32,6 +32,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.unit.Velocity
+import kotlin.math.exp
+import kotlin.math.min
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import org.starfall.multigateway.data.model.ChatRole
 import org.starfall.multigateway.data.model.Conversation
 import org.starfall.multigateway.data.model.LlmProviderInfo
@@ -113,14 +121,18 @@ fun ChatScreen(
     val lastMessage = conversationMessages.lastOrNull()
     val streamingMessage = if (streamingHere) conversationMessages.lastOrNull { it.role == ChatRole.MODEL } else null
     val unansweredMessages = remember(conversationMessages) { unansweredUserMessageIds(conversationMessages) }
-    val autoScrollTick = if (!autoScroll) null else if (streamingHere) {
-        ((streamingMessage?.content?.length ?: 0) + (streamingMessage?.reasoningContent?.length ?: 0)) / 48
-    } else {
-        lastMessage?.activeVersionIndex
-    }
+    // Streaming text is followed by the per-frame loop below; stepping on text length made the scroll jump per chunk.
+    val autoScrollTick = if (!autoScroll || streamingHere) null else lastMessage?.activeVersionIndex
     fun whenIdle(action: () -> Unit) {
         if (isGenerating) Toast.makeText(context, "Stop the current response before editing messages.", Toast.LENGTH_SHORT).show()
         else action()
+    }
+    val nearBottomPx = with(LocalDensity.current) { 32.dp.toPx() }
+    fun isNearBottom(): Boolean {
+        val layout = listState.layoutInfo
+        val last = layout.visibleItemsInfo.lastOrNull() ?: return false
+        if (last.index != layout.totalItemsCount - 1) return false
+        return last.offset + last.size - (layout.viewportEndOffset - layout.afterContentPadding) <= nearBottomPx
     }
     val scrollConnection = remember(listState) {
         object : NestedScrollConnection {
@@ -129,8 +141,13 @@ fun ChatScreen(
                 return Offset.Zero
             }
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.Drag && !listState.canScrollForward) followBottom = true
+                // Drag and fling both count: reaching the bottom resumes following without the jump button.
+                if (consumed.y < 0f && isNearBottom()) followBottom = true
                 return Offset.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (consumed.y <= 0f && isNearBottom()) followBottom = true
+                return Velocity.Zero
             }
         }
     }
@@ -164,8 +181,31 @@ fun ChatScreen(
         streamingHere,
         if (autoScroll) summaryProgress?.progress else null
     ) {
-        if (autoScroll && followBottom && messages.isNotEmpty()) {
-            scrollToBottom(includeQueued = !streamingHere)
+        if (autoScroll && followBottom && messages.isNotEmpty() && !streamingHere) {
+            scrollToBottom(includeQueued = true)
+        }
+    }
+    // Ease toward the bottom every frame while text streams, like the live thinking block does.
+    LaunchedEffect(conversation?.id, conversationMessages.size, autoScroll, streamingHere, followBottom) {
+        if (!autoScroll || !streamingHere || !followBottom) return@LaunchedEffect
+        var previous = 0L
+        while (isActive) {
+            val now = withFrameNanos { it }
+            val elapsedMs = if (previous == 0L) 16f else ((now - previous) / 1_000_000f).coerceIn(1f, 64f)
+            previous = now
+            if (listState.isScrollInProgress || conversationMessages.isEmpty()) continue
+            val index = conversationMessages.lastIndex + messageIndexOffset
+            val layout = listState.layoutInfo
+            val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
+            if (item == null) {
+                scrollToBottom(includeQueued = false)
+                continue
+            }
+            val remaining = item.offset + item.size - (layout.viewportEndOffset - layout.afterContentPadding)
+            if (remaining > 0.5f) {
+                val step = (remaining * (1f - exp(-elapsedMs / 120f))).coerceAtLeast(min(remaining, elapsedMs * 0.05f))
+                try { listState.scrollBy(step) } catch (e: CancellationException) { currentCoroutineContext().ensureActive() }
+            }
         }
     }
     LaunchedEffect(chatError) {

@@ -13,9 +13,9 @@ class ProviderDragLayoutTest {
     private fun ProviderDragLayout.members(group: String) = providers.filter { it.groupId == group }.map { it.id }
 
     @Test fun hoveringMemberAddsProviderImmediatelyAtHoveredPosition() {
-        val next = moveProviderDrag(original, "outside", slot("a"))
+        val next = moveProviderDrag(original, "outside", slot("b"))
         assertEquals("g", next.providers.first { it.id == "outside" }.groupId)
-        assertEquals(listOf("a", "outside", "b"), next.members("g"))
+        assertEquals(listOf("a", "b", "outside"), next.members("g"))
         assertEquals(listOf(slot("g", true), slot("tail")), next.root)
         assertEquals(null, original.providers.first { it.id == "outside" }.groupId)
     }
@@ -37,9 +37,22 @@ class ProviderDragLayoutTest {
         val layout = original.copy(providers = original.providers + p("c", "h"), root = original.root + slot("h", true))
         val next = moveProviderDrag(layout, "a", slot("c"))
         assertEquals(listOf("b"), next.members("g"))
-        assertEquals(listOf("c", "a"), next.members("h"))
-        assertEquals(listOf("a", "c"), moveProviderDrag(next, "a", slot("c")).members("h"))
+        assertEquals(listOf("a", "c"), next.members("h"))
+        assertEquals(listOf("c", "a"), moveProviderDrag(next, "a", slot("c")).members("h"))
         assertEquals(next, moveProviderDrag(next, "a", slot("a")))
+    }
+
+    @Test fun providerEnteringFromAboveCanTakeTheFirstFolderMemberSlot() {
+        val next = moveProviderDrag(original, "outside", slot("a"))
+        assertEquals("g", next.providers.first { it.id == "outside" }.groupId)
+        assertEquals(listOf("outside", "a", "b"), next.members("g"))
+        assertEquals(listOf("a", "outside", "b"), moveProviderDrag(next, "outside", slot("a")).members("g"))
+    }
+
+    @Test fun memberHoveringItsOwnFolderHeaderMovesToTheFirstSlot() {
+        val next = moveProviderDrag(original, "b", slot("g", true))
+        assertEquals(listOf("b", "a"), next.members("g"))
+        assertEquals(next, moveProviderDrag(next, "b", slot("g", true)))
     }
 
     @Test fun folderHeaderAppendsProviderToTheEndOfTheFolder() {

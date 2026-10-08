@@ -21,7 +21,11 @@ internal fun moveProviderDrag(layout: ProviderDragLayout, id: String, target: Pr
     val slots = layout.slots()
     val from = slots.indexOf(ProviderRootOrderItem(id, false))
     val to = slots.indexOf(target)
-    val after = target != null && !target.isGroup && from >= 0 && from < to
+    // Entering a folder from above must be able to take the first member's slot; otherwise that slot is
+    // unreachable because the folder header appends to the end.
+    val takesFirstMemberSlot = destination != null && provider.groupId != destination && targetProvider != null &&
+        layout.providers.firstOrNull { it.groupId == destination }?.id == targetProvider.id
+    val after = target != null && !target.isGroup && from >= 0 && from < to && !takesFirstMemberSlot
     val moved = provider.copy(groupId = destination)
     val remaining = layout.providers.filterNot { it.id == id }.toMutableList()
     if (targetProvider != null) {
@@ -29,7 +33,13 @@ internal fun moveProviderDrag(layout: ProviderDragLayout, id: String, target: Pr
         remaining.add(index + if (after) 1 else 0, moved)
     } else if (destination != null) {
         val last = remaining.indexOfLast { it.groupId == destination }
-        remaining.add(if (last < 0) remaining.size else last + 1, moved)
+        // A member hovering its own folder's header (the logo cell sits before the first member) means "first slot".
+        val at = when {
+            last < 0 -> remaining.size
+            provider.groupId == destination -> remaining.indexOfFirst { it.groupId == destination }
+            else -> last + 1
+        }
+        remaining.add(at, moved)
     } else remaining.add(if (atStart) 0 else remaining.size, moved)
     val root = layout.root.filterNot { !it.isGroup && it.id == id }.toMutableList()
     if (destination == null) {

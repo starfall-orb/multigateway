@@ -86,7 +86,8 @@ fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming
                     isStreaming && !fence.closed && model.node.endOffset == model.content.length)
             },
             codeBlock = { model -> RenderCodeBlock("", model.node.getTextInNode(model.content).toString().trimEnd(), false) },
-            paragraph = { model -> RenderParagraph(model, latexMode) }
+            paragraph = { model -> RenderParagraph(model, latexMode) },
+            table = { model -> RenderMarkdownTable(model) }
         ),
         error = { Text(content, style = type.bodyLarge.copy(fontFamily = messageFont, fontSize = bodySize)) }
     )

@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.*
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -44,6 +46,59 @@ internal fun packedGroupBlockBounds(
             put(group, Rect(1f, top, (viewport.width - 1f).coerceAtLeast(1f), bottom))
         }
     }
+}
+
+/** Legacy geometry helpers retained for rendering regression tests and tooling. */
+internal fun packedGroupRegions(cells: List<PackedGridCell>, bounds: Map<String, Rect>): Map<String, List<Rect>> {
+    val regions = mutableMapOf<String, MutableList<Rect>>()
+    cells.forEachIndexed { index, cell ->
+        val group = cell.groupId ?: return@forEachIndexed
+        val rect = bounds[cell.key] ?: return@forEachIndexed
+        val parts = regions.getOrPut(group) { mutableListOf() }
+        parts += rect
+        for (nextIndex in listOf(index + 1, index + 2)) {
+            val next = cells.getOrNull(nextIndex)?.takeIf { it.groupId == group } ?: continue
+            val other = bounds[next.key] ?: continue
+            val diagonal = nextIndex == index + 1 && index % 2 == 1
+            if (diagonal) {
+                val upper = if (rect.center.y <= other.center.y) rect else other
+                val x = if (rect.center.x < other.center.x) rect.right else rect.left
+                val y = upper.bottom
+                val connector = 2f
+                parts += Rect(x - connector, y - connector, x + connector, y + connector)
+                continue
+            }
+            val horizontal = nextIndex == index + 1
+            if (horizontal && (kotlin.math.abs(rect.center.y - other.center.y) > 1f || other.left <= rect.left)) continue
+            if (!horizontal && (kotlin.math.abs(rect.center.x - other.center.x) > 1f || other.top <= rect.top)) continue
+            parts += if (nextIndex == index + 1)
+                Rect(rect.center.x, maxOf(rect.top, other.top), other.center.x, minOf(rect.bottom, other.bottom))
+            else Rect(maxOf(rect.left, other.left), rect.center.y, minOf(rect.right, other.right), other.center.y)
+        }
+    }
+    cells.map { it.groupId }.filterNotNull().distinct().forEach { group ->
+        val lastIndex = cells.indexOfLast { it.groupId == group && bounds.containsKey(it.key) }
+        val lastRect = cells.getOrNull(lastIndex)?.let { bounds[it.key] } ?: return@forEach
+        val partnerIndex = if (lastIndex % 2 == 0) lastIndex + 1 else lastIndex - 1
+        if (partnerIndex !in cells.indices) {
+            val partner = if (lastIndex % 2 == 0) {
+                Rect(lastRect.right, lastRect.top, lastRect.right + lastRect.width, lastRect.bottom)
+            } else {
+                Rect(lastRect.left - lastRect.width, lastRect.top, lastRect.left, lastRect.bottom)
+            }
+            regions.getOrPut(group) { mutableListOf() } += partner
+        }
+    }
+    return regions
+}
+
+internal fun packedGroupPath(parts: List<Rect>, cellRects: Set<Rect>, origin: Offset, corner: Float): Path {
+    var outline = Path()
+    parts.forEach { rect ->
+        val local = rect.translate(-origin)
+        outline = Path.combine(PathOperation.Union, outline, Path().apply { addRect(local) })
+    }
+    return outline
 }
 
 /** Fold a dragged folder into its keyed handle so Calvin can keep it alive during edge scrolling. */
@@ -164,7 +219,12 @@ internal fun PackedProviderGrid(
                     else if (cell.key.startsWith("root:") || (!isGrid && !narrow)) maxLineSpan else 1)
             }) { cell ->
                 if (cell.isFolderBoundary) {
-                    Spacer(Modifier.fillMaxWidth().height(12.dp).testTag(cell.key))
+                    // Boundaries are not draggable, but they must still be registered with
+                    // Calvin's reorder state so dropping a provider on a folder edge produces
+                    // a real folder target instead of falling through to the root grid.
+                    ReorderableItem(reorderState, key = cell.key, animateItemModifier = Modifier) {
+                        Spacer(Modifier.fillMaxWidth().height(12.dp).testTag(cell.key))
+                    }
                     return@items
                 }
                 val interaction = remember(cell.key) { MutableInteractionSource() }

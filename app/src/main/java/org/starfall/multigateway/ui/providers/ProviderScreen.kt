@@ -271,13 +271,11 @@ fun ProviderScreen(
                 target != null -> orderedProviders.firstOrNull { it.id == target.id }?.groupId
                 else -> null
             }
-            // A collapsed folder has no member slot to hover. Keep the provider in its source
-            // folder while the finger is over the folder header and commit the move only when
-            // the drag actually ends. This prevents a provider from visually disappearing into
-            // an unopened folder before the user has dropped it.
-            if (provider != null && target?.isGroup == true &&
-                targetGroupId != provider.groupId && target.id in collapsedSections
-            ) {
+            // Do not mutate the layout while crossing a folder boundary. ReorderableLazyGrid
+            // is still tracking the original item positions; changing group membership here
+            // would rebuild the grid under the finger and make the dragged card jump. Keep the
+            // destination and apply it once the drag is actually released.
+            if (provider != null && target != null && targetGroupId != provider.groupId) {
                 pendingProviderDrop = PendingProviderDrop(target)
                 return
             }
@@ -637,6 +635,7 @@ fun ProviderScreen(
                                         onClick = { if (query.isEmpty()) toggleSection(group.id) }) }
                                     group != null && item.expanded -> ProviderGroupGridHeading(
                                         group = group, modifier = Modifier.testTag("provider_group_${group.id}").then(dragModifier),
+                                        detached = gridMode && item.cell.groupId == null,
                                         onCollapse = { if (query.isEmpty()) toggleSection(group.id) },
                                         onAddProvider = { createProvider(group.id) },
                                         onEditGroup = { groupToRename = group }, onDeleteGroup = { deletingGroup = group })
@@ -1108,6 +1107,7 @@ private fun ProviderOverflowMenu(
 private fun ProviderGroupGridHeading(
     group: ProviderGroup,
     modifier: Modifier,
+    detached: Boolean = false,
     onCollapse: () -> Unit,
     onAddProvider: () -> Unit,
     onEditGroup: () -> Unit,
@@ -1116,8 +1116,9 @@ private fun ProviderGroupGridHeading(
     Surface(
         modifier = modifier.fillMaxWidth().height(ProviderGridCardHeight).clickable(onClick = onCollapse),
         shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant)
+        color = if (detached) MaterialTheme.colorScheme.surfaceContainerLow
+            else androidx.compose.ui.graphics.Color.Transparent,
+        border = if (detached) BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
         Box(Modifier.fillMaxSize().padding(14.dp)) {
             EntityIcon(

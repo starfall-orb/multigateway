@@ -1,14 +1,52 @@
 package org.starfall.multigateway
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asAndroidPath
 import org.junit.Assert.*
 import org.junit.Test
 import org.starfall.multigateway.ui.providers.PackedGridCell
 import org.starfall.multigateway.ui.providers.packedGroupBlockBounds
+import org.starfall.multigateway.ui.providers.packedGroupPath
+import org.starfall.multigateway.ui.providers.packedGroupRegions
 import org.starfall.multigateway.ui.providers.providerDragCells
 
 class PackedProviderGridTest {
+    private fun bounds(cells: List<PackedGridCell>) = cells.mapIndexed { index, cell ->
+        val left = (index % 2) * 112f
+        val top = (index / 2) * 176f
+        cell.key to Rect(left, top, left + 100f, top + 164f)
+    }.toMap()
+
+    @Test fun legacyFrameStillCoversFolderCellsWithoutCoveringRootCards() {
+        val cells = listOf(PackedGridCell("before", null), PackedGridCell("folder", "g"),
+            PackedGridCell("a", "g"), PackedGridCell("b", "g"), PackedGridCell("c", "g"), PackedGridCell("after", null))
+        val positions = bounds(cells)
+        val parts = packedGroupRegions(cells, positions).getValue("g")
+        val path = packedGroupPath(parts, positions.values.toSet(), Offset.Zero, 20f)
+        val bitmap = android.graphics.Bitmap.createBitmap(212, 516, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        canvas.drawPath(path.asAndroidPath(), android.graphics.Paint().apply { color = android.graphics.Color.GRAY })
+        for (key in listOf("folder", "a", "b", "c")) {
+            assertEquals(android.graphics.Color.GRAY, bitmap.getPixel(positions.getValue(key).center.x.toInt(), positions.getValue(key).center.y.toInt()))
+        }
+        for (key in listOf("before", "after")) {
+            assertEquals(android.graphics.Color.WHITE, bitmap.getPixel(positions.getValue(key).center.x.toInt(), positions.getValue(key).center.y.toInt()))
+        }
+        bitmap.recycle()
+    }
+
+    @Test fun legacyRegionsDoNotCrossIntoTheNextRootTile() {
+        val cells = listOf(PackedGridCell("root", null), PackedGridCell("folder", "g"), PackedGridCell("a", "g"))
+        val positions = bounds(cells)
+        val regions = packedGroupRegions(cells, positions).getValue("g")
+        assertFalse(regions.any { it.contains(positions.getValue("root").center) })
+        assertTrue(regions.any { it.contains(positions.getValue("folder").center) })
+        assertTrue(regions.any { it.contains(positions.getValue("a").center) })
+    }
+
     private val folder = listOf(
         PackedGridCell("group_g", "g"),
         PackedGridCell("provider_a", "g"),

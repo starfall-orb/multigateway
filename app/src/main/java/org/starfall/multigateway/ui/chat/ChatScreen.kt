@@ -16,9 +16,10 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.ui.unit.Velocity
 import kotlin.math.exp
@@ -92,10 +94,23 @@ fun ChatScreen(
     onResendUserMessage: (String) -> Boolean = { false },
     modifier: Modifier = Modifier
 ) {
-    val listState = key(conversation?.id) { rememberLazyListState() }
-    var followBottom by remember(conversation?.id) { mutableStateOf(true) }
+    val conversationKey = conversation?.id ?: "__empty_conversation__"
+    val listStates = remember { mutableMapOf<String, LazyListState>() }
+    val listState = remember(conversationKey) {
+        listStates.getOrPut(conversationKey) { LazyListState() }
+    }
+    val followBottomStates = remember { mutableMapOf<String, Boolean>() }
+    var followBottom by remember(conversationKey) {
+        mutableStateOf(followBottomStates[conversationKey] ?: true)
+    }
+    LaunchedEffect(conversationKey, followBottom) {
+        followBottomStates[conversationKey] = followBottom
+    }
     val coroutineScope = rememberCoroutineScope()
-    val seenMessageIds = remember(conversation?.id) { mutableSetOf<String>() }
+    val seenMessageSets = remember { mutableMapOf<String, MutableSet<String>>() }
+    val seenMessageIds = remember(conversationKey) {
+        seenMessageSets.getOrPut(conversationKey) { mutableSetOf() }
+    }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
@@ -119,6 +134,7 @@ fun ChatScreen(
     var regeneratingMessageId by remember(conversation?.id) { mutableStateOf<String?>(null) }
     var showContextSummarySheet by remember(conversation?.id) { mutableStateOf(false) }
     var showSummaryDialog by remember(conversation?.id) { mutableStateOf(false) }
+    var inlineChatError by remember(conversation?.id) { mutableStateOf<String?>(null) }
     val streamingHere = isGenerating && generatingConversationId == conversation?.id
     val lastMessage = conversationMessages.lastOrNull()
     val streamingMessage = if (streamingHere) conversationMessages.lastOrNull { it.role == ChatRole.MODEL } else null
@@ -126,8 +142,7 @@ fun ChatScreen(
     // Streaming text is followed by the per-frame loop below; stepping on text length made the scroll jump per chunk.
     val autoScrollTick = if (!autoScroll || streamingHere) null else lastMessage?.activeVersionIndex
     fun whenIdle(action: () -> Unit) {
-        if (isGenerating) Toast.makeText(context, "Stop the current response before editing messages.", Toast.LENGTH_SHORT).show()
-        else action()
+        if (!isGenerating) action()
     }
     val nearBottomPx = with(LocalDensity.current) { 32.dp.toPx() }
     fun isNearBottom(): Boolean {
@@ -162,16 +177,25 @@ fun ChatScreen(
         val height = listState.layoutInfo.visibleItemsInfo
             .firstOrNull { it.index == index }?.size ?: 0
         val layout = listState.layoutInfo
-        val offset = if (includeQueued) height + layout.afterContentPadding
-            else height - (layout.viewportEndOffset - layout.viewportStartOffset) + layout.afterContentPadding
+        val offset = height - (layout.viewportEndOffset - layout.viewportStartOffset) +
+            layout.afterContentPadding
         listState.scrollToItem(index, offset)
     }
     val messageIds = remember(conversationMessages) { conversationMessages.map { it.id } }
     LaunchedEffect(conversation?.id, messageIds, autoScroll) {
         val newMessageIndex = messageIds.indexOfLast { it !in seenMessageIds }
+        val firstMessageLoad = seenMessageIds.isEmpty() && newMessageIndex >= 0
         seenMessageIds.addAll(messageIds)
         if (!autoScroll && newMessageIndex >= 0) {
-            listState.scrollToItem(newMessageIndex + messageIndexOffset)
+            if (firstMessageLoad) {
+                // A conversation opens at its latest message. Wait for the lazy
+                // list to have measured at least one item before calculating the
+                // bottom offset; otherwise the initial scroll can land at item 0.
+                snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+                scrollToBottom(includeQueued = true)
+            } else {
+                listState.scrollToItem(newMessageIndex + messageIndexOffset)
+            }
         }
     }
     LaunchedEffect(
@@ -211,7 +235,7 @@ fun ChatScreen(
         }
     }
     LaunchedEffect(chatError) {
-        chatError?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+        chatError?.takeIf { it.startsWith("Could not save conversation:") }?.let { inlineChatError = it }
     }
     LaunchedEffect(conversation?.id) {
         focusManager.clearFocus(force = true)
@@ -312,25 +336,23 @@ fun ChatScreen(
                                         messageId = msg.id,
                                         text = msg.content,
                                         attachments = msg.files,
+                                        isQueued = true,
                                         revision = System.nanoTime()
                                     )
                                 } else {
-                                    whenIdle {
-                                        editDraft = ChatInputEditDraft(
-                                            messageId = msg.id,
-                                            text = msg.content,
-                                            attachments = msg.files,
-                                            isQueued = true,
-                                            revision = System.nanoTime()
-                                        )
-                                    }
+                                    editDraft = ChatInputEditDraft(
+                                        messageId = msg.id,
+                                        text = msg.content,
+                                        attachments = msg.files,
+                                        revision = System.nanoTime()
+                                    )
                                 }
                             },
                             onDelete = {
                                 if (msg.isQueued) {
                                     onDeleteQueuedMessage(msg.id)
                                 } else {
-                                    whenIdle { deletingMessageId = msg.id }
+                                    deletingMessageId = msg.id
                                 }
                             },
                             onSwitchVersion = { newIdx ->
@@ -362,17 +384,15 @@ fun ChatScreen(
                                 }
                             },
                             onEdit = {
-                                whenIdle {
-                                    editDraft = ChatInputEditDraft(
-                                        messageId = msg.id,
-                                        text = msg.content,
-                                        attachments = msg.files,
-                                        revision = System.nanoTime()
-                                    )
-                                }
+                                editDraft = ChatInputEditDraft(
+                                    messageId = msg.id,
+                                    text = msg.content,
+                                    attachments = msg.files,
+                                    revision = System.nanoTime()
+                                )
                             },
                             onDelete = {
-                                whenIdle { deletingMessageId = msg.id }
+                                deletingMessageId = msg.id
                             },
                             onRead = {
                                 onReadMessage(msg.id, msg.content)
@@ -407,6 +427,28 @@ fun ChatScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
         ) {
+            inlineChatError?.let { error ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.errorContainer
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            error,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        IconButton(onClick = { inlineChatError = null }) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss error", tint = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                }
+            }
             if (messages.isNotEmpty() && !followBottom) {
                 FilledTonalIconButton(
                     onClick = {
@@ -447,9 +489,11 @@ fun ChatScreen(
                 modifier = Modifier.onSizeChanged { inputAreaHeightPx = it.height },
                 isGenerating = isGenerating,
                 onSendMedia = { request ->
+                    inlineChatError = null
                     onSendMedia(request).also { if (it) followBottom = true }
                 },
                 onSendMessage = { text, files ->
+                    inlineChatError = null
                     onSendMessage(text, files).also { if (it && !isGenerating) followBottom = true }
                 },
                 onEditMessage = { id, text, files ->
@@ -457,9 +501,11 @@ fun ChatScreen(
                     if (isQueued) {
                         onEditQueuedMessage(id, text, files)
                     } else {
+                        inlineChatError = null
                         onEditMessage(id, text, files).also { if (it) followBottom = true }
                     }
                 },
+                onSubmissionFailed = { inlineChatError = it },
                 editDraft = editDraft,
                 onCancelEdit = { editDraft = null },
                 onStopGenerating = onStopGenerating,

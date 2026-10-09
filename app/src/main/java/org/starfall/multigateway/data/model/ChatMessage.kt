@@ -20,7 +20,8 @@ data class MessageVersion(
     @SerialName("processing_finished_at") val processingFinishedAt: Long? = null,
     @SerialName("provider_id") val providerId: String = "",
     @SerialName("model_id") val modelId: String = "",
-    @SerialName("model_display_name") val modelDisplayName: String = ""
+    @SerialName("model_display_name") val modelDisplayName: String = "",
+    @SerialName("generation_interrupted") val generationInterrupted: Boolean = false
 )
 
 @Serializable

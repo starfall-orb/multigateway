@@ -5,6 +5,7 @@
     <string name="thinking_streaming">Đang suy nghĩ...</string>
     <string name="generating">Đang tạo phản hồi...</string>
     <string name="chat_input_placeholder">Nhập tin nhắn...</string>
+    <string name="chat_submit_failed">Không thể gửi. Hãy kiểm tra mô hình đã chọn rồi thử lại.</string>
     <string name="thought_process">Quá trình suy nghĩ</string>
     <string name="collapse">Thu gọn</string>
     <string name="expand">Mở rộng</string>

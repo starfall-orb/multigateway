@@ -149,8 +149,10 @@ fun AssistantMessageCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                MessageActionButton(onClick = onRegenerate, contentDescription = "Regenerate") {
-                    Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                if (!isErrorOnlyResponse(message.content)) {
+                    MessageActionButton(onClick = onRegenerate, contentDescription = "Regenerate") {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
                 }
                 MessageActionButton(
                     onClick = {

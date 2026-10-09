@@ -148,6 +148,9 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
     val presentation = rememberStreamingTextPresentation(text)
     val isError = remember(text) { isErrorText(text) }
     val isLatex = remember(text, latexMode) { LatexDetector.shouldRenderLatex(text, latexMode) }
+    val standaloneFormula = remember(text, latexMode) {
+        if (isLatex) LatexDetector.standaloneFormula(text) else null
+    }
     val preferences = LocalCodeRenderingPreferences.current
     val bodySize = preferences.messageFontSize.sp
     val messageFont = preferences.messageFontFamily.toComposeFontFamily()
@@ -202,8 +205,8 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
                 }
             }
         }
-        isLatex -> {
-            RenderLatexBlock(text)
+        standaloneFormula != null -> {
+            RenderLatexBlock(source = text, formula = standaloneFormula)
         }
         else -> {
             val settings = annotatorSettings()

@@ -17,6 +17,7 @@
     <string name="thinking_streaming">Thinking...</string>
     <string name="generating">Generating...</string>
     <string name="chat_input_placeholder">Type some text...</string>
+    <string name="chat_submit_failed">Unable to send. Check the selected model and try again.</string>
     <string name="thought_process">Thought Process</string>
     <string name="collapse">Collapse</string>
     <string name="expand">Expand</string>

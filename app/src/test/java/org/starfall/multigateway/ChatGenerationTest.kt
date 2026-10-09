@@ -111,6 +111,26 @@ class ChatGenerationTest {
         assertEquals("Answer", complete.messages.last().content)
     }
 
+    @Test fun pendingUserMessageSplitsTheToolTurnBeforeTheNextAnswer() = runBlocking {
+        var saved: Conversation? = null
+        val runner = ChatGeneration(
+            CoroutineScope(coroutineContext + Dispatchers.Unconfined),
+            { saved = it },
+            {}
+        )
+        val pending = message("u2", ChatRole.USER, "Continue with this")
+        runner.startEvents(conversation(), "a1", flow {
+            emit(GenerationEvent.Tool(ToolActivity("tool-1", "search", status = "success")))
+            emit(GenerationEvent.UserMessage(pending))
+            emit(GenerationEvent.Text("New answer"))
+        })
+
+        assertEquals(listOf("u1", "a1", "u2"), saved!!.messages.dropLast(1).map { it.id })
+        assertEquals(ChatRole.USER, saved!!.messages[2].role)
+        assertEquals("New answer", saved!!.messages.last().content)
+        assertTrue(saved!!.messages[1].activeVersion.processingFinishedAt != null)
+    }
+
     @Test fun failureRetainsPartialResponseAndReleasesBusyState() = runBlocking {
         var saved: Conversation? = null
         val runner = ChatGeneration(CoroutineScope(coroutineContext + Dispatchers.Unconfined), { saved = it }, {})

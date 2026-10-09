@@ -1,6 +1,6 @@
 # Plan: Native LaTeX rendering in chat messages
 
-Status: PLANNED (not started, no code changed)
+Status: IMPLEMENTED (device verification pending)
 
 ## Goal
 

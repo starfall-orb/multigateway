@@ -2,6 +2,11 @@ package org.starfall.multigateway.ui.chat
 
 object LatexDetector {
 
+    private val blockDollarExpression = Regex("""(?s)^\s*\$\$(.+?)\$\$\s*$""")
+    private val bracketExpression = Regex("""(?s)^\s*\\\[(.+?)\\\]\s*$""")
+    private val parenthesizedExpression = Regex("""(?s)^\s*\\\((.+?)\\\)\s*$""")
+    private val singleDollarExpression = Regex("""(?s)(?<!\$)\$([^\$\n]+?)\$(?!\$)""")
+
     /**
      * Determines whether to render LaTeX based on the user's preference mode
      * ("ON", "OFF", or "AUTO").
@@ -9,7 +14,7 @@ object LatexDetector {
     fun shouldRenderLatex(text: String, mode: String): Boolean {
         return when (mode.uppercase()) {
             "OFF" -> false
-            "ON" -> text.contains("$") || text.contains("\\(") || text.contains("\\[")
+            "ON" -> containsLatex(text)
             else -> containsLatex(text) // "AUTO" default
         }
     }
@@ -21,19 +26,20 @@ object LatexDetector {
     fun containsLatex(text: String): Boolean {
         if (text.isBlank()) return false
 
-        // 1. Double dollar $$ ... $$ is always LaTeX block math.
-        if (Regex("""\$\$[\s\S]+?\$\$""").containsMatchIn(text)) {
+        // 1. Double dollar $$ ... $$ is LaTeX block math.
+        if (Regex("""(?s)\$\$(.+?)\$\$""").containsMatchIn(text)) {
             return true
         }
 
-        // 2. Escaped LaTeX delimiters like \( ... \) or \[ ... \]
-        if (text.contains("""\(""") || text.contains("""\[""")) {
+        // 2. Escaped LaTeX delimiters like \( ... \) or \[ ... \]. An opening
+        // delimiter by itself is common in streaming messages and is not math yet.
+        if (containsPairedExpression(text, "\\(", "\\)") ||
+            containsPairedExpression(text, "\\[", "\\]")) {
             return true
         }
 
         // 3. Find single-dollar blocks: $ ... $
-        val singleDollarRegex = Regex("""(?<!\$)\$([^\$]+)\$(?!\$)""")
-        val matches = singleDollarRegex.findAll(text).toList()
+        val matches = singleDollarExpression.findAll(text).toList()
 
         if (matches.isEmpty()) return false
 
@@ -46,34 +52,69 @@ object LatexDetector {
                 continue // Skip price ranges like "$10 to $20", "$10 - $20"
             }
 
-            // A. Contains LaTeX commands (e.g., \frac, \alpha, \sqrt, \int, \sum)
-            if (inner.contains("\\")) {
-                return true
-            }
-
-            // B. Contains superscript '^' or subscript '_'
-            if (inner.contains("^") || inner.contains("_")) {
-                return true
-            }
-
-            // C. Contains math functions (e.g. sin, cos, log, lim, sqrt, sum, int)
-            if (inner.contains(Regex("""\b(sin|cos|tan|log|ln|lim|sqrt|sum|int|f\s*\([a-zA-Z]\))\b"""))) {
-                return true
-            }
-
-            // D. Mathematical operations with algebraic variables: e.g. "x + y", "a = b", "2x + 3"
-            if (inner.contains(Regex("""[a-zA-Z]\s*[+\-*/=<>±≠≤≥]\s*[a-zA-Z0-9]""")) ||
-                inner.contains(Regex("""[0-9]\s*[+\-*/=<>±≠≤≥]\s*[a-zA-Z]"""))) {
-                return true
-            }
-
-            // E. Single letter math variables like "$x$", "$y$", "$N$"
-            if (inner.length == 1 && inner[0].isLetter()) {
+            if (looksLikeMath(inner)) {
                 return true
             }
         }
 
         return false
+    }
+
+    /**
+     * Returns a formula only when the paragraph is a standalone math expression.
+     * This deliberately leaves prose containing inline math to the Markdown
+     * renderer; full inline layout is outside the first rendering version.
+     */
+    internal fun standaloneFormula(text: String): String? {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return null
+
+        blockDollarExpression.matchEntire(trimmed)?.let { return it.groupValues[1].trim() }
+        bracketExpression.matchEntire(trimmed)?.let { return it.groupValues[1].trim() }
+        parenthesizedExpression.matchEntire(trimmed)?.let { return it.groupValues[1].trim() }
+
+        singleDollarExpression.matchEntire(trimmed)?.let { match ->
+            val inner = match.groupValues[1].trim()
+            if (looksLikeMath(inner) && !isUsdPriceRange(trimmed, match)) return inner
+        }
+        return null
+    }
+
+    private fun containsPairedExpression(text: String, opening: String, closing: String): Boolean {
+        var start = text.indexOf(opening)
+        while (start >= 0) {
+            val end = text.indexOf(closing, start + opening.length)
+            if (end > start + opening.length && looksLikeMath(text.substring(start + opening.length, end).trim())) {
+                return true
+            }
+            start = text.indexOf(opening, start + opening.length)
+        }
+        return false
+    }
+
+    private fun looksLikeMath(expression: String): Boolean {
+        val inner = expression.trim()
+        if (inner.isEmpty()) return false
+
+        // LaTeX commands (e.g. \frac, \alpha, \sqrt, \int, \sum).
+        if (inner.contains("\\")) return true
+
+        // Superscript and subscript notation is unambiguous in a delimited block.
+        if (inner.contains("^") || inner.contains("_")) return true
+
+        // Common math functions (e.g. sin, cos, log, lim, sqrt, sum, int).
+        if (inner.contains(Regex("""\b(sin|cos|tan|log|ln|lim|sqrt|sum|int|f\s*\([a-zA-Z]\))\b"""))) {
+            return true
+        }
+
+        // Mathematical operations with algebraic variables: x + y, a = b, 2x + 3.
+        if (inner.contains(Regex("""[a-zA-Z]\s*[+\-*/=<>±≠≤≥]\s*[a-zA-Z0-9]""")) ||
+            inner.contains(Regex("""[0-9]\s*[+\-*/=<>±≠≤≥]\s*[a-zA-Z]"""))) {
+            return true
+        }
+
+        // Single letter math variables such as $x$, $y$, or $N$.
+        return inner.length == 1 && inner[0].isLetter()
     }
 
     private fun isUsdPriceRange(fullText: String, match: MatchResult): Boolean {

@@ -83,6 +83,18 @@ fun MainScreen(
     val importedProviderId by configurationViewModel.importedProviderId.collectAsStateWithLifecycle()
     val providerImportError by configurationViewModel.providerImportError.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    // The app preference is the default for new chats. Existing chats keep showing
+    // the model they last used, independently of that default.
+    val conversationModel = currentConv?.takeIf { appPrefs.persistSelectedModel && it.modelId.isNotBlank() }?.let { conversation ->
+        providers.firstOrNull { provider ->
+            provider.id == conversation.providerId &&
+                provider.config.modelIds?.contains(conversation.modelId) != false &&
+                (provider.config.modelConfigs[conversation.modelId]?.modelType
+                    ?: ModelType.TEXT_GENERATION) == ModelType.TEXT_GENERATION
+        }?.let { conversation }
+    }
+    val chatProviderId = conversationModel?.providerId ?: appPrefs.selectedProviderId
+    val chatModelId = conversationModel?.modelId ?: appPrefs.selectedModelId
     LaunchedEffect(Unit) {
         org.starfall.multigateway.data.repository.LocalWriteErrors.errors.collect {
             Toast.makeText(context, "Could not save the change. Please try again.", Toast.LENGTH_LONG).show()
@@ -170,8 +182,7 @@ fun MainScreen(
                     }
                 ) {
                     composable(AppDestination.CHAT.route) {
-                        key(currentConv?.id) {
-                            ChatScreen(
+                        ChatScreen(
                                 conversation = currentConv,
                                 isGenerating = isGenerating,
                                 generatingConversationId = generatingConversationId,
@@ -182,8 +193,8 @@ fun MainScreen(
                                 modelPickerCollapsedProviders = appPrefs.modelPickerCollapsedProviders,
                                 onModelPickerCollapsedGroupsChange = settingsViewModel::setModelPickerCollapsedGroups,
                                 onModelPickerCollapsedProvidersChange = settingsViewModel::setModelPickerCollapsedProviders,
-                                selectedProviderId = appPrefs.selectedProviderId,
-                                selectedModelName = appPrefs.selectedModelId,
+                                selectedProviderId = chatProviderId,
+                                selectedModelName = chatModelId,
                                 autoScroll = appPrefs.autoScroll,
                                 onSendMedia = viewModel::sendMedia,
                                 onResendUserMessage = viewModel::resendUserMessage,
@@ -239,8 +250,7 @@ fun MainScreen(
                                 onFetchOllamaModels = { url ->
                                     configurationViewModel.fetchOllamaModels(url)
                                 }
-                            )
-                        }
+                        )
                     }
 
                     composable("providers/edit/{providerId}") { entry ->
@@ -375,8 +385,8 @@ fun MainScreen(
                             onContinueLastConversationChange = { value ->
                                 settingsViewModel.setContinueLastConversation(value)
                             },
-                            onPersistChatSelectionChange = { value ->
-                                settingsViewModel.setPersistChatSelection(value)
+                            onPersistSelectedModelChange = { value ->
+                                viewModel.setPersistSelectedModel(value)
                             },
                             onAutoScrollChange = settingsViewModel::setAutoScroll,
                             onWordWrapModeChange = settingsViewModel::setWordWrapMode,

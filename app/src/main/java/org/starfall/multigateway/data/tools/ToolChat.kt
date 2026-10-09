@@ -82,7 +82,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         servers: List<McpInfo>,
         providers: List<LlmProviderInfo>,
         settings: () -> ToolSettings,
-        maxToolRounds: () -> Int? = { null }
+        maxToolRounds: () -> Int? = { null },
+        takePendingMessage: () -> StoredMessage? = { null }
     ): Flow<GenerationEvent> = channelFlow {
         val sessions = mutableMapOf<String, McpSession>()
         val tools = mutableListOf<ToolDefinition>()
@@ -127,6 +128,10 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 return@channelFlow
             }
 
+            val uniquelyNamedTools = tools.withUniqueWireNames()
+            tools.clear()
+            tools += uniquelyNamedTools
+
             http.requireFiles()
             val history = mutableListOf<JsonObject>()
             if (provider.type != ProviderType.GOOGLE && prompt.isNotBlank()) {
@@ -161,6 +166,17 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     }
                 }
                 history += wireMessage
+            }
+
+            fun appendUserMessage(message: StoredMessage) {
+                val attachments = if (message.files.isEmpty()) JsonArray(emptyList()) else
+                    llm.toolAttachments(message, http.requireFiles(), importedAttachments)
+                history += obj(
+                    "role" to str("user"),
+                    "content" to str(message.content + toolAttachmentReferences(attachments))
+                ).let { base ->
+                    if (message.files.isEmpty()) base else JsonObject(base + ("_attachments" to attachments))
+                }
             }
 
             val budget = ToolBudget()
@@ -330,6 +346,19 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                         "name" to str(name),
                         "content" to str(result.toString())
                     )
+                }
+
+                // A pending user message belongs after the complete tool response(s),
+                // before the next model request. This lets the model react to the new
+                // instruction without waiting for the current tool loop to finish.
+                val canStartAnotherRound = maxToolRounds().let { limit ->
+                    limit == null || round < limit
+                }
+                if (canStartAnotherRound) {
+                    takePendingMessage()?.let { pending ->
+                        appendUserMessage(pending)
+                        send(GenerationEvent.UserMessage(pending.copy(isQueued = false)))
+                    }
                 }
             }
             error("Stopped after $round tool rounds. Send another message to continue.")

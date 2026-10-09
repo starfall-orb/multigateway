@@ -41,8 +41,10 @@ internal class ChatGeneration(
             val output = StringBuilder()
             val reasoningOutput = StringBuilder()
             val reasoningSignatureOutput = StringBuilder()
+            var activeMessageId = messageId
             var renderJob: Job? = null
             var lastRenderAt = 0L
+            var generationInterrupted = false
 
             fun appendLimited(target: StringBuilder, text: String, limit: Int, label: String) {
                 check(target.length.toLong() + text.length <= limit) {
@@ -59,7 +61,7 @@ internal class ChatGeneration(
             fun update() {
                 snapshot = updateResponse(
                     snapshot!!,
-                    messageId,
+                    activeMessageId,
                     output.toString(),
                     reasoningOutput.toString().takeIf { it.isNotBlank() },
                     reasoningSignatureOutput.toString().takeIf { it.isNotBlank() }
@@ -111,7 +113,7 @@ internal class ChatGeneration(
 
                             val contentOffset = visibleResponseContent(output.toString()).length
                             snapshot = snapshot!!.copy(messages = snapshot!!.messages.map { message ->
-                                if (message.id != messageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->
+                                if (message.id != activeMessageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->
                                     if (index != message.activeVersionIndex) version else {
                                         val existingIndex = version.toolActivity.indexOfFirst { it.id == chunk.activity.id }
                                         val anchoredActivity = if (existingIndex >= 0) {
@@ -136,12 +138,53 @@ internal class ChatGeneration(
                             publish(snapshot!!)
                             save(snapshot!!)
                         }
+                        is GenerationEvent.UserMessage -> {
+                            renderJob?.cancel()
+                            renderJob = null
+                            update()
+
+                            val previousId = activeMessageId
+                            val now = System.currentTimeMillis()
+                            val currentAssistant = snapshot!!.messages.firstOrNull { it.id == previousId }
+                            val responseVersion = currentAssistant?.activeVersion?.let { version ->
+                                MessageVersion(
+                                    timestamp = now.toString(),
+                                    providerId = version.providerId,
+                                    modelId = version.modelId,
+                                    modelDisplayName = version.modelDisplayName
+                                )
+                            } ?: MessageVersion(timestamp = now.toString())
+                            val response = StoredMessage(
+                                id = java.util.UUID.randomUUID().toString(),
+                                role = ChatRole.MODEL,
+                                versions = listOf(responseVersion)
+                            )
+                            activeMessageId = response.id
+                            output.setLength(0)
+                            reasoningOutput.setLength(0)
+                            reasoningSignatureOutput.setLength(0)
+                            snapshot = snapshot!!.copy(
+                                updatedAt = now,
+                                messages = snapshot!!.messages.map { message ->
+                                    if (message.id != previousId) message else message.copy(
+                                        versions = message.versions.mapIndexed { index, version ->
+                                            if (index == message.activeVersionIndex) {
+                                                version.copy(processingFinishedAt = now)
+                                            } else version
+                                        }
+                                    )
+                                } + chunk.message.copy(isQueued = false) + response
+                            )
+                            publish(snapshot!!)
+                            save(snapshot!!)
+                        }
                     }
                 }
                 renderJob?.cancel()
                 renderJob = null
                 update()
             } catch (e: CancellationException) {
+                generationInterrupted = true
                 throw e
             } catch (e: Exception) {
                 renderJob?.cancel()
@@ -156,14 +199,15 @@ internal class ChatGeneration(
                     withContext(NonCancellable) {
                         snapshot = updateResponse(
                             snapshot!!,
-                            messageId,
+                            activeMessageId,
                             output.toString(),
                             reasoningOutput.toString().takeIf { it.isNotBlank() },
                             reasoningSignatureOutput.toString().takeIf { it.isNotBlank() }
                         )
                         snapshot = snapshot!!.copy(messages = snapshot!!.messages.map { message ->
-                            if (message.id != messageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->
+                            if (message.id != activeMessageId) message else message.copy(versions = message.versions.mapIndexed { index, version ->
                                 if (index != message.activeVersionIndex) version else version.copy(
+                                    generationInterrupted = generationInterrupted,
                                     toolActivity = version.toolActivity.map {
                                         if (it.status == "running") it.copy(status = "cancelled", summary = "Stopped") else it
                                     },
@@ -244,6 +288,7 @@ internal fun prepareRegeneration(conversation: Conversation, messageId: String,
     val index = conversation.messages.indexOfFirst { it.id == messageId && it.role == ChatRole.MODEL }
     if (index < 1 || conversation.messages.take(index).none { it.role == ChatRole.USER }) return null
     val message = conversation.messages[index]
+    if (isErrorOnlyResponse(message.activeVersion.content)) return null
     return conversation.copy(messages = conversation.messages.take(index) + message.copy(
         versions = message.versions + version,
         activeVersionIndex = message.versions.size

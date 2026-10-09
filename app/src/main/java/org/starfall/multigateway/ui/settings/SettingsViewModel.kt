@@ -35,9 +35,6 @@ class SettingsViewModel(private val repository: AppPreferencesRepository) : View
     fun setContinueLastConversation(value: Boolean) {
         viewModelScope.launch(LocalWriteErrors.handler) { repository.setContinueLastConversation(value) }
     }
-    fun setPersistChatSelection(value: Boolean) {
-        viewModelScope.launch(LocalWriteErrors.handler) { repository.setPersistChatSelection(value) }
-    }
     fun setAutoScroll(value: Boolean) {
         viewModelScope.launch(LocalWriteErrors.handler) { repository.setAutoScroll(value) }
     }

@@ -47,7 +47,7 @@ data class AppPreferences(
     val defaultSystemPrompt: String = "",
     val promptLibrary: org.starfall.multigateway.data.model.PromptLibrary? = null,
     val continueLastConversation: Boolean = false,
-    val persistChatSelection: Boolean = false,
+    val persistSelectedModel: Boolean = true,
     val autoScroll: Boolean = false,
     val ttsReadCodeBlocks: Boolean = false,
     val enableVibration: Boolean = false,
@@ -94,7 +94,7 @@ class AppPreferencesRepository(private val context: Context) {
         val DEFAULT_SYSTEM_PROMPT = stringPreferencesKey("default_system_prompt")
         val PROMPT_LIBRARY = stringPreferencesKey("prompt_library")
         val CONTINUE_LAST_CONVERSATION = booleanPreferencesKey("continue_last_conversation")
-        val PERSIST_CHAT_SELECTION = booleanPreferencesKey("persist_chat_selection")
+        val PERSIST_SELECTED_MODEL = booleanPreferencesKey("persist_chat_selection")
         val AUTO_SCROLL = booleanPreferencesKey("auto_scroll")
         val TTS_READ_CODE_BLOCKS = booleanPreferencesKey("tts_read_code_blocks")
         val ENABLE_VIBRATION = booleanPreferencesKey("enable_vibration")
@@ -141,7 +141,7 @@ class AppPreferencesRepository(private val context: Context) {
                     runCatching { Json.decodeFromString<org.starfall.multigateway.data.model.PromptLibrary>(it) }.getOrNull()
                 },
                 continueLastConversation = preferences[PreferenceKeys.CONTINUE_LAST_CONVERSATION] ?: false,
-                persistChatSelection = preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] ?: false,
+                persistSelectedModel = preferences[PreferenceKeys.PERSIST_SELECTED_MODEL] ?: true,
                 autoScroll = preferences[PreferenceKeys.AUTO_SCROLL] ?: false,
                 ttsReadCodeBlocks = preferences[PreferenceKeys.TTS_READ_CODE_BLOCKS] ?: false,
                 enableVibration = preferences[PreferenceKeys.ENABLE_VIBRATION] ?: false,
@@ -267,10 +267,10 @@ class AppPreferencesRepository(private val context: Context) {
         }
     }
 
-    suspend fun setPersistChatSelection(enable: Boolean) {
-        state.mutate({ it.copy(persistChatSelection = enable) }) {
+    suspend fun setPersistSelectedModel(enable: Boolean) {
+        state.mutate({ it.copy(persistSelectedModel = enable) }) {
             context.dataStore.edit { preferences ->
-                preferences[PreferenceKeys.PERSIST_CHAT_SELECTION] = enable
+                preferences[PreferenceKeys.PERSIST_SELECTED_MODEL] = enable
             }
         }
     }

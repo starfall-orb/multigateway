@@ -2,6 +2,7 @@ package org.starfall.multigateway.data.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import java.util.UUID
 
 @Serializable
 data class McpAccess(val enabled: Boolean = false, val tools: Map<String, Boolean> = emptyMap())
@@ -59,6 +60,30 @@ data class ToolDefinition(
     val originalName: String = name
 )
 
+/**
+ * MCP server names are user-controlled, so two servers can still produce the
+ * same readable wire name after sanitization. Disambiguate only those rare
+ * collisions; the normal name remains server_tool.
+ */
+internal fun List<ToolDefinition>.withUniqueWireNames(): List<ToolDefinition> {
+    val used = mutableSetOf<String>()
+    return map { definition ->
+        var name = definition.name
+        if (!used.add(name)) {
+            val baseSuffix = UUID.nameUUIDFromBytes(
+                (definition.serverId.orEmpty() + ":" + definition.originalName).toByteArray()
+            ).toString().replace("-", "").take(10)
+            var attempt = 0
+            do {
+                val suffix = if (attempt == 0) baseSuffix else "$baseSuffix$attempt"
+                name = definition.name.take(64 - suffix.length - 1) + "_" + suffix
+                attempt++
+            } while (!used.add(name))
+        }
+        if (name == definition.name) definition else definition.copy(name = name)
+    }
+}
+
 fun systemMediaToolAvailable(
     name: String,
     config: SystemToolConfig,
@@ -80,6 +105,8 @@ sealed interface GenerationEvent {
     data class Text(val text: String) : GenerationEvent
     data class Reasoning(val text: String, val signature: String? = null) : GenerationEvent
     data class Tool(val activity: ToolActivity) : GenerationEvent
+    /** A user message inserted between a completed tool turn and the next model turn. */
+    data class UserMessage(val message: StoredMessage) : GenerationEvent
 }
 
 fun globalMcpToolEnabled(settings: ToolSettings, serverId: String, name: String): Boolean =

@@ -1,5 +1,8 @@
 package org.starfall.multigateway.ui.components
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -7,7 +10,10 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.InsertDriveFile
@@ -93,6 +99,7 @@ private fun FileCornerActions(reference: String, name: String, mime: String, sel
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var downloading by remember(reference) { mutableStateOf(false) }
+    var saveError by remember(reference) { mutableStateOf<String?>(null) }
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(mime)) { uri ->
         if (uri != null) scope.launch {
             downloading = true
@@ -113,7 +120,7 @@ private fun FileCornerActions(reference: String, name: String, mime: String, sel
                 }
                 Toast.makeText(context, R.string.file_download_saved, Toast.LENGTH_SHORT).show()
             } catch (e: CancellationException) { throw e
-            } catch (_: Exception) { Toast.makeText(context, R.string.file_download_failed, Toast.LENGTH_LONG).show()
+            } catch (e: Exception) { saveError = e.localizedMessage?.takeIf { it.isNotBlank() } ?: e.toString()
             } finally { downloading = false }
         }
     }
@@ -131,5 +138,28 @@ private fun FileCornerActions(reference: String, name: String, mime: String, sel
                 colors = CheckboxDefaults.colors(checkedColor = Color.White, uncheckedColor = Color.White,
                     checkmarkColor = Color.Black, disabledUncheckedColor = Color.Gray))
         }
+    }
+    saveError?.let { error ->
+        AppAlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text(stringResource(R.string.file_download_failed)) },
+            text = {
+                Column(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.6f).verticalScroll(rememberScrollState())) {
+                    Text(name, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    SelectionContainer { Text(error, style = MaterialTheme.typography.bodySmall) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText(context.getString(R.string.file_download_failed), error))
+                    saveError = null
+                }) { Text(stringResource(R.string.common_copy)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { saveError = null }) { Text(stringResource(R.string.common_close)) }
+            }
+        )
     }
 }

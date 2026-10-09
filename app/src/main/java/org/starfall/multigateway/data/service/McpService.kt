@@ -178,8 +178,7 @@ class McpSession(
     private fun toolDefinition(tool: Tool): ToolDefinition {
         val inputSchema = tool.inputSchema.toJson()
         return ToolDefinition(
-            "mcp_" + UUID.nameUUIDFromBytes((info.id + ":" + tool.name).toByteArray())
-                .toString().replace("-", ""),
+            mcpToolWireName(info.name, tool.name, info.id),
             tool.description.orEmpty().take(4000),
             inputSchema,
             info.id,
@@ -215,6 +214,28 @@ class McpSession(
         httpClient = null
     }
 }
+
+/**
+ * Function names are visible to the model. Keep them readable while staying
+ * within the portable function-name grammar used by OpenAI-compatible,
+ * Anthropic, and Gemini endpoints.
+ */
+internal fun mcpToolWireName(serverName: String, toolName: String, serverId: String): String {
+    val server = serverName.toWireNamePart().ifBlank { "mcp" }
+    val tool = toolName.toWireNamePart().ifBlank { "tool" }
+    val base = "${server}_${tool}"
+    if (base.length <= MCP_TOOL_NAME_MAX_LENGTH) return base
+
+    val suffix = UUID.nameUUIDFromBytes((serverId + ":" + toolName).toByteArray())
+        .toString().replace("-", "").take(MCP_TOOL_NAME_SUFFIX_LENGTH)
+    return base.take(MCP_TOOL_NAME_MAX_LENGTH - suffix.length - 1) + "_" + suffix
+}
+
+private fun String.toWireNamePart(): String =
+    replace(Regex("[^A-Za-z0-9_-]+"), "_").trim('_')
+
+private const val MCP_TOOL_NAME_MAX_LENGTH = 64
+private const val MCP_TOOL_NAME_SUFFIX_LENGTH = 10
 
 private fun ToolSchema.toJson(): JsonObject = buildJsonObject {
     schema?.takeIf { it.isNotBlank() }?.let { put("\$schema", JsonPrimitive(it)) }

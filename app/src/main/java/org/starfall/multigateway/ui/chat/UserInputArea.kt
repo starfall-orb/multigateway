@@ -7,7 +7,6 @@ import org.starfall.multigateway.ui.components.selectAllOnTripleClick
 import kotlinx.coroutines.launch
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
@@ -86,6 +85,7 @@ fun UserInputArea(
     onSendMessage: (String, List<String>) -> Boolean,
     onSendMedia: (DirectMediaRequest) -> Boolean,
     onEditMessage: (String, String, List<String>) -> Boolean,
+    onSubmissionFailed: (String) -> Unit = {},
     editDraft: ChatInputEditDraft?,
     onCancelEdit: () -> Unit,
     onStopGenerating: () -> Unit,
@@ -236,7 +236,7 @@ fun UserInputArea(
     val canSend = if (mediaKind == null) hasContent
         else textState.isNotBlank() && textState.length <= 32000 &&
             attachments.size <= (if (mediaKind == ModelType.VIDEO_GENERATION) 1 else 16) && mediaModel != null && !isGenerating
-    val showStop = isGenerating && (mediaKind != null || !hasContent)
+    val showStop = isGenerating && editDraft == null && (mediaKind != null || !hasContent)
     val mediaHint = when {
         mediaKind == ModelType.VIDEO_GENERATION && attachments.size > 1 -> "Choose one reference image for the video"
         mediaKind == ModelType.IMAGE_GENERATION && attachments.size > 16 -> "Choose up to 16 reference images"
@@ -461,11 +461,7 @@ fun UserInputArea(
                                             onAttachmentsChange(emptyList())
                                             if (editDraft != null) onCancelEdit()
                                         } else {
-                                            Toast.makeText(
-                                                context,
-                                                "Unable to submit. Check the selected model or wait for the current response and try again.",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
+                                            onSubmissionFailed(context.getString(R.string.chat_submit_failed))
                                         }
                                     }
                                 }

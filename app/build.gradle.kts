@@ -14,8 +14,8 @@ android {
         applicationId = "org.starfall.multigateway"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "1.2.4"
+        versionCode = 26
+        versionName = "1.2.5"
 
         manifestPlaceholders["appAuthRedirectScheme"] = "multigateway-oauth"
 
@@ -121,6 +121,9 @@ dependencies {
 
     // GFM parsing/rendering; code toolbar and streaming presentation remain app-owned.
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.45.0")
+
+    // Native LaTeX layout for standalone math blocks in chat messages.
+    implementation("ru.noties:jlatexmath-android:0.2.0")
 
     // One playback engine for audio, video and synthesized speech.
     implementation("androidx.media3:media3-exoplayer:1.8.0")

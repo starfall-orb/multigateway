@@ -2,7 +2,6 @@ package org.starfall.multigateway.ui.chat
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -15,7 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -261,7 +260,6 @@ fun ModelPickerSheet(
     onDismiss: () -> Unit
 ) {
     var query by remember { mutableStateOf("") }
-    var initialPositionApplied by remember { mutableStateOf(false) }
     var expandSearchResults by remember(query) { mutableStateOf(true) }
     val forceExpanded = query.isNotBlank() && expandSearchResults
     var collapsedGroupIds by remember { mutableStateOf(collapsedGroupIdsState) }
@@ -289,6 +287,12 @@ fun ModelPickerSheet(
         }
     }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    // Keep a separate LazyListState for every tab. Reusing one state here makes
+    // Compose restore the previous tab's position (or jump to its initial row)
+    // whenever the tab content is replaced.
+    val tabListStates = remember { mutableMapOf<String, LazyListState>() }
+    val initializedTabKeys = remember { mutableSetOf<String>() }
+    val tabPositionsBeforeSearch = remember { mutableMapOf<String, Pair<Int, Int>>() }
     // Switching tabs replaces most rows at once while the list is also repositioned. Fading the old
     // rows out during that jump can leave them stuck on screen, so rows are swapped instantly.
     var instantTabSwap by remember { mutableStateOf(false) }
@@ -302,6 +306,7 @@ fun ModelPickerSheet(
         selectedTabIndex = selectedTabIndex.coerceIn(0, (folderTabs.size - 1).coerceAtLeast(0))
     }
     val selectedTab = folderTabs.getOrNull(selectedTabIndex)
+    val selectedTabKey = selectedTab?.key ?: "default"
     val selectedFolderId = selectedTab?.folderId
     val ungroupedOnly = selectedTab?.ungroupedOnly == true
     LaunchedEffect(collapsedGroupIdsState) {
@@ -311,12 +316,10 @@ fun ModelPickerSheet(
         collapsedProviderIds = collapsedProviderIdsState
     }
     fun setCollapsedGroups(value: Set<String>) {
-        initialPositionApplied = true
         collapsedGroupIds = value
         onCollapsedGroupIdsChange(value)
     }
     fun setCollapsedProviders(value: Set<String>) {
-        initialPositionApplied = true
         collapsedProviderIds = value
         onCollapsedProviderIdsChange(value)
     }
@@ -365,22 +368,27 @@ fun ModelPickerSheet(
             else -> modelIndex
         }
     }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = targetIndex)
-    LaunchedEffect(flatItems) {
-        if (!initialPositionApplied && flatItems.isNotEmpty()) {
-            initialPositionApplied = true
-            if (query.isBlank() && !listState.isScrollInProgress) listState.scrollToItem(targetIndex)
+    val listState = remember(selectedTabKey) {
+        tabListStates.getOrPut(selectedTabKey) { LazyListState(targetIndex) }
+    }
+    LaunchedEffect(selectedTabKey, flatItems, query, targetIndex) {
+        if (query.isBlank() && flatItems.isNotEmpty() &&
+            initializedTabKeys.add(selectedTabKey) && !listState.isScrollInProgress
+        ) {
+            listState.scrollToItem(targetIndex)
         }
     }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }.first { it }
-        initialPositionApplied = true
-    }
-
-    LaunchedEffect(query) {
+    LaunchedEffect(query, selectedTabKey) {
         if (query.isNotBlank()) {
-            initialPositionApplied = true
+            tabPositionsBeforeSearch.putIfAbsent(
+                selectedTabKey,
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            )
             listState.scrollToItem(0)
+        } else {
+            tabPositionsBeforeSearch.remove(selectedTabKey)?.let { (index, offset) ->
+                listState.scrollToItem(index, offset)
+            }
         }
     }
     val allCollapsed = !forceExpanded && providers.all { it.id in collapsedProviderIds }
@@ -442,7 +450,6 @@ fun ModelPickerSheet(
                             onClick = {
                                 if (selectedTabIndex != index) instantTabSwap = true
                                 selectedTabIndex = index
-                                initialPositionApplied = false
                             },
                             modifier = Modifier.testTag("model-picker-tab_${tab.key}"),
                             text = {

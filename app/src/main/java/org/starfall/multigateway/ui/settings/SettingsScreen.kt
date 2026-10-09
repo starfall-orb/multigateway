@@ -73,7 +73,7 @@ fun SettingsScreen(
     onDynamicColorChange: (Boolean) -> Unit,
     onColorSchemeChange: (String) -> Unit,
     onContinueLastConversationChange: (Boolean) -> Unit,
-    onPersistChatSelectionChange: (Boolean) -> Unit,
+    onPersistSelectedModelChange: (Boolean) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onEnableVibrationChange: (Boolean) -> Unit,
     onHideStatusBarChange: (Boolean) -> Unit,
@@ -184,7 +184,7 @@ fun SettingsScreen(
                         PreferencesSettingsView(
                             appPreferences = appPreferences,
                             onContinueLastConversationChange = onContinueLastConversationChange,
-                            onPersistChatSelectionChange = onPersistChatSelectionChange,
+                            onPersistSelectedModelChange = onPersistSelectedModelChange,
                             onAutoScrollChange = onAutoScrollChange,
                             onEnableVibrationChange = onEnableVibrationChange,
                             onDebugModeChange = onDebugModeChange,
@@ -301,7 +301,7 @@ fun AppearanceSettingsView(
 fun PreferencesSettingsView(
     appPreferences: AppPreferences,
     onContinueLastConversationChange: (Boolean) -> Unit,
-    onPersistChatSelectionChange: (Boolean) -> Unit,
+    onPersistSelectedModelChange: (Boolean) -> Unit,
     onAutoScrollChange: (Boolean) -> Unit,
     onEnableVibrationChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
@@ -316,8 +316,8 @@ fun PreferencesSettingsView(
                 PreferenceToggle("Continue Last Chat", "Open the most recent conversation on launch",
                     appPreferences.continueLastConversation, onContinueLastConversationChange)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                PreferenceToggle("Persist Selection", "Remember your selected model across sessions",
-                    appPreferences.persistChatSelection, onPersistChatSelectionChange)
+                PreferenceToggle("Persist Selected Model", "Use each chat's selected model when you return to it",
+                    appPreferences.persistSelectedModel, onPersistSelectedModelChange)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 PreferenceToggle("Auto scroll", "Follow new responses as they generate",
                     appPreferences.autoScroll, onAutoScrollChange)

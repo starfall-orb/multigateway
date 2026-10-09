@@ -52,7 +52,8 @@ class ChatViewModel(
     private fun toolEvents(provider: LlmProviderInfo, model: String, messages: List<StoredMessage>, prompt: String) =
         toolChat.generate(provider, model, messages, prompt, mcpServers.value, providers.value,
             settings = { toolSettings.value },
-            maxToolRounds = { appPreferences.value.effectiveToolRoundLimit })
+            maxToolRounds = { appPreferences.value.effectiveToolRoundLimit },
+            takePendingMessage = ::takePendingMessage)
 
     private val deletingAllConversations = MutableStateFlow(false)
     private val deletingConversations = MutableStateFlow<Set<String>>(emptySet())
@@ -103,6 +104,34 @@ class ChatViewModel(
                     (modelId to config.withConversationReasoning(effort, provider.type))
             )
         )
+    }
+
+    private fun conversationModelProvider(conversation: Conversation): LlmProviderInfo? {
+        if (conversation.modelId.isBlank()) return null
+        return providers.value.firstOrNull { provider ->
+            provider.id == conversation.providerId &&
+                provider.config.modelIds?.contains(conversation.modelId) != false &&
+                (provider.config.modelConfigs[conversation.modelId]?.modelType
+                    ?: ModelType.TEXT_GENERATION) == ModelType.TEXT_GENERATION
+        }
+    }
+
+    /** Resolve the model the chat composer currently presents for this conversation. */
+    private fun selectedChatModel(
+        conversation: Conversation?,
+        preferences: AppPreferences
+    ): Pair<LlmProviderInfo?, String> {
+        val conversationProvider = conversation?.takeIf {
+            preferences.persistSelectedModel && it.messages.isNotEmpty()
+        }?.let(::conversationModelProvider)
+        val provider = conversationProvider
+            ?: providers.value.find { it.id == preferences.selectedProviderId }
+        val modelId = if (conversationProvider != null) {
+            conversation?.modelId.orEmpty()
+        } else {
+            preferences.selectedModelId
+        }
+        return provider to modelId
     }
 
     private fun summaryAfterMessageMutation(
@@ -161,7 +190,7 @@ class ChatViewModel(
     }
 
     private fun maybeStartAutomaticSummary(incoming: StoredMessage? = null): Boolean {
-        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
+        if (isGenerating.value || replacingGeneration || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
         val current = _currentConversation.value ?: return false
         val prefs = appPreferences.value
         val model = providers.value.find { it.id == prefs.selectedProviderId }?.config?.modelConfigs?.get(prefs.selectedModelId) ?: return false
@@ -188,27 +217,42 @@ class ChatViewModel(
 
     private val _queuedMessages = MutableStateFlow<List<StoredMessage>>(emptyList())
     val queuedMessages: StateFlow<List<StoredMessage>> = _queuedMessages.asStateFlow()
+    private var replacingGeneration = false
 
     init {
         viewModelScope.launch { contextEstimate.collect { maybeStartAutomaticSummary() } }
         viewModelScope.launch {
             isGenerating.collect { busy ->
-                if (!busy && !maybeStartAutomaticSummary()) drainQueuedMessages()
+                if (!busy && !replacingGeneration && !maybeStartAutomaticSummary()) drainQueuedMessages()
             }
         }
     }
 
     private fun drainQueuedMessages() {
-        if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return
+        if (isGenerating.value || replacingGeneration || summaryJob?.isActive == true || pendingConversationWrites > 0) return
         if (maybeStartAutomaticSummary()) return
-        val next = _queuedMessages.value.firstOrNull() ?: return
-        _queuedMessages.value = _queuedMessages.value.drop(1)
-        sendMessage(next.content, next.files)
+        var next: StoredMessage? = null
+        _queuedMessages.update { queued ->
+            next = queued.firstOrNull()
+            queued.drop(1)
+        }
+        val message = next ?: return
+        sendMessage(message.content, message.files)
+    }
+
+    /** Atomically hands one queued message to the active tool loop. */
+    private fun takePendingMessage(): StoredMessage? {
+        var next: StoredMessage? = null
+        _queuedMessages.update { queued ->
+            next = queued.firstOrNull()
+            queued.drop(1)
+        }
+        return next
     }
 
     fun editQueuedMessage(id: String, newContent: String, files: List<String>): Boolean {
         if ((newContent.isBlank() && files.isEmpty()) || _queuedMessages.value.none { it.id == id }) return false
-        _queuedMessages.value = _queuedMessages.value.map { msg ->
+        _queuedMessages.update { queued -> queued.map { msg ->
             if (msg.id == id) {
                 msg.copy(
                     versions = listOf(
@@ -222,12 +266,12 @@ class ChatViewModel(
             } else {
                 msg
             }
-        }
+        } }
         return true
     }
 
     fun deleteQueuedMessage(id: String) {
-        _queuedMessages.value = _queuedMessages.value.filter { it.id != id }
+        _queuedMessages.update { queued -> queued.filter { it.id != id } }
     }
     val chatError = generation.error
     val generatingConversationId = generation.conversationId
@@ -262,7 +306,14 @@ class ChatViewModel(
     fun selectConversation(conversation: Conversation) {
         if (deletingAllConversations.value || conversation.id in deletingConversations.value) return
         _queuedMessages.value = emptyList()
-        _currentConversation.value = generation.snapshot?.takeIf { it.id == conversation.id } ?: conversation
+        val selected = generation.snapshot?.takeIf { it.id == conversation.id } ?: conversation
+        _currentConversation.value = selected
+        if (!appPreferences.value.persistSelectedModel) return
+        conversationModelProvider(selected)?.let { provider ->
+            viewModelScope.launch(LocalWriteErrors.handler) {
+                prefsRepo.setSelectedModel(provider.id, selected.modelId)
+            }
+        }
     }
 
     fun startNewChat() {
@@ -376,6 +427,36 @@ class ChatViewModel(
                     modelIds = provider.config.modelIds + modelId,
                     modelConfigs = provider.config.modelConfigs + (modelId to ModelConfiguration())
                 )))
+            }
+            // Keep the open conversation's selection separate from the new-chat default.
+            val current = _currentConversation.value
+            if (appPreferences.value.persistSelectedModel && current != null) {
+                val updated = current.copy(
+                    providerId = providerId,
+                    modelId = modelId,
+                    updatedAt = System.currentTimeMillis()
+                )
+                if (generation.snapshot?.id == current.id) {
+                    generation.updateConversation {
+                        it.copy(providerId = providerId, modelId = modelId, updatedAt = updated.updatedAt)
+                    }
+                } else {
+                    _currentConversation.value = updated
+                }
+                if (updated.messages.isNotEmpty() && generation.snapshot?.id != current.id) {
+                    writeConversation { conversationRepo.saveConversation(updated) }
+                }
+            }
+        }
+    }
+
+    fun setPersistSelectedModel(enabled: Boolean) {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            prefsRepo.setPersistSelectedModel(enabled)
+            if (enabled) {
+                val current = _currentConversation.value ?: return@launch
+                val provider = conversationModelProvider(current) ?: return@launch
+                prefsRepo.setSelectedModel(provider.id, current.modelId)
             }
         }
     }
@@ -509,7 +590,7 @@ class ChatViewModel(
                 ),
                 isQueued = true
             )
-            _queuedMessages.value = _queuedMessages.value + queued
+            _queuedMessages.update { it + queued }
             return true
         }
 
@@ -517,12 +598,12 @@ class ChatViewModel(
             listOf(MessageVersion(content = userText, files = fileAttachments, timestamp = System.currentTimeMillis().toString())),
             isQueued = true)
         if (maybeStartAutomaticSummary(incoming)) {
-            _queuedMessages.value = _queuedMessages.value + incoming
+            _queuedMessages.update { it + incoming }
             return true
         }
         val prefs = appPreferences.value
-        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId }
-        val modelId = prefs.selectedModelId
+        val existing = _currentConversation.value
+        val (baseProvider, modelId) = selectedChatModel(existing, prefs)
         val canGenerate = baseProvider != null && modelId.isNotBlank()
         val now = System.currentTimeMillis()
         val user = StoredMessage(
@@ -541,7 +622,6 @@ class ChatViewModel(
             ChatRole.MODEL,
             listOf(generatedVersion(baseProvider, modelId, now.toString()))
         )
-        val existing = _currentConversation.value
         val firstMessage = existing == null || existing.messages.isEmpty()
         val fallbackSource = userText.ifBlank { "Attachment" }
         val fallbackTitle = fallbackSource.take(30) + if (fallbackSource.length > 30) "..." else ""
@@ -626,11 +706,32 @@ class ChatViewModel(
     fun stopGeneration() { generation.stop() }
 
     fun editMessage(messageId: String, newContent: String, files: List<String>): Boolean {
-        if (
-            isGenerating.value ||
-            summaryJob?.isActive == true ||
-            (newContent.isBlank() && files.isEmpty())
-        ) return false
+        if (summaryJob?.isActive == true || (newContent.isBlank() && files.isEmpty())) return false
+        if (isGenerating.value) {
+            val conversation = _currentConversation.value ?: return false
+            val message = conversation.messages.firstOrNull { it.id == messageId } ?: return false
+            if (replacingGeneration) return false
+            if (message.role == ChatRole.USER) {
+                val (provider, modelId) = selectedChatModel(conversation, appPreferences.value)
+                if (provider == null || modelId.isBlank()) return false
+            }
+            replacingGeneration = true
+            viewModelScope.launch {
+                try {
+                    generation.stopAndJoin()
+                    editMessageNow(messageId, newContent, files)
+                } finally {
+                    replacingGeneration = false
+                    if (!isGenerating.value) drainQueuedMessages()
+                }
+            }
+            return true
+        }
+        return editMessageNow(messageId, newContent, files)
+    }
+
+    private fun editMessageNow(messageId: String, newContent: String, files: List<String>): Boolean {
+        if (summaryJob?.isActive == true || (newContent.isBlank() && files.isEmpty())) return false
         val conv = _currentConversation.value ?: return false
         val currentMsgs = conv.messages.toMutableList()
         val idx = currentMsgs.indexOfFirst { it.id == messageId }
@@ -638,10 +739,11 @@ class ChatViewModel(
 
         val oldMsg = currentMsgs[idx]
         val newVersions = oldMsg.versions.toMutableList()
+        val now = System.currentTimeMillis()
         newVersions.add(
             MessageVersion(
                 content = newContent,
-                timestamp = System.currentTimeMillis().toString(),
+                timestamp = now.toString(),
                 files = files,
                 providerId = oldMsg.activeVersion.providerId,
                 modelId = oldMsg.activeVersion.modelId,
@@ -652,6 +754,31 @@ class ChatViewModel(
             versions = newVersions,
             activeVersionIndex = newVersions.size - 1
         )
+
+        if (oldMsg.role == ChatRole.USER) {
+            val prefs = appPreferences.value
+            val (provider, modelId) = selectedChatModel(conv, prefs)
+            if (provider == null || modelId.isBlank()) return false
+
+            val previousResponse = currentMsgs.getOrNull(idx + 1)?.takeIf { it.role == ChatRole.MODEL }
+            val responseId = previousResponse?.id ?: UUID.randomUUID().toString()
+            val responseVersion = generatedVersion(provider, modelId, now.toString())
+            val response = previousResponse?.copy(
+                versions = previousResponse.versions + responseVersion,
+                activeVersionIndex = previousResponse.versions.size
+            ) ?: StoredMessage(responseId, ChatRole.MODEL, listOf(responseVersion))
+            val updatedMessages = currentMsgs.take(idx + 1) + response
+            val updated = conv.copy(
+                messages = updatedMessages,
+                summary = summaryAfterMessageMutation(conv, idx, updatedMessages),
+                updatedAt = now,
+                providerId = provider.id,
+                modelId = modelId,
+                profileId = null
+            )
+            return startUserMessageResponse(updated, responseId, provider, modelId, prefs)
+        }
+
         val updated = conv.copy(
             messages = currentMsgs,
             summary = summaryAfterMessageMutation(conv, idx, currentMsgs),
@@ -662,8 +789,43 @@ class ChatViewModel(
         return true
     }
 
+    private fun startUserMessageResponse(
+        conversation: Conversation,
+        responseId: String,
+        provider: LlmProviderInfo,
+        modelId: String,
+        preferences: AppPreferences
+    ): Boolean {
+        val responseIndex = conversation.messages.indexOfFirst { it.id == responseId }
+        if (responseIndex <= 0) return false
+        val contextMessages = conversation.messages.take(responseIndex)
+        val context = effectiveContext(
+            conversation,
+            contextMessages.dropLast(1),
+            preferences.effectiveSystemPrompt
+        ).let { it.copy(messages = preferences.promptRoleMessages() + it.messages + contextMessages.last()) }
+        val configuredProvider = providerWithReasoning(provider, modelId, conversation)
+        return generation.startEvents(
+            conversation,
+            responseId,
+            toolEvents(configuredProvider, modelId, context.messages, context.systemPrompt)
+        )
+    }
+
     fun deleteMessage(messageId: String) {
-        if (isGenerating.value) return
+        if (summaryJob?.isActive == true) return
+        val current = _currentConversation.value ?: return
+        if (isGenerating.value && generation.snapshot?.id == current.id) {
+            viewModelScope.launch {
+                generation.stopAndJoin()
+                deleteMessageNow(messageId)
+            }
+            return
+        }
+        deleteMessageNow(messageId)
+    }
+
+    private fun deleteMessageNow(messageId: String) {
         val conv = _currentConversation.value ?: return
         val messageIndex = conv.messages.indexOfFirst { it.id == messageId }
         if (messageIndex == -1) return
@@ -678,7 +840,19 @@ class ChatViewModel(
     }
 
     fun deleteMessageVersion(messageId: String) {
-        if (isGenerating.value) return
+        if (summaryJob?.isActive == true) return
+        val current = _currentConversation.value ?: return
+        if (isGenerating.value && generation.snapshot?.id == current.id) {
+            viewModelScope.launch {
+                generation.stopAndJoin()
+                deleteMessageVersionNow(messageId)
+            }
+            return
+        }
+        deleteMessageVersionNow(messageId)
+    }
+
+    private fun deleteMessageVersionNow(messageId: String) {
         val conv = _currentConversation.value ?: return
         val currentMsgs = conv.messages.toMutableList()
         val messageIndex = currentMsgs.indexOfFirst { it.id == messageId }
@@ -730,8 +904,8 @@ class ChatViewModel(
         if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return false
         val current = _currentConversation.value ?: return false
         val prefs = appPreferences.value
-        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return false
-        val model = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return false
+        val (baseProvider, model) = selectedChatModel(current, prefs)
+        if (baseProvider == null || model.isBlank()) return false
         val responseId = UUID.randomUUID().toString()
         val conv = prepareUserMessageRetry(current, messageId, responseId,
             generatedVersion(baseProvider, model, System.currentTimeMillis().toString()))?.copy(
@@ -739,20 +913,18 @@ class ChatViewModel(
             modelId = model,
             profileId = null
         ) ?: return false
-        val provider = providerWithReasoning(baseProvider, model, conv)
-        val contextMessages = conv.messages.takeWhile { it.id != responseId }
-        val context = effectiveContext(conv, contextMessages.dropLast(1), prefs.effectiveSystemPrompt)
-            .let { it.copy(messages = prefs.promptRoleMessages() + it.messages + contextMessages.last()) }
-        return generation.startEvents(conv, responseId,
-            toolEvents(provider, model, context.messages, context.systemPrompt))
+        val userIndex = conv.messages.indexOfFirst { it.id == messageId }
+        val responseMessageId = conv.messages.getOrNull(userIndex + 1)
+            ?.takeIf { it.role == ChatRole.MODEL }?.id ?: return false
+        return startUserMessageResponse(conv, responseMessageId, baseProvider, model, prefs)
     }
 
     fun regenerateMessage(messageId: String) {
         if (isGenerating.value || summaryJob?.isActive == true || pendingConversationWrites > 0) return
         val current = _currentConversation.value ?: return
         val prefs = appPreferences.value
-        val baseProvider = providers.value.find { it.id == prefs.selectedProviderId } ?: return
-        val model = prefs.selectedModelId.takeIf { it.isNotBlank() } ?: return
+        val (baseProvider, model) = selectedChatModel(current, prefs)
+        if (baseProvider == null || model.isBlank()) return
         var conv = prepareRegeneration(current, messageId,
             generatedVersion(baseProvider, model, System.currentTimeMillis().toString()))?.copy(
             providerId = baseProvider.id,
@@ -764,17 +936,7 @@ class ChatViewModel(
         if (summaryBoundary != null && conv.messages.none { it.id == summaryBoundary }) {
             conv = conv.copy(summary = null)
         }
-        val provider = providerWithReasoning(baseProvider, model, conv)
-        val context = effectiveContext(
-            conv,
-            conv.messages.dropLast(1),
-            prefs.effectiveSystemPrompt
-        ).let { it.copy(messages = prefs.promptRoleMessages() + it.messages) }
-        generation.startEvents(
-            conv,
-            messageId,
-            toolEvents(provider, model, context.messages, context.systemPrompt)
-        )
+        startUserMessageResponse(conv, messageId, baseProvider, model, prefs)
     }
 
     override fun onCleared() {

@@ -167,7 +167,9 @@ internal fun PackedProviderGrid(
     val folderClick by rememberUpdatedState(onFolderClick)
     val folderHover by rememberUpdatedState(onFolderHover)
     val folderInset = with(LocalDensity.current) { 6.dp.toPx() }
+    val edgeThreshold = with(LocalDensity.current) { 48.dp.toPx() }
     var viewportSize by remember { mutableStateOf(Size.Zero) }
+    var dragPointerPosition by remember { mutableStateOf<Offset?>(null) }
     val background = MaterialTheme.colorScheme.surfaceContainerLow
     val border = MaterialTheme.colorScheme.outlineVariant
     val columns = remember(isGrid) {
@@ -220,6 +222,18 @@ internal fun PackedProviderGrid(
         return result
     }
 
+    fun logicalGroup(cell: PackedGridCell?): String? = when {
+        cell?.groupId != null -> cell.groupId
+        cell?.key?.startsWith("group_") == true -> cell.key.removePrefix("group_")
+        cell?.key?.startsWith("heading_") == true -> cell.key.removePrefix("heading_")
+        else -> null
+    }
+
+    val draggingGroup = logicalGroup(displayCells.firstOrNull { it.key == draggingKey })
+    val foreignTargetsEnabled = dragPointerPosition?.let { point ->
+        point.y < edgeThreshold || point.y > viewportSize.height - edgeThreshold
+    } == true
+
     Box(Modifier.fillMaxSize().clipToBounds()
         .onSizeChanged { viewportSize = Size(it.width.toFloat(), it.height.toFloat()) }
         .pointerInput(displayCells, isGrid) {
@@ -236,10 +250,13 @@ internal fun PackedProviderGrid(
         .pointerInput(displayCells, isGrid) {
             awaitPointerEventScope {
                 while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Final)
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
                     val change = event.changes.firstOrNull() ?: continue
                     if (draggingKey?.startsWith("provider_") == true && change.pressed) {
+                        dragPointerPosition = change.position
                         folderHover(folderDropBounds().entries.firstOrNull { it.value.contains(change.position) }?.key)
+                    } else if (!change.pressed) {
+                        dragPointerPosition = null
                     }
                 }
             }
@@ -302,6 +319,8 @@ internal fun PackedProviderGrid(
                 ReorderableItem(
                     reorderState,
                     key = cell.key,
+                    enabled = draggingKey == null || logicalGroup(cell) == null ||
+                        logicalGroup(cell) == draggingGroup || foreignTargetsEnabled,
                     // Other items animate to their new slots while dragging. The dragged item is excluded:
                     // the reorderable state positions it under the finger, and a placement animation on top
                     // of that makes it jump around the finger while the grid scrolls at the bottom edge.

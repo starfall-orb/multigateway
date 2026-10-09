@@ -243,6 +243,8 @@ fun ProviderScreen(
         toKey.startsWith("provider_") -> ProviderRootOrderItem(toKey.removePrefix("provider_"), false)
         toKey.startsWith("group_") -> ProviderRootOrderItem(toKey.removePrefix("group_"), true)
         toKey.startsWith("heading_") -> ProviderRootOrderItem(toKey.removePrefix("heading_"), true)
+        toKey.startsWith("folder-start_") -> ProviderRootOrderItem(toKey.removePrefix("folder-start_"), true)
+        toKey.startsWith("folder-end_") -> ProviderRootOrderItem(toKey.removePrefix("folder-end_"), true)
         else -> null
     }
 
@@ -288,6 +290,7 @@ fun ProviderScreen(
                 toKey.startsWith("provider_") -> orderedProviders.firstOrNull { it.id == toKey.removePrefix("provider_") }
                     ?.let { it.groupId ?: it.id }
                 else -> toKey.removePrefix("group_").removePrefix("heading_")
+                    .removePrefix("folder-start_").removePrefix("folder-end_")
             }
             val from = rootItems.indexOfFirst { it.id == fromId }
             val to = when (toKey) {
@@ -1110,17 +1113,32 @@ private fun ProviderGroupGridHeading(
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit
 ) {
-    Column(modifier.fillMaxWidth().height(ProviderGridCardHeight)) {
-        Row(Modifier.fillMaxWidth().height(36.dp).clickable(onClick = onCollapse),
-            verticalAlignment = Alignment.CenterVertically) {
-            Text(group.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 6.dp))
-            IconButton(onClick = onAddProvider, modifier = Modifier.size(32.dp).testTag("add_provider_to_group_${group.id}")) {
-                Icon(Icons.Default.Add, stringResource(R.string.add_provider), modifier = Modifier.size(20.dp))
+    Surface(
+        modifier = modifier.fillMaxWidth().height(ProviderGridCardHeight).clickable(onClick = onCollapse),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Box(Modifier.fillMaxSize().padding(14.dp)) {
+            EntityIcon(
+                image = group.icon,
+                modifier = Modifier.size(42.dp).align(Alignment.TopStart).testTag("provider_group_icon_${group.id}"),
+                fallback = Icons.Outlined.Folder,
+                matchName = group.name
+            )
+            Row(Modifier.align(Alignment.TopEnd), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onAddProvider, modifier = Modifier.size(32.dp).testTag("add_provider_to_group_${group.id}")) {
+                    Icon(Icons.Default.Add, stringResource(R.string.add_provider), modifier = Modifier.size(20.dp))
+                }
+                ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
             }
-            ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
+            Text(
+                group.name,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart)
+            )
         }
-        ProviderGroupIconTile(group, Modifier.fillMaxWidth().testTag("provider_group_icon_${group.id}"),
-            tileHeight = ProviderGridCardHeight - 36.dp, onClick = onCollapse)
     }
 }

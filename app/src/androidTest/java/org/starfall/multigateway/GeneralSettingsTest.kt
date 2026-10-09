@@ -21,7 +21,7 @@ class GeneralSettingsTest {
                 SettingsScreen(
                     appPreferences = AppPreferences(), conversationCount = 12, providerCount = 3,
                     onThemeChange = {}, onAmoledChange = {}, onDynamicColorChange = {}, onColorSchemeChange = {},
-                    onContinueLastConversationChange = {}, onPersistChatSelectionChange = {}, onAutoScrollChange = autoScroll,
+                    onContinueLastConversationChange = {}, onPersistSelectedModelChange = {}, onAutoScrollChange = autoScroll,
                     onEnableVibrationChange = {}, onHideStatusBarChange = {}, onDebugModeChange = {}, onLatexModeChange = {},
                     onClearAllConversations = {}, onResetAllData = {}, onBack = { destinations.add("Back") },
                     onNavigateToSystemTools = { destinations.add("Default Models") },

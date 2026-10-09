@@ -157,10 +157,22 @@ class ChatMediaUiTest {
                 "video" to ModelConfiguration(modelType = ModelType.VIDEO_GENERATION))))
         compose.setContent {
             MaterialTheme {
-                UserInputArea(false, { _, _ -> textSubmissions++; true }, { submitted = it; true },
-                    { _, _, _ -> false }, null, {}, {}, "text", listOf(provider),
-                    selectedProviderId = "text-provider", onSelectModel = { _, _ -> },
-                    conversationReasoningEffort = null, onSetReasoningEffort = {}, onStartConversationSummary = { false })
+                UserInputArea(
+                    isGenerating = false,
+                    onSendMessage = { _, _ -> textSubmissions++; true },
+                    onSendMedia = { submitted = it; true },
+                    onEditMessage = { _, _, _ -> false },
+                    editDraft = null,
+                    onCancelEdit = {},
+                    onStopGenerating = {},
+                    selectedModelName = "text",
+                    providers = listOf(provider),
+                    selectedProviderId = "text-provider",
+                    onSelectModel = { _, _ -> },
+                    conversationReasoningEffort = null,
+                    onSetReasoningEffort = {},
+                    onStartConversationSummary = { false }
+                )
             }
         }
         val original = compose.onNodeWithTag("chat-input").fetchSemanticsNode().boundsInRoot.size
@@ -268,11 +280,25 @@ class ChatMediaUiTest {
                         AssistantMessageCard(message, false, {}, {}, {}, {}, {}, {},
                             selectedImageAttachments = attachments,
                             onToggleChatImage = { ref -> attachments = if (ref in attachments) attachments - ref else attachments + ref })
-                        UserInputArea(false, { _, files -> sentFiles = files; true }, { false }, { _, _, _ -> false },
-                            null, {}, {}, "text", emptyList(), selectedProviderId = "p", onSelectModel = { _, _ -> },
-                            conversationReasoningEffort = null, onSetReasoningEffort = {}, onStartConversationSummary = { false },
-                            attachments = attachments, onAttachmentsChange = { attachments = it },
-                            modifier = Modifier.align(Alignment.BottomCenter))
+                        UserInputArea(
+                            isGenerating = false,
+                            onSendMessage = { _, files -> sentFiles = files; true },
+                            onSendMedia = { false },
+                            onEditMessage = { _, _, _ -> false },
+                            editDraft = null,
+                            onCancelEdit = {},
+                            onStopGenerating = {},
+                            selectedModelName = "text",
+                            providers = emptyList(),
+                            selectedProviderId = "p",
+                            onSelectModel = { _, _ -> },
+                            conversationReasoningEffort = null,
+                            onSetReasoningEffort = {},
+                            onStartConversationSummary = { false },
+                            attachments = attachments,
+                            onAttachmentsChange = { attachments = it },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
                     }
                 }
             }

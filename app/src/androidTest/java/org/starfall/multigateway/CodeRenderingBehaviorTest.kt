@@ -68,7 +68,10 @@ class CodeRenderingBehaviorTest {
         compose.setContent { MaterialTheme {
             Column {
                 CodeRenderingPreferences(preferences, { preferences = preferences.copy(wordWrapMode = it) },
-                    { preferences = preferences.copy(wordWrapColumn = it) }, { preferences = preferences.copy(codePreviewEnabled = it) })
+                    { preferences = preferences.copy(wordWrapColumn = it) },
+                    { preferences = preferences.copy(codePreviewEnabled = it) },
+                    { preferences = preferences.copy(messageFontSize = it) },
+                    { preferences = preferences.copy(messageFontFamily = it) })
             }
         } }
         compose.onNodeWithTag("word-wrap-column").assertDoesNotExist()

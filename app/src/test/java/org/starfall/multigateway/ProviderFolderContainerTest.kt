@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.geometry.Offset
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -49,17 +50,16 @@ class ProviderFolderContainerTest {
         val tail = slot("provider_tail")
         assertEquals(before.top, header.top, 1f)
         assertTrue(header.left >= before.right)
-        assertTrue(a.top > header.bottom)
+        assertTrue(a.top >= header.bottom)
         assertEquals(a.top, b.top, 1f)
         assertEquals(a.left, c.left, 1f)
         assertTrue(c.top >= a.bottom)
-        assertTrue("The next root item must not occupy the empty slot 6", tail.top > c.bottom)
+        assertTrue("The next root item must not occupy the empty slot 6", tail.top >= c.bottom)
         assertEquals(a.left, tail.left, 1f)
         compose.onNodeWithTag("provider_group_icon_g", useUnmergedTree = true).assertExists()
 
         // Collapsing restores the original two-column root layout; expanding restores the block.
         compose.onNodeWithTag("provider_group_g").performClick()
-        compose.onNodeWithTag("folder-start_g").assertDoesNotExist()
         compose.onNodeWithTag("provider_group_g").performClick()
         assertEquals(a.top, slot("provider_member-0").top, 1f)
         assertEquals(tail.top, slot("provider_tail").top, 1f)
@@ -75,18 +75,14 @@ class ProviderFolderContainerTest {
         assertTrue(a.left >= header.right)
         assertEquals(header.left, b.left, 1f)
         assertEquals(b.top, c.top, 1f)
-        val start = compose.onNodeWithTag("folder-start_g").fetchSemanticsNode().boundsInRoot
-        val end = compose.onNodeWithTag("folder-end_g").fetchSemanticsNode().boundsInRoot
-        assertEquals(header.top, start.bottom, 1f)
-        assertEquals(c.bottom, end.top, 1f)
-        assertTrue(slot("provider_tail").top > c.bottom)
+        assertTrue(slot("provider_tail").top >= c.bottom)
     }
 
     @Test fun oddNumberOfFolderSlotsKeepsTheLastEmptyCellInside() {
         showFolder(before = 2, members = 2)
         val last = slot("provider_member-1")
         val tail = slot("provider_tail")
-        assertTrue(tail.top > last.bottom)
+        assertTrue(tail.top >= last.bottom)
         assertEquals(last.left, tail.left, 1f)
     }
 
@@ -98,6 +94,78 @@ class ProviderFolderContainerTest {
         assertTrue(heading.bottom <= logo.top)
         assertEquals(logo.top, first.top, 1f)
         assertTrue(first.left >= logo.right)
-        assertTrue(slot("provider_tail").top > slot("provider_member-2").bottom)
+        assertTrue(slot("provider_tail").top >= slot("provider_member-2").bottom)
     }
+
+    @Test fun droppingOnAClosedFolderCommitsTheProviderToThatFolder() {
+        val writes = mutableListOf<org.starfall.multigateway.data.model.ProviderPlacement>()
+        val source = LlmProviderInfo("source", "Source", ProviderType.OPENAI, baseUrl = "", sortOrder = 0)
+        val group = ProviderGroup("g", "Folder", sortOrder = 1)
+        compose.setContent {
+            MaterialTheme {
+                ProviderScreen(
+                    providers = listOf(source),
+                    providerGroups = listOf(group),
+                    collapsedSectionsState = setOf(group.id),
+                    isGridView = true,
+                    onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                    onDeleteProvider = {}, onReorderProviders = {}, onBack = {},
+                    onPlaceProvider = {
+                        writes += it
+                        Result.success(Unit)
+                    }
+                )
+            }
+        }
+        compose.waitForIdle()
+        val list = compose.onNodeWithTag("provider_list")
+        val listBounds = list.fetchSemanticsNode().boundsInRoot
+        val sourceBounds = compose.onNodeWithTag("provider_source").fetchSemanticsNode().boundsInRoot
+        val folderBounds = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot
+        val sourcePoint = sourceBounds.center - listBounds.topLeft
+        val folderPoint = folderBounds.center - listBounds.topLeft
+        list.performTouchInput {
+            down(sourcePoint)
+            advanceEventTime(700)
+            moveTo(folderPoint)
+            advanceEventTime(100)
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(1, writes.size)
+        assertEquals("source", writes.single().providerId)
+        assertEquals("g", writes.single().groupId)
+    }
+
+    @Test fun droppingOnAnOpenFolderDoesNotRebuildTheDragMidGesture() {
+        val writes = mutableListOf<org.starfall.multigateway.data.model.ProviderPlacement>()
+        val source = LlmProviderInfo("source", "Source", ProviderType.OPENAI, baseUrl = "", sortOrder = 0)
+        val member = LlmProviderInfo("member", "Member", ProviderType.OPENAI, baseUrl = "", groupId = "g", sortOrder = 0)
+        val group = ProviderGroup("g", "Folder", sortOrder = 1)
+        compose.setContent {
+            MaterialTheme {
+                ProviderScreen(
+                    providers = listOf(source, member), providerGroups = listOf(group), isGridView = true,
+                    onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
+                    onDeleteProvider = {}, onReorderProviders = {}, onBack = {},
+                    onPlaceProvider = { writes += it; Result.success(Unit) }
+                )
+            }
+        }
+        compose.waitForIdle()
+        val sourceNode = compose.onNodeWithTag("provider_source").fetchSemanticsNode().boundsInRoot
+        val root = compose.onNodeWithTag("provider_list").fetchSemanticsNode().boundsInRoot
+        val folderNode = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("provider_list").performTouchInput {
+            down(sourceNode.center - root.topLeft)
+            advanceEventTime(700)
+            moveTo(folderNode.center - root.topLeft)
+            advanceEventTime(100)
+            up()
+        }
+        compose.waitForIdle()
+        assertEquals(1, writes.size)
+        assertEquals("g", writes.single().groupId)
+    }
+
 }

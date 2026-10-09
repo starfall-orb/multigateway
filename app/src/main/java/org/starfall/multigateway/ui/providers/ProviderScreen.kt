@@ -604,7 +604,13 @@ fun ProviderScreen(
                             }
                             PackedProviderGrid(cells = packedItems.map { it.cell }, isGrid = gridMode,
                                 dragEnabled = !searching, onMove = ::previewMove,
-                                onDragStarted = ::beginDrag, onDragFinished = ::finishDrag
+                                onDragStarted = ::beginDrag, onDragFinished = ::finishDrag,
+                                onFolderClick = { groupId -> if (query.isEmpty()) toggleSection(groupId) },
+                                onFolderHover = { groupId ->
+                                    val dragged = draggedProviderId?.let { id -> orderedProviders.firstOrNull { it.id == id } }
+                                    pendingProviderDrop = groupId?.takeIf { it != dragged?.groupId }
+                                        ?.let { PendingProviderDrop(ProviderRootOrderItem(it, true)) }
+                                }
                             ) { key, dragModifier ->
                                 val item = packedItems.firstOrNull { it.cell.key == key }
                                 val provider = item?.provider
@@ -635,7 +641,7 @@ fun ProviderScreen(
                                         onClick = { if (query.isEmpty()) toggleSection(group.id) }) }
                                     group != null && item.expanded -> ProviderGroupGridHeading(
                                         group = group, modifier = Modifier.testTag("provider_group_${group.id}").then(dragModifier),
-                                        detached = gridMode && item.cell.groupId == null,
+                                        detached = gridMode && item.rootIndex % 2 == 1,
                                         onCollapse = { if (query.isEmpty()) toggleSection(group.id) },
                                         onAddProvider = { createProvider(group.id) },
                                         onEditGroup = { groupToRename = group }, onDeleteGroup = { deletingGroup = group })
@@ -1120,25 +1126,31 @@ private fun ProviderGroupGridHeading(
             else androidx.compose.ui.graphics.Color.Transparent,
         border = if (detached) BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant) else null
     ) {
-        Box(Modifier.fillMaxSize().padding(14.dp)) {
-            EntityIcon(
-                image = group.icon,
-                modifier = Modifier.size(42.dp).align(Alignment.TopStart).testTag("provider_group_icon_${group.id}"),
-                fallback = Icons.Outlined.Folder,
-                matchName = group.name
-            )
-            Row(Modifier.align(Alignment.TopEnd), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onAddProvider, modifier = Modifier.size(32.dp).testTag("add_provider_to_group_${group.id}")) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().height(36.dp).clickable(onClick = onCollapse),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    group.name,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(start = 6.dp)
+                )
+                IconButton(
+                    onClick = onAddProvider,
+                    modifier = Modifier.size(32.dp).testTag("add_provider_to_group_${group.id}")
+                ) {
                     Icon(Icons.Default.Add, stringResource(R.string.add_provider), modifier = Modifier.size(20.dp))
                 }
                 ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
             }
-            Text(
-                group.name,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.align(Alignment.BottomStart)
+            ProviderGroupIconTile(
+                group,
+                Modifier.fillMaxWidth().testTag("provider_group_icon_${group.id}"),
+                tileHeight = ProviderGridCardHeight - 36.dp,
+                onClick = onCollapse
             )
         }
     }

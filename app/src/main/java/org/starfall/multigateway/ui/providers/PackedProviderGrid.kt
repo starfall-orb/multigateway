@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.providers
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.unit.Density
@@ -16,6 +17,10 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.ReorderableCollectionItemScope
@@ -24,25 +29,25 @@ import sh.calvin.reorderable.ScrollMoveMode
 
 internal data class PackedGridCell(val key: String, val groupId: String?)
 
-private val PackedGridCell.isFolderBoundary: Boolean
-    get() = key.startsWith("folder-start_") || key.startsWith("folder-end_")
+private val PackedGridCell.isFolderGap: Boolean
+    get() = key.startsWith("folder-gap_")
 
 /** One full-width rectangle per folder, using grid slots rather than animated/dragged card bounds. */
 internal fun packedGroupBlockBounds(
     cells: List<PackedGridCell>,
     bounds: Map<String, Rect>,
     viewport: Size,
-    inset: Float
+    inset: Float,
+    isGrid: Boolean = true
 ): Map<String, Rect> = buildMap {
     cells.filter { it.groupId != null }.groupBy { it.groupId!! }.forEach { (group, members) ->
-        val visible = members.mapNotNull { bounds[it.key] }
+        val visible = members.filterNot { member ->
+            isGrid && member.key == "group_$group" &&
+                (bounds[member.key]?.center?.x ?: 0f) > viewport.width / 2f
+        }.mapNotNull { bounds[it.key] }
         if (visible.isNotEmpty()) {
-            // Lazy grids only measure visible rows. When an end is offscreen, extend beyond
-            // the viewport so scrolling does not invent a rounded cap halfway down the folder.
-            val top = bounds[members.first().key]?.top?.plus(inset)
-                ?: minOf(visible.minOf { it.top }, -viewport.height)
-            val bottom = bounds[members.last().key]?.bottom?.minus(inset)
-                ?: maxOf(visible.maxOf { it.bottom }, viewport.height * 2)
+            val top = visible.minOf { it.top } - inset
+            val bottom = visible.maxOf { it.bottom } + inset
             put(group, Rect(1f, top, (viewport.width - 1f).coerceAtLeast(1f), bottom))
         }
     }
@@ -109,7 +114,7 @@ internal fun providerDragCells(cells: List<PackedGridCell>, isGrid: Boolean, dra
         cells.forEach { cell ->
             val heading = !isGrid && cell.key.startsWith("group_") && cell.groupId != null
             if (draggedGroup != null && (cell.groupId == draggedGroup || cell.key == "group_$draggedGroup")) {
-                if (cell.key == draggingKey) add(if (isGrid) cell.copy(groupId = null) else cell)
+                if (cell.key == draggingKey) add(cell)
                 else if (heading && draggingKey == "heading_$draggedGroup") add(PackedGridCell(draggingKey, draggedGroup))
             } else {
                 if (heading) add(PackedGridCell("heading_${cell.groupId}", cell.groupId))
@@ -123,29 +128,17 @@ internal fun providerDragCells(cells: List<PackedGridCell>, isGrid: Boolean, dra
         var column = 0
         contentCells.forEach { cell ->
             val group = cell.groupId
-            if (activeGroup != null && group != activeGroup) {
-                add(PackedGridCell("folder-end_$activeGroup", activeGroup))
-                activeGroup = null
+            if (isGrid && activeGroup != null && group != activeGroup && column == 1) {
+                add(PackedGridCell("folder-gap_$activeGroup", activeGroup))
                 column = 0
             }
-            // An even-positioned folder keeps its header beside the preceding root card.
-            // Its members start a new block below; an odd-positioned header stays in the block.
-            if (isGrid && group != null && cell.key.startsWith("group_") && column == 1) {
-                add(cell.copy(groupId = null))
-                column = 0
-                return@forEach
-            }
-            // Full-span boundaries reserve whole rows for a folder. Root cards and other
-            // folders can never occupy an empty half-row inside its rectangular container.
-            if (group != null && activeGroup == null) {
-                add(PackedGridCell("folder-start_$group", group))
-                activeGroup = group
-                column = 0
-            }
+            activeGroup = group
             add(cell)
-            column = (column + 1) % 2
+            if (isGrid) column = (column + 1) % 2
         }
-        activeGroup?.let { add(PackedGridCell("folder-end_$it", it)) }
+        if (isGrid && activeGroup != null && column == 1) {
+            add(PackedGridCell("folder-gap_$activeGroup", activeGroup))
+        }
         add(PackedGridCell("root:end", null))
     }
 }
@@ -159,6 +152,8 @@ internal fun PackedProviderGrid(
     onMove: (String, String) -> Unit,
     onDragStarted: (String) -> Unit,
     onDragFinished: (String, Boolean) -> Unit,
+    onFolderClick: (String) -> Unit = {},
+    onFolderHover: (String?) -> Unit = {},
     content: @Composable ReorderableCollectionItemScope.(String, Modifier) -> Unit
 ) {
     var draggingKey by remember { mutableStateOf<String?>(null) }
@@ -169,6 +164,10 @@ internal fun PackedProviderGrid(
         onMove(from.key as String, to.key as String)
     }
     val folderCells = displayCells.filter { it.groupId != null }
+    val folderClick by rememberUpdatedState(onFolderClick)
+    val folderHover by rememberUpdatedState(onFolderHover)
+    val folderInset = with(LocalDensity.current) { 6.dp.toPx() }
+    var viewportSize by remember { mutableStateOf(Size.Zero) }
     val background = MaterialTheme.colorScheme.surfaceContainerLow
     val border = MaterialTheme.colorScheme.outlineVariant
     val columns = remember(isGrid) {
@@ -181,14 +180,72 @@ internal fun PackedProviderGrid(
     }
     val firstMembers = cells.filter { it.groupId != null && it.key.startsWith("provider_") }
         .groupBy { it.groupId }.mapValues { it.value.first().key }
-    Box(Modifier.fillMaxSize().clipToBounds().drawBehind {
-        val slots = gridState.layoutInfo.visibleItemsInfo.associate { item ->
+    fun visibleSlots(): Map<String, Rect> = gridState.layoutInfo.visibleItemsInfo.associate { item ->
             item.key.toString() to Rect(
                 item.offset.x.toFloat(), item.offset.y.toFloat(),
                 (item.offset.x + item.size.width).toFloat(), (item.offset.y + item.size.height).toFloat()
             )
+    }
+
+    fun folderDropBounds(): Map<String, Rect> {
+        val slots = visibleSlots()
+        val result = packedGroupBlockBounds(
+            folderCells, slots, viewportSize, inset = folderInset, isGrid = isGrid
+        ).toMutableMap()
+        displayCells.filter { it.key.startsWith("group_") && it.groupId == null }.forEach { cell ->
+            slots[cell.key]?.let { rect ->
+                result[cell.key.removePrefix("group_")] = Rect(
+                    minOf(result[cell.key.removePrefix("group_")]?.left ?: rect.left, rect.left) - folderInset,
+                    minOf(result[cell.key.removePrefix("group_")]?.top ?: rect.top, rect.top) - folderInset,
+                    maxOf(result[cell.key.removePrefix("group_")]?.right ?: rect.right, rect.right) + folderInset,
+                    maxOf(result[cell.key.removePrefix("group_")]?.bottom ?: rect.bottom, rect.bottom) + folderInset
+                )
+            }
         }
-        val blocks = packedGroupBlockBounds(folderCells, slots, size, inset = 6.dp.toPx())
+        displayCells.filter { it.key.startsWith("group_") && it.groupId != null }.forEach { cell ->
+            val group = cell.groupId ?: return@forEach
+            slots[cell.key]?.let { rect ->
+                val current = result[group]
+                result[group] = if (current == null) {
+                    Rect(
+                        rect.left - folderInset, rect.top - folderInset,
+                        rect.right + folderInset, rect.bottom + folderInset
+                    )
+                } else Rect(
+                    minOf(current.left, rect.left - folderInset), minOf(current.top, rect.top - folderInset),
+                    maxOf(current.right, rect.right + folderInset), maxOf(current.bottom, rect.bottom + folderInset)
+                )
+            }
+        }
+        return result
+    }
+
+    Box(Modifier.fillMaxSize().clipToBounds()
+        .onSizeChanged { viewportSize = Size(it.width.toFloat(), it.height.toFloat()) }
+        .pointerInput(displayCells, isGrid) {
+            detectTapGestures { point ->
+                packedGroupBlockBounds(
+                    folderCells,
+                    visibleSlots(),
+                    viewportSize,
+                    inset = 6.dp.toPx(),
+                    isGrid = isGrid
+                ).entries.firstOrNull { it.value.contains(point) }?.key?.let(folderClick)
+            }
+        }
+        .pointerInput(displayCells, isGrid) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+                    val change = event.changes.firstOrNull() ?: continue
+                    if (draggingKey?.startsWith("provider_") == true && change.pressed) {
+                        folderHover(folderDropBounds().entries.firstOrNull { it.value.contains(change.position) }?.key)
+                    }
+                }
+            }
+        }
+        .drawBehind {
+        val blocks = packedGroupBlockBounds(folderCells, visibleSlots(), Size(size.width, size.height), inset = 6.dp.toPx(), isGrid = isGrid)
         blocks.forEach { (group, block) ->
             if (draggingKey == "group_$group" || draggingKey == "heading_$group") return@forEach
             val corner = 20.dp.toPx()
@@ -215,15 +272,12 @@ internal fun PackedProviderGrid(
         ) {
             items(displayCells, key = { it.key }, span = { cell ->
                 val narrow = cell.groupId != null && (cell.key.startsWith("group_") || firstMembers[cell.groupId] == cell.key)
-                GridItemSpan(if (cell.isFolderBoundary) maxLineSpan else if (cell.key == draggingKey) draggingSpan
+                GridItemSpan(if (cell.key == draggingKey) draggingSpan
                     else if (cell.key.startsWith("root:") || (!isGrid && !narrow)) maxLineSpan else 1)
             }) { cell ->
-                if (cell.isFolderBoundary) {
-                    // Boundaries are not draggable, but they must still be registered with
-                    // Calvin's reorder state so dropping a provider on a folder edge produces
-                    // a real folder target instead of falling through to the root grid.
-                    ReorderableItem(reorderState, key = cell.key, animateItemModifier = Modifier) {
-                        Spacer(Modifier.fillMaxWidth().height(12.dp).testTag(cell.key))
+                if (cell.isFolderGap) {
+                    ReorderableItem(reorderState, key = cell.key, enabled = false, animateItemModifier = Modifier) {
+                        Spacer(Modifier.fillMaxWidth().height(164.dp).testTag(cell.key))
                     }
                     return@items
                 }
@@ -254,7 +308,7 @@ internal fun PackedProviderGrid(
                     animateItemModifier = if (cell.key == draggingKey) Modifier else Modifier.animateItem()
                 ) { dragging ->
                     val handle = Modifier.longPressDraggableHandle(
-                        enabled = dragEnabled && !cell.key.startsWith("root:") && !cell.isFolderBoundary,
+                        enabled = dragEnabled && !cell.key.startsWith("root:") && !cell.isFolderGap,
                         interactionSource = interaction, onDragStarted = {
                             active = true
                             val narrow = cell.groupId != null && (cell.key.startsWith("group_") || firstMembers[cell.groupId] == cell.key)

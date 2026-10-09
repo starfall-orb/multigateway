@@ -12,6 +12,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowPowerManager
 import org.starfall.multigateway.data.service.ChatBackgroundService
 
 @RunWith(RobolectricTestRunner::class)
@@ -41,7 +42,7 @@ class ChatBackgroundServiceTest {
         val controller = Robolectric.buildService(ChatBackgroundService::class.java).create()
         val service = controller.get()
         service.onStartCommand(Intent(), 0, 1)
-        val wakeLock = shadowOf(service.getSystemService(PowerManager::class.java)).latestWakeLock
+        val wakeLock = ShadowPowerManager.getLatestWakeLock()
         assertNotNull(wakeLock)
         assertTrue(wakeLock.isHeld)
         controller.destroy()

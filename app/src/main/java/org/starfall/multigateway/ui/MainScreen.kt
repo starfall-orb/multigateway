@@ -29,7 +29,11 @@ import org.starfall.multigateway.ui.chat.ChatViewModel
 import org.starfall.multigateway.ui.configuration.ConfigurationViewModel
 import org.starfall.multigateway.ui.settings.SettingsViewModel
 import org.starfall.multigateway.data.tools.ToolFiles
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.activity.compose.BackHandler
@@ -164,24 +168,30 @@ fun MainScreen(
                 )
             }
         ) {
+            // The chat screen stays composed whatever page is open: NavHost disposes a destination's
+            // composition when another page is on top, which used to wipe the scroll position, the typed
+            // draft, open sheets and every other piece of chat UI state. Other pages draw over it.
+            val navBackStackEntry by navController.currentBackStackEntryAsState()
+            val chatOnTop = navBackStackEntry?.destination?.route == AppDestination.CHAT.route
+            val focusManager = LocalFocusManager.current
+            LaunchedEffect(chatOnTop) {
+                if (!chatOnTop) focusManager.clearFocus(force = true)
+            }
             Box(modifier = Modifier.fillMaxSize()) {
-                NavHost(
-                    navController = navController,
-                    startDestination = AppDestination.CHAT.route,
-                    enterTransition = {
-                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
-                    },
-                    exitTransition = {
-                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
-                    },
-                    popEnterTransition = {
-                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
-                    },
-                    popExitTransition = {
-                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (chatOnTop) Modifier else Modifier.pointerInput(Unit) {
+                                // Hidden underneath another page: swallow touches so nothing reaches it.
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                    }
+                                }
+                            }
+                        )
                 ) {
-                    composable(AppDestination.CHAT.route) {
                         ChatScreen(
                                 conversation = currentConv,
                                 isGenerating = isGenerating,
@@ -251,6 +261,26 @@ fun MainScreen(
                                     configurationViewModel.fetchOllamaModels(url)
                                 }
                         )
+                }
+                NavHost(
+                    navController = navController,
+                    startDestination = AppDestination.CHAT.route,
+                    enterTransition = {
+                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    },
+                    exitTransition = {
+                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    },
+                    popEnterTransition = {
+                        slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    }
+                ) {
+                    composable(AppDestination.CHAT.route) {
+                        // The chat lives outside the NavHost (see above) so it is never disposed.
+                        Box(Modifier.fillMaxSize())
                     }
 
                     composable("providers/edit/{providerId}") { entry ->

@@ -173,8 +173,10 @@ fun ChatScreen(
     }
     val messageIndexOffset = if (isGenerating && !streamingHere) 1 else 0
     suspend fun scrollToBottom(includeQueued: Boolean = true) {
-        val index = if (includeQueued) listState.layoutInfo.totalItemsCount - 1
-            else conversationMessages.lastIndex + messageIndexOffset
+        // The index comes from the data, not from layoutInfo: a message added in this very frame
+        // has not been measured yet, so totalItemsCount would still point at the previous last item.
+        val index = (if (includeQueued) messages.lastIndex else conversationMessages.lastIndex) +
+            messageIndexOffset
         if (index < 0) return
         listState.scrollToItem(index)
         val height = listState.layoutInfo.visibleItemsInfo

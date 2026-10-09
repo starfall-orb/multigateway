@@ -51,6 +51,9 @@ import org.starfall.multigateway.data.model.ConversationSummaryProgress
 import org.starfall.multigateway.data.model.ConversationSummaryRequest
 import org.starfall.multigateway.data.model.SummaryRole
 
+// Far larger than any item; clamped to the bottom by the first LazyColumn measure (kept small to avoid Int overflow).
+private const val OPEN_AT_BOTTOM_OFFSET = 10_000_000
+
 @Composable
 fun ChatScreen(
     conversation: Conversation?,
@@ -95,22 +98,22 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     val conversationKey = conversation?.id ?: "__empty_conversation__"
-    val listStates = remember { mutableMapOf<String, LazyListState>() }
+    // A conversation always opens at its newest message, whatever the previous scroll position was.
+    // The list state is created already positioned at the end (the huge offset is clamped to the
+    // bottom by the first measure pass), so the very first frame is correct: no scroll afterwards.
+    val initialLastIndex = (
+        (conversation?.messages?.size ?: 0) + queuedMessages.size - 1 +
+            (if (isGenerating && generatingConversationId != conversation?.id) 1 else 0)
+        ).coerceAtLeast(0)
     val listState = remember(conversationKey) {
-        listStates.getOrPut(conversationKey) { LazyListState() }
+        LazyListState(
+            firstVisibleItemIndex = initialLastIndex,
+            firstVisibleItemScrollOffset = OPEN_AT_BOTTOM_OFFSET
+        )
     }
-    val followBottomStates = remember { mutableMapOf<String, Boolean>() }
-    var followBottom by remember(conversationKey) {
-        mutableStateOf(followBottomStates[conversationKey] ?: true)
-    }
-    LaunchedEffect(conversationKey, followBottom) {
-        followBottomStates[conversationKey] = followBottom
-    }
+    var followBottom by remember(conversationKey) { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
-    val seenMessageSets = remember { mutableMapOf<String, MutableSet<String>>() }
-    val seenMessageIds = remember(conversationKey) {
-        seenMessageSets.getOrPut(conversationKey) { mutableSetOf() }
-    }
+    val seenMessageIds = remember(conversationKey) { mutableSetOf<String>() }
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
@@ -186,16 +189,15 @@ fun ChatScreen(
         val newMessageIndex = messageIds.indexOfLast { it !in seenMessageIds }
         val firstMessageLoad = seenMessageIds.isEmpty() && newMessageIndex >= 0
         seenMessageIds.addAll(messageIds)
-        if (!autoScroll && newMessageIndex >= 0) {
-            if (firstMessageLoad) {
-                // A conversation opens at its latest message. Wait for the lazy
-                // list to have measured at least one item before calculating the
-                // bottom offset; otherwise the initial scroll can land at item 0.
-                snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
-                scrollToBottom(includeQueued = true)
-            } else {
-                listState.scrollToItem(newMessageIndex + messageIndexOffset)
-            }
+        if (firstMessageLoad) {
+            // Opening a conversation: independent of Auto scroll. Normally the list is already at
+            // the bottom from its initial state; this only corrects the case where the messages
+            // arrived after the state was created.
+            followBottom = true
+            snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+            if (!isNearBottom()) scrollToBottom(includeQueued = true)
+        } else if (!autoScroll && newMessageIndex >= 0) {
+            listState.scrollToItem(newMessageIndex + messageIndexOffset)
         }
     }
     LaunchedEffect(

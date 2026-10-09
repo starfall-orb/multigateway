@@ -64,6 +64,7 @@ import org.starfall.multigateway.data.model.ModelConfiguration
 import org.starfall.multigateway.data.model.ModelType
 import org.starfall.multigateway.data.model.ProviderGroup
 import org.starfall.multigateway.data.model.ProviderType
+import org.starfall.multigateway.data.model.reasoningDisabled
 import org.starfall.multigateway.ui.components.AppBottomSheet
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.components.providerInitials

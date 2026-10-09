@@ -168,7 +168,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                 history += wireMessage
             }
 
-            fun appendUserMessage(message: StoredMessage) {
+            suspend fun appendUserMessage(message: StoredMessage) {
                 val attachments = if (message.files.isEmpty()) JsonArray(emptyList()) else
                     llm.toolAttachments(message, http.requireFiles(), importedAttachments)
                 history += obj(

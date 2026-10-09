@@ -12,14 +12,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.toArgb
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.noties.jlatexmath.JLatexMathDrawable
@@ -56,16 +59,16 @@ internal fun LatexFormulaRenderer(
         }
     }
 
-    when (result) {
+    when (val renderResult = result) {
         LatexRenderResult.Loading -> LatexFallbackText(formula, textStyle, modifier)
-        is LatexRenderResult.Fallback -> LatexFallbackText(result.source, textStyle, modifier)
+        is LatexRenderResult.Fallback -> LatexFallbackText(renderResult.source, textStyle, modifier)
         is LatexRenderResult.Ready -> {
             Box(
                 modifier = modifier.fillMaxWidth(),
                 contentAlignment = if (displayMode) Alignment.Center else Alignment.CenterStart
             ) {
                 Image(
-                    painter = rememberLatexDrawablePainter(result.drawable),
+                    painter = rememberLatexDrawablePainter(renderResult.drawable),
                     contentDescription = "Rendered LaTeX formula"
                 )
             }

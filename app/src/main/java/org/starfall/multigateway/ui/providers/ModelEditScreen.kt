@@ -28,7 +28,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import org.starfall.multigateway.data.local.preferences.ModelConfigurationMemory
 import androidx.compose.ui.unit.dp
-import kotlin.math.roundToInt
 import org.starfall.multigateway.R
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.chat.ModelConfigDialog
@@ -204,47 +203,14 @@ fun ModelEditScreen(
                     config = config.copy(supportsThinking = it)
                 }
                 if (config.supportsThinking) {
-                    Text(stringResource(R.string.reasoning_effort), style = MaterialTheme.typography.titleMedium)
-                    val mode = if (config.reasoningDisabled) 2 else if (config.reasoningEffort == null) 0 else 1
-                    val modeLabels = listOf(
-                        stringResource(R.string.common_auto),
-                        stringResource(R.string.common_on),
-                        stringResource(R.string.common_off)
-                    )
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().testTag("reasoning-mode")) {
-                        modeLabels.forEachIndexed { index, label ->
-                            SegmentedButton(
-                                selected = mode == index,
-                                onClick = {
-                                    config = config.copy(reasoningEffort = when (index) {
-                                        0 -> null
-                                        1 -> config.reasoningEffort?.takeUnless { config.reasoningDisabled } ?: "medium"
-                                        else -> "none"
-                                    })
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, 3)
-                            ) {
-                                Text(label)
-                            }
-                        }
-                    }
-                    if (mode == 1) {
-                        val efforts = listOf("low", "medium", "high", "xhigh")
-                        val effortLabels = listOf(
-                            stringResource(R.string.common_low),
-                            stringResource(R.string.common_medium),
-                            stringResource(R.string.common_high),
-                            stringResource(R.string.common_extra_high)
-                        )
-                        val index = efforts.indexOf(config.reasoningEffort).coerceAtLeast(0)
-                        Text(effortLabels[index], style = MaterialTheme.typography.labelLarge)
-                        Slider(
-                            value = index.toFloat(),
-                            onValueChange = {
-                                config = config.copy(reasoningEffort = efforts[it.roundToInt().coerceIn(0, 3)])
-                            },
-                            valueRange = 0f..3f,
-                            steps = 2
+                    // The level (low/medium/high/...) is chosen in the chat's selected-model sheet and
+                    // remembered in thinkingLevel; this switch only turns reasoning on or off.
+                    ModelCapabilitySwitch(stringResource(R.string.reasoning_enabled), !config.reasoningDisabled) { enabled ->
+                        config = if (enabled) config.copy(reasoningEffort = config.thinkingLevel)
+                        else config.copy(
+                            reasoningEffort = "none",
+                            thinkingLevel = config.thinkingLevel
+                                ?: config.reasoningEffort?.trim()?.takeIf { it.isNotEmpty() }
                         )
                     }
                     if (!config.reasoningDisabled) {

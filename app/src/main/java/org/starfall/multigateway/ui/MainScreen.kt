@@ -227,6 +227,8 @@ fun MainScreen(
                                 summaryProgress = summaryProgress,
                                 contextWindowStatus = contextWindowStatus,
                                 onSetReasoningEffort = viewModel::setConversationReasoningEffort,
+                                onSetSendThinkingContent = configurationViewModel::setSendThinkingContent,
+                                onSetModelReasoningEffort = configurationViewModel::setModelReasoningEffort,
                                 onStartConversationSummary = viewModel::startConversationSummary,
                                 onSummaryRoleChange = viewModel::setSummaryRole,
                                 onDeleteSummary = viewModel::deleteConversationSummary,
@@ -383,6 +385,8 @@ fun MainScreen(
                              onMessageFontSizeChange = settingsViewModel::setMessageFontSize,
                              onMessageFontFamilyChange = settingsViewModel::setMessageFontFamily,
                             onTtsReadCodeBlocksChange = settingsViewModel::setTtsReadCodeBlocks,
+                            onToolRoundLimitEnabledChange = settingsViewModel::setToolRoundLimitEnabled,
+                            onToolRoundLimitChange = settingsViewModel::setToolRoundLimit,
                             onEnableVibrationChange = { value ->
                                 settingsViewModel.setEnableVibration(value)
                             },

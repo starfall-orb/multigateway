@@ -110,6 +110,33 @@ class ConfigurationViewModel(
         }
     }
 
+    /** Persists the level picked in the chat's selected-model sheet. Off ("none") only applies to the conversation; the model's on/off switch lives in its configuration. */
+    fun setModelReasoningEffort(providerId: String, modelId: String, effort: String?) {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            val provider = llmRepo.getProviderById(providerId) ?: return@launch
+            val config = provider.config.modelConfigs[modelId] ?: return@launch
+            val applied = if (effort.isNullOrBlank()) config.copy(reasoningEffort = null)
+            else config.withConversationReasoning(effort, provider.type)
+            if (applied.reasoningDisabled) return@launch
+            val updated = applied.copy(thinkingLevel = applied.reasoningEffort)
+            if (updated == config) return@launch
+            llmRepo.saveProvider(provider.copy(config = provider.config.copy(
+                modelConfigs = provider.config.modelConfigs + (modelId to updated)
+            )))
+        }
+    }
+
+    fun setSendThinkingContent(providerId: String, modelId: String, enabled: Boolean) {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            val provider = llmRepo.getProviderById(providerId) ?: return@launch
+            val config = provider.config.modelConfigs[modelId] ?: return@launch
+            if (config.sendThinkingContent == enabled) return@launch
+            llmRepo.saveProvider(provider.copy(config = provider.config.copy(
+                modelConfigs = provider.config.modelConfigs + (modelId to config.copy(sendThinkingContent = enabled))
+            )))
+        }
+    }
+
     fun reorderProviderModels(providerId: String, modelIds: List<String>) {
         viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.reorderProviderModels(providerId, modelIds) }
     }

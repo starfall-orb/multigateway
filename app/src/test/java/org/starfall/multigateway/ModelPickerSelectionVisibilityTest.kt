@@ -64,4 +64,18 @@ class ModelPickerSelectionVisibilityTest {
         assertEquals("high", model.reasoningEffort)
         assertEquals(model, model.withConversationReasoning(null))
     }
+
+    @Test fun sameNamedModelUnderAnotherProviderIsNotMarkedSelected() {
+        val items = computeModelPickerItems(listOf(selected, other), listOf(group), emptyMap(), selected.id, "alpha")
+        val marked = items.filterIsInstance<ModelPickerItem.Model>().filter { it.isSelected }
+        assertEquals(listOf(selected.id to "alpha"), marked.map { it.provider.id to it.modelId })
+    }
+
+    @Test fun selectionDoesNotLeakToSameNamedModelsWhenSelectedProviderIsNotVisible() {
+        val elsewhere = other.copy(groupId = null)
+        val items = computeModelPickerItems(listOf(selected, elsewhere), listOf(group), emptyMap(), selected.id, "alpha",
+            ungroupedOnly = true)
+        assertTrue(items.filterIsInstance<ModelPickerItem.Model>().isNotEmpty())
+        assertTrue(items.filterIsInstance<ModelPickerItem.Model>().none { it.isSelected })
+    }
 }

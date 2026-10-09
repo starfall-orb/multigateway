@@ -81,7 +81,8 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
         prompt: String,
         servers: List<McpInfo>,
         providers: List<LlmProviderInfo>,
-        settings: () -> ToolSettings
+        settings: () -> ToolSettings,
+        maxToolRounds: () -> Int? = { null }
     ): Flow<GenerationEvent> = channelFlow {
         val sessions = mutableMapOf<String, McpSession>()
         val tools = mutableListOf<ToolDefinition>()
@@ -165,7 +166,10 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
             val budget = ToolBudget()
             val fileSender = SendFileTool(http)
             var fileDeliveryAvailable = false
-            repeat(12) {
+            var round = 0
+            // A null limit means unlimited rounds; the loop then ends only when the model stops calling tools.
+            while (maxToolRounds().let { limit -> limit == null || round < limit }) {
+                round++
                 currentCoroutineContext().ensureActive()
                 val allowed = tools.filter { tool ->
                     if (tool.serverId == null) {
@@ -328,7 +332,7 @@ class ToolChat(private val http: ToolHttp, private val mcp: McpService, private 
                     )
                 }
             }
-            error("Stopped after 12 tool rounds. Send another message to continue.")
+            error("Stopped after $round tool rounds. Send another message to continue.")
         } finally {
             sessions.values.forEach { it.close() }
         }

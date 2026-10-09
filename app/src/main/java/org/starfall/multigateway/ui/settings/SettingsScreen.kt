@@ -45,6 +45,12 @@ import java.net.URL
 import org.starfall.multigateway.data.local.preferences.WordWrapMode
 import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 import org.starfall.multigateway.data.local.preferences.AppPreferences
+import org.starfall.multigateway.data.local.preferences.DEFAULT_TOOL_ROUND_LIMIT
+import org.starfall.multigateway.data.local.preferences.MAX_TOOL_ROUND_LIMIT
+import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
 import org.starfall.multigateway.ui.navigation.SlideScreenContent
 import org.starfall.multigateway.ui.theme.ThemePresets
 
@@ -86,7 +92,9 @@ fun SettingsScreen(
     onWordWrapColumnChange: (Int) -> Unit = {},
     onCodePreviewEnabledChange: (Boolean) -> Unit = {},
     onMessageFontSizeChange: (Int) -> Unit = {},
-    onMessageFontFamilyChange: (MessageFontFamily) -> Unit = {}
+    onMessageFontFamilyChange: (MessageFontFamily) -> Unit = {},
+    onToolRoundLimitEnabledChange: (Boolean) -> Unit = {},
+    onToolRoundLimitChange: (Int) -> Unit = {}
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf<SettingsCategory?>(null) }
     BackHandler(enabled = selectedCategory != null) {
@@ -181,7 +189,9 @@ fun SettingsScreen(
                             onEnableVibrationChange = onEnableVibrationChange,
                             onDebugModeChange = onDebugModeChange,
                             onLatexModeChange = onLatexModeChange,
-                            onTtsReadCodeBlocksChange = onTtsReadCodeBlocksChange
+                            onTtsReadCodeBlocksChange = onTtsReadCodeBlocksChange,
+                            onToolRoundLimitEnabledChange = onToolRoundLimitEnabledChange,
+                            onToolRoundLimitChange = onToolRoundLimitChange
                         )
                     }
 
@@ -296,7 +306,9 @@ fun PreferencesSettingsView(
     onEnableVibrationChange: (Boolean) -> Unit,
     onDebugModeChange: (Boolean) -> Unit,
     onLatexModeChange: (String) -> Unit,
-    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {}
+    onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
+    onToolRoundLimitEnabledChange: (Boolean) -> Unit = {},
+    onToolRoundLimitChange: (Int) -> Unit = {}
 ) {
     LazyColumn(contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
@@ -309,6 +321,31 @@ fun PreferencesSettingsView(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 PreferenceToggle("Auto scroll", "Follow new responses as they generate",
                     appPreferences.autoScroll, onAutoScrollChange)
+            }
+        }
+        item {
+            SettingsSection("Tool calls") {
+                PreferenceToggle("Limit tool rounds",
+                    "Off: the model can call tools without a round limit. On: stop after the number of rounds below.",
+                    appPreferences.toolRoundLimitEnabled, onToolRoundLimitEnabledChange)
+                if (appPreferences.toolRoundLimitEnabled) {
+                    var rounds by remember(appPreferences.toolRoundLimit) { mutableStateOf(appPreferences.toolRoundLimit.toString()) }
+                    val parsed = rounds.toIntOrNull()?.takeIf { it in 1..MAX_TOOL_ROUND_LIMIT }
+                    SelectableOutlinedTextField(
+                        value = rounds,
+                        onValueChange = { text ->
+                            if (text.length <= 4 && text.all(Char::isDigit)) {
+                                rounds = text
+                                text.toIntOrNull()?.takeIf { it in 1..MAX_TOOL_ROUND_LIMIT }?.let(onToolRoundLimitChange)
+                            }
+                        },
+                        label = { Text("Maximum tool rounds") },
+                        supportingText = { Text(if (parsed == null) "Enter a number from 1 to $MAX_TOOL_ROUND_LIMIT." else "Default is $DEFAULT_TOOL_ROUND_LIMIT.") },
+                        isError = parsed == null, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().testTag("tool-round-limit")
+                    )
+                }
             }
         }
         item {

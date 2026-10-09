@@ -148,6 +148,7 @@
     <string name="input_media">Đầu vào</string>
     <string name="model_thinking">Reasoning</string>
     <string name="reasoning_effort">Mức suy luận</string>
+    <string name="reasoning_enabled">Bật suy luận</string>
     <string name="tool_calls">Công cụ</string>
     <string name="send_thinking_content_back">Passback Thinking</string>
     <string name="streaming">Streaming</string>

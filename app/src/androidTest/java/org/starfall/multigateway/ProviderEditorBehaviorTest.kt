@@ -67,9 +67,9 @@ class ProviderEditorBehaviorTest {
                 onSave = { _, config -> saved = config }, onBack = {})
         } }
         compose.onNodeWithText("Passback Thinking").performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("Off") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
+        compose.onNode(reasoningSwitch()).performScrollTo().performClick()
         compose.onNodeWithText("Passback Thinking").assertDoesNotExist()
-        compose.onNode(hasText("Auto") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
+        compose.onNode(reasoningSwitch()).performScrollTo().performClick()
         compose.onNodeWithText("Passback Thinking").assertExists()
         listOf("On" to true, "Off" to false, "Default" to null).forEach { (label, value) ->
             compose.onNode(hasText(label) and hasAnyAncestor(hasTestTag("streaming-mode")))
@@ -305,22 +305,27 @@ class ProviderEditorBehaviorTest {
         compose.onNode(hasText("Renamed") and !hasSetTextAction()).assertIsDisplayed()
     }
 
-    @Test fun modelOffIsSavedAndAutoCanRestoreDefault() {
+    @Test fun reasoningSwitchSavesOffAndOnRestoresRememberedLevel() {
         var saved: ModelConfiguration? = null
         compose.setContent {
             MaterialTheme {
-                ModelEditScreen(provider, "custom-model", setOf("custom-model"),
+                ModelEditScreen(
+                    provider.copy(config = ProviderConfiguration(modelConfigs = mapOf(
+                        "custom-model" to ModelConfiguration(reasoningEffort = "high")))),
+                    "custom-model", setOf("custom-model"),
                     onSave = { _, config -> saved = config }, onBack = {})
             }
         }
-        compose.onNode(hasText("On") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
-        compose.onNodeWithText("Medium").performScrollTo().assertIsDisplayed()
-        compose.onNode(hasText("Off") and hasAnyAncestor(hasTestTag("reasoning-mode"))).performScrollTo().performClick()
-        compose.onNodeWithText("Medium").assertDoesNotExist()
+        compose.onNode(reasoningSwitch()).performScrollTo().performClick()
         compose.onNodeWithText("Save").performClick()
-        compose.runOnIdle { assertTrue(saved!!.reasoningDisabled) }
-        compose.onNodeWithText("Auto").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertTrue(saved!!.reasoningDisabled)
+            assertEquals("high", saved!!.thinkingLevel)
+        }
+        compose.onNode(reasoningSwitch()).performScrollTo().performClick()
         compose.onNodeWithText("Save").performClick()
-        compose.runOnIdle { assertNull(saved!!.reasoningEffort) }
+        compose.runOnIdle { assertEquals("high", saved!!.reasoningEffort) }
     }
+
+    private fun reasoningSwitch() = isToggleable() and hasAnySibling(hasText("Enable reasoning"))
 }

@@ -239,6 +239,11 @@ data class ModelConfiguration(
     val supportsAudioInput: Boolean = false,
     val supportsThinking: Boolean = true,
     @SerialName("reasoning_effort") val reasoningEffort: String? = null,
+    // Last chosen thinking level (set from the chat's selected-model sheet). Kept while thinking
+    // is switched off so turning it back on restores the level; null means the provider default.
+    @SerialName("thinking_level")
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val thinkingLevel: String? = null,
     val supportsToolCalls: Boolean = true,
     @SerialName("send_thinking_content") val sendThinkingContent: Boolean = false,
     val icon: String? = null,

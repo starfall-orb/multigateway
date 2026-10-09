@@ -51,7 +51,8 @@ class ChatViewModel(
     }
     private fun toolEvents(provider: LlmProviderInfo, model: String, messages: List<StoredMessage>, prompt: String) =
         toolChat.generate(provider, model, messages, prompt, mcpServers.value, providers.value,
-            settings = { toolSettings.value })
+            settings = { toolSettings.value },
+            maxToolRounds = { appPreferences.value.effectiveToolRoundLimit })
 
     private val deletingAllConversations = MutableStateFlow(false)
     private val deletingConversations = MutableStateFlow<Set<String>>(emptySet())

@@ -1,6 +1,7 @@
 package org.starfall.multigateway.ui.chat
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlin.math.roundToInt
 import androidx.compose.foundation.BorderStroke
@@ -17,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -213,25 +216,17 @@ fun computeModelPickerItems(
         if (models.isEmpty()) null else ProviderNode(provider, models)
     }
 
-    val hasExactProviderMatch = visibleProviders.any { node ->
-        selectedProviderId.isNotBlank() &&
-            node.provider.id == selectedProviderId &&
-            node.models.any { modelId ->
-                val config = node.provider.config.modelConfigs[modelId] ?: defaultConfig
-                matchesModel(selectedModelId, modelId, config.displayName)
-            }
-    }
+    // The selection belongs to one provider. Only fall back to matching by model name alone
+    // when no provider was recorded (or it no longer exists); otherwise models that merely
+    // share a name with the selected one under other providers would also look selected.
+    val selectedProviderKnown = selectedProviderId.isNotBlank() && providers.any { it.id == selectedProviderId }
 
     val forceExpanded = (normalizedQuery.isNotBlank() && expandSearchResults) || providerFilterId != null
     fun modelItems(node: ProviderNode, depth: Int): List<ModelPickerItem.Model> =
         node.models.map { modelId ->
             val config = node.provider.config.modelConfigs[modelId] ?: defaultConfig
-            val isSelected = if (hasExactProviderMatch) {
-                node.provider.id == selectedProviderId &&
-                    matchesModel(selectedModelId, modelId, config.displayName)
-            } else {
+            val isSelected = (!selectedProviderKnown || node.provider.id == selectedProviderId) &&
                 matchesModel(selectedModelId, modelId, config.displayName)
-            }
             ModelPickerItem.Model(node.provider, modelId, config, isSelected, depth)
         }
 
@@ -294,6 +289,15 @@ fun ModelPickerSheet(
         }
     }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
+    // Switching tabs replaces most rows at once while the list is also repositioned. Fading the old
+    // rows out during that jump can leave them stuck on screen, so rows are swapped instantly.
+    var instantTabSwap by remember { mutableStateOf(false) }
+    LaunchedEffect(selectedTabIndex) {
+        if (instantTabSwap) {
+            delay(400)
+            instantTabSwap = false
+        }
+    }
     LaunchedEffect(folderTabs) {
         selectedTabIndex = selectedTabIndex.coerceIn(0, (folderTabs.size - 1).coerceAtLeast(0))
     }
@@ -436,6 +440,7 @@ fun ModelPickerSheet(
                         Tab(
                             selected = selectedTabIndex == index,
                             onClick = {
+                                if (selectedTabIndex != index) instantTabSwap = true
                                 selectedTabIndex = index
                                 initialPositionApplied = false
                             },
@@ -487,10 +492,12 @@ fun ModelPickerSheet(
                         Box(
                             Modifier.fillMaxWidth()
                                 .animateItem(
+                                    fadeInSpec = if (instantTabSwap) null else spring<Float>(stiffness = Spring.StiffnessMediumLow),
                                     placementSpec = spring(
                                         dampingRatio = Spring.DampingRatioNoBouncy,
                                         stiffness = Spring.StiffnessMediumLow
-                                    )
+                                    ),
+                                    fadeOutSpec = if (instantTabSwap) null else spring<Float>(stiffness = Spring.StiffnessMediumLow)
                                 )
                                 .testTag("model-picker-frame_$index")
                                     .then(if (folderId != null) Modifier.folderOutline(
@@ -556,6 +563,7 @@ internal fun SelectedModelOverviewSheet(
     config: ModelConfiguration,
     conversationReasoningEffort: String?,
     onSetReasoningEffort: (String?) -> Unit,
+    onSetSendThinkingContent: ((Boolean) -> Unit)? = null,
     onOpenModelPicker: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -579,6 +587,40 @@ internal fun SelectedModelOverviewSheet(
                 showReasoningEffort = true,
                 onClick = onOpenModelPicker
             )
+            if (config.supportsThinking && !config.reasoningDisabled && onSetSendThinkingContent != null) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .toggleable(
+                                value = config.sendThinkingContent,
+                                role = Role.Switch,
+                                onValueChange = onSetSendThinkingContent
+                            )
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .testTag("selected-model-passback-thinking"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Psychology,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            stringResource(R.string.send_thinking_content_back),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Switch(checked = config.sendThinkingContent, onCheckedChange = null)
+                    }
+                }
+            }
             Text(
                 "Tap the model card to choose another model",
                 style = MaterialTheme.typography.bodySmall,
@@ -697,7 +739,7 @@ private fun ModelPickerCard(
     var previewReasoningValue by remember(conversationReasoningEffort, isSelected, effortOptions) {
         mutableFloatStateOf(reasoningEffortIndex(conversationReasoningEffort, effortOptions).toFloat())
     }
-    val maximumThinking = isSelected && showReasoningEffort && config.supportsThinking &&
+    val maximumThinking = isSelected && showReasoningEffort && config.supportsThinking && !config.reasoningDisabled &&
         previewReasoningValue.roundToInt() >= effortOptions.lastIndex
     val cardTint by animateFloatAsState(
         if (maximumThinking) 1f else 0f,
@@ -749,6 +791,15 @@ private fun ModelPickerCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (config.displayName.isNotBlank() && config.displayName != modelId) {
+                        Text(
+                            text = modelId,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     if (!providerName.isNullOrBlank() || !folderName.isNullOrBlank()) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -765,7 +816,7 @@ private fun ModelPickerCard(
                             }
                             folderName?.takeIf { it.isNotBlank() }?.let {
                                 ModelContextChip(
-                                    text = "Folder: $it",
+                                    text = "Group: $it",
                                     modifier = Modifier.weight(1f),
                                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -795,8 +846,9 @@ private fun ModelPickerCard(
                 }
             }
 
-            // Keep the control available when the conversation disables reasoning on a thinking model.
-            if (showReasoningEffort && isSelected && config.supportsThinking) {
+            // Shown only while reasoning is enabled in the model configuration. A conversation's own
+            // "Off" choice keeps the slider so it can be turned back up.
+            if (showReasoningEffort && isSelected && config.supportsThinking && !config.reasoningDisabled) {
                 val activeLabel = effortOptions[previewReasoningValue.roundToInt().coerceIn(effortOptions.indices)].label
 
                 Spacer(modifier = Modifier.height(10.dp))

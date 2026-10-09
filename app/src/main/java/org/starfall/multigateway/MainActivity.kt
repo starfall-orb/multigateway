@@ -28,6 +28,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.starfall.multigateway.data.service.ChatBackgroundService
 import org.starfall.multigateway.ui.MainScreen
@@ -37,6 +39,8 @@ import org.starfall.multigateway.ui.configuration.ConfigurationViewModel
 import org.starfall.multigateway.ui.settings.SettingsViewModel
 import org.starfall.multigateway.data.model.parseProviderLink
 import org.starfall.multigateway.ui.components.CrashReportDialog
+
+private const val SERVICE_STOP_GRACE_MS = 5_000L
 
 class MainActivity : ComponentActivity() {
 
@@ -125,14 +129,28 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         // Finishing clears this activity's ViewModel and cancels its generation.
         // Rotation retains the ViewModel, so its service must stay running.
-        if (isFinishing) updateGenerationService(false)
+        if (isFinishing) updateGenerationService(false, immediate = true)
         super.onDestroy()
     }
 
-    private fun updateGenerationService(busy: Boolean) {
+    private var stopServiceJob: Job? = null
+
+    private fun updateGenerationService(busy: Boolean, immediate: Boolean = false) {
         val serviceIntent = Intent(this, ChatBackgroundService::class.java)
+        stopServiceJob?.cancel()
+        stopServiceJob = null
         if (!busy) {
-            stopService(serviceIntent)
+            if (immediate) {
+                stopService(serviceIntent)
+            } else {
+                // A queued message or auto-summary can start the next generation right after this
+                // one ends. Android 12+ refuses to start a foreground service from the background,
+                // so keep it alive briefly instead of stopping and re-starting it.
+                stopServiceJob = lifecycleScope.launch {
+                    delay(SERVICE_STOP_GRACE_MS)
+                    stopService(serviceIntent)
+                }
+            }
             return
         }
         try {

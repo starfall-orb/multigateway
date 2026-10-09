@@ -76,6 +76,8 @@ fun ChatScreen(
     onSelectModel: (providerId: String, modelId: String) -> Unit,
     summaryProgress: ConversationSummaryProgress?,
     onSetReasoningEffort: (String?) -> Unit,
+    onSetSendThinkingContent: (providerId: String, modelId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
+    onSetModelReasoningEffort: (providerId: String, modelId: String, effort: String?) -> Unit = { _, _, _ -> },
     onStartConversationSummary: (ConversationSummaryRequest) -> Boolean,
     onSummaryRoleChange: (SummaryRole) -> Unit,
     onDeleteSummary: () -> Unit,
@@ -472,6 +474,8 @@ fun ChatScreen(
                 onSelectModel = onSelectModel,
                 conversationReasoningEffort = conversation?.reasoningEffort,
                 onSetReasoningEffort = onSetReasoningEffort,
+                onSetSendThinkingContent = onSetSendThinkingContent,
+                onSetModelReasoningEffort = onSetModelReasoningEffort,
                 onStartConversationSummary = onStartConversationSummary,
                 onFetchOllamaModels = onFetchOllamaModels
             )

@@ -100,6 +100,8 @@ fun UserInputArea(
     onSelectModel: (providerId: String, modelId: String) -> Unit,
     conversationReasoningEffort: String?,
     onSetReasoningEffort: (String?) -> Unit,
+    onSetSendThinkingContent: (providerId: String, modelId: String, enabled: Boolean) -> Unit = { _, _, _ -> },
+    onSetModelReasoningEffort: (providerId: String, modelId: String, effort: String?) -> Unit = { _, _, _ -> },
     onStartConversationSummary: (ConversationSummaryRequest) -> Boolean,
     onFetchOllamaModels: (suspend (String) -> List<String>)? = null,
     attachments: List<String> = emptyList(),
@@ -531,10 +533,11 @@ fun UserInputArea(
 
     if (showSelectedModelOverview && mediaKind == null) {
         val selectedProvider = providers.firstOrNull { it.id == selectedProviderId }
-        val selectedConfig = selectedProvider?.config?.modelConfigs?.get(selectedModelName)
-            ?: selectedProvider?.config?.modelConfigs?.values?.firstOrNull {
-                it.displayName.isNotBlank() && it.displayName == selectedModelName
+        val selectedConfigEntry = selectedProvider?.config?.modelConfigs?.entries?.firstOrNull { it.key == selectedModelName }
+            ?: selectedProvider?.config?.modelConfigs?.entries?.firstOrNull {
+                it.value.displayName.isNotBlank() && it.value.displayName == selectedModelName
             }
+        val selectedConfig = selectedConfigEntry?.value
             // Keep the same fallback as the model picker: discovered/custom models without
             // an explicit saved configuration still expose the reasoning control.
             ?: ModelConfiguration(displayName = selectedModelName.ifBlank { "Select a model" })
@@ -546,8 +549,21 @@ fun UserInputArea(
             folderName = selectedFolderName,
             modelId = selectedModelName.ifBlank { selectedConfig.displayName },
             config = selectedConfig,
-            conversationReasoningEffort = conversationReasoningEffort,
-            onSetReasoningEffort = onSetReasoningEffort,
+            // A conversation override wins; otherwise show the level saved for this model.
+            conversationReasoningEffort = conversationReasoningEffort ?: selectedConfig.reasoningEffort,
+            onSetReasoningEffort = { effort ->
+                onSetReasoningEffort(effort)
+                if (selectedProvider != null && selectedConfigEntry != null) {
+                    onSetModelReasoningEffort(selectedProvider.id, selectedConfigEntry.key, effort)
+                }
+            },
+            // Only models with a saved configuration can persist the toggle.
+            onSetSendThinkingContent = if (selectedProvider != null && selectedConfigEntry != null) {
+                val providerId = selectedProvider.id
+                val configKey = selectedConfigEntry.key
+                val setPassback: (Boolean) -> Unit = { enabled -> onSetSendThinkingContent(providerId, configKey, enabled) }
+                setPassback
+            } else null,
             onOpenModelPicker = { showModelPicker = true },
             onDismiss = { showSelectedModelOverview = false }
         )

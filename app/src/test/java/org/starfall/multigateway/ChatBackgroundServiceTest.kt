@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.os.PowerManager
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,5 +35,16 @@ class ChatBackgroundServiceTest {
             assertEquals(NotificationManager.IMPORTANCE_LOW,
                 manager.getNotificationChannel(notification.channelId).importance)
         } finally { controller.destroy() }
+    }
+
+    @Test fun generationHoldsCpuLockUntilServiceIsDestroyed() {
+        val controller = Robolectric.buildService(ChatBackgroundService::class.java).create()
+        val service = controller.get()
+        service.onStartCommand(Intent(), 0, 1)
+        val wakeLock = shadowOf(service.getSystemService(PowerManager::class.java)).latestWakeLock
+        assertNotNull(wakeLock)
+        assertTrue(wakeLock.isHeld)
+        controller.destroy()
+        assertFalse(wakeLock.isHeld)
     }
 }

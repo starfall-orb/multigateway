@@ -31,6 +31,8 @@ enum class MessageFontFamily(val value: String) {
 
 const val DEFAULT_WORD_WRAP_COLUMN = 80
 const val DEFAULT_MESSAGE_FONT_SIZE = 16
+const val DEFAULT_TOOL_ROUND_LIMIT = 12
+const val MAX_TOOL_ROUND_LIMIT = 1000
 
 data class AppPreferences(
     val sidebar: SidebarOrganization = SidebarOrganization(),
@@ -67,8 +69,12 @@ data class AppPreferences(
     val wordWrapColumn: Int = DEFAULT_WORD_WRAP_COLUMN,
     val codePreviewEnabled: Boolean = true,
     val messageFontSize: Int = DEFAULT_MESSAGE_FONT_SIZE,
-    val messageFontFamily: MessageFontFamily = MessageFontFamily.DEFAULT
+    val messageFontFamily: MessageFontFamily = MessageFontFamily.DEFAULT,
+    val toolRoundLimitEnabled: Boolean = false,
+    val toolRoundLimit: Int = DEFAULT_TOOL_ROUND_LIMIT
 ) {
+    /** Null means tool rounds are unlimited. */
+    val effectiveToolRoundLimit: Int? get() = toolRoundLimit.takeIf { toolRoundLimitEnabled }
     val effectiveSystemPrompt: String get() = promptLibrary?.systemPrompt() ?: defaultSystemPrompt
     fun promptRoleMessages() = promptLibrary?.roleMessages().orEmpty()
 }
@@ -111,6 +117,8 @@ class AppPreferencesRepository(private val context: Context) {
         val CODE_PREVIEW_ENABLED = booleanPreferencesKey("code_preview_enabled")
         val MESSAGE_FONT_SIZE = intPreferencesKey("message_font_size")
         val MESSAGE_FONT_FAMILY = stringPreferencesKey("message_font_family")
+        val TOOL_ROUND_LIMIT_ENABLED = booleanPreferencesKey("tool_round_limit_enabled")
+        val TOOL_ROUND_LIMIT = intPreferencesKey("tool_round_limit")
     }
 
     private val storedPreferences: Flow<AppPreferences> = context.dataStore.data
@@ -155,7 +163,9 @@ class AppPreferencesRepository(private val context: Context) {
                 wordWrapColumn = preferences[PreferenceKeys.WORD_WRAP_COLUMN]?.takeIf { it > 0 } ?: DEFAULT_WORD_WRAP_COLUMN,
                 codePreviewEnabled = preferences[PreferenceKeys.CODE_PREVIEW_ENABLED] ?: true,
                 messageFontSize = preferences[PreferenceKeys.MESSAGE_FONT_SIZE]?.coerceIn(12, 24) ?: DEFAULT_MESSAGE_FONT_SIZE,
-                messageFontFamily = MessageFontFamily.fromValue(preferences[PreferenceKeys.MESSAGE_FONT_FAMILY])
+                messageFontFamily = MessageFontFamily.fromValue(preferences[PreferenceKeys.MESSAGE_FONT_FAMILY]),
+                toolRoundLimitEnabled = preferences[PreferenceKeys.TOOL_ROUND_LIMIT_ENABLED] ?: false,
+                toolRoundLimit = preferences[PreferenceKeys.TOOL_ROUND_LIMIT]?.coerceIn(1, MAX_TOOL_ROUND_LIMIT) ?: DEFAULT_TOOL_ROUND_LIMIT
             )
         }
 
@@ -429,6 +439,19 @@ class AppPreferencesRepository(private val context: Context) {
         require(size in 12..24)
         state.mutate({ it.copy(messageFontSize = size) }) {
             context.dataStore.edit { it[PreferenceKeys.MESSAGE_FONT_SIZE] = size }
+        }
+    }
+
+    suspend fun setToolRoundLimitEnabled(enabled: Boolean) {
+        state.mutate({ it.copy(toolRoundLimitEnabled = enabled) }) {
+            context.dataStore.edit { it[PreferenceKeys.TOOL_ROUND_LIMIT_ENABLED] = enabled }
+        }
+    }
+
+    suspend fun setToolRoundLimit(limit: Int) {
+        require(limit in 1..MAX_TOOL_ROUND_LIMIT)
+        state.mutate({ it.copy(toolRoundLimit = limit) }) {
+            context.dataStore.edit { it[PreferenceKeys.TOOL_ROUND_LIMIT] = limit }
         }
     }
 

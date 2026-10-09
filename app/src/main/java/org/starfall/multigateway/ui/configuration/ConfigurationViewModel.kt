@@ -190,6 +190,14 @@ class ConfigurationViewModel(
         Result.failure(failure)
     }
 
+    /** Start a provider placement from the application-scoped ViewModel. The provider screen may
+     * be removed immediately after a drop, so the write must not be owned by its composition scope. */
+    fun queueProviderPlacement(placement: ProviderPlacement) {
+        viewModelScope.launch(LocalWriteErrors.handler) {
+            llmRepo.placeProvider(placement)
+        }
+    }
+
     fun moveProviderToGroup(providerId: String, groupId: String?) {
         viewModelScope.launch(LocalWriteErrors.handler) { llmRepo.moveProviderToGroup(providerId, groupId) }
     }

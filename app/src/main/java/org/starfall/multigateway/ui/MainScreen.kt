@@ -325,7 +325,7 @@ fun MainScreen(
                                 settingsViewModel.setModelPickerCollapsedGroups(appPrefs.modelPickerCollapsedGroups - groupId)
                             },
                             onMoveProviderToGroup = configurationViewModel::moveProviderToGroup,
-                            onPlaceProvider = configurationViewModel::placeProvider,
+                            onPlaceProviderImmediately = configurationViewModel::queueProviderPlacement,
                             onSaveModels = { providerId, models -> configurationViewModel.saveProviderModels(providerId, models) },
                             onReorderModels = configurationViewModel::reorderProviderModels,
                             onDeleteProvider = { providerId ->

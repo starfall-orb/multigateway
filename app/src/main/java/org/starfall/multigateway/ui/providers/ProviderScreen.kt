@@ -76,6 +76,10 @@ import org.starfall.multigateway.ui.navigation.SlideScreenContent
 
 
 private data class ProviderEditor(val provider: LlmProviderInfo, val isNew: Boolean)
+private data class PendingProviderDrop(
+    val target: ProviderRootOrderItem,
+    val atStart: Boolean = false
+)
 private data class PackedProviderItem(
     val rootIndex: Int,
     val group: ProviderGroup? = null,
@@ -142,6 +146,7 @@ fun ProviderScreen(
     onDeleteGroup: (String) -> Unit = {},
     onMoveProviderToGroup: (String, String?) -> Unit = { _, _ -> },
     onPlaceProvider: (suspend (ProviderPlacement) -> Result<Unit>)? = null,
+    onPlaceProviderImmediately: ((ProviderPlacement) -> Unit)? = null,
     onSaveModels: (String, Map<String, ModelConfiguration>) -> Unit,
     onReorderModels: (String, List<String>) -> Unit,
     onDeleteProvider: (String) -> Unit,
@@ -191,6 +196,7 @@ fun ProviderScreen(
     var dragProviderSnapshot by remember { mutableStateOf<List<LlmProviderInfo>?>(null) }
     var dragCollapsedSnapshot by remember { mutableStateOf<Set<String>?>(null) }
     var liveOrderChanged by remember { mutableStateOf(false) }
+    var pendingProviderDrop by remember { mutableStateOf<PendingProviderDrop?>(null) }
 
     val sortedGroups = remember(providerGroups) {
         providerGroups.sortedWith(compareBy<ProviderGroup> { it.sortOrder }.thenBy { it.name.lowercase() })
@@ -228,29 +234,55 @@ fun ProviderScreen(
         dragProviderSnapshot = orderedProviders
         dragCollapsedSnapshot = collapsedSections
         liveOrderChanged = false
+        pendingProviderDrop = null
         if (key.startsWith("provider_")) draggedProviderId = key.removePrefix("provider_")
         else draggedGroupId = key.removePrefix("group_").removePrefix("heading_")
     }
 
+    fun providerTarget(toKey: String): ProviderRootOrderItem? = when {
+        toKey.startsWith("provider_") -> ProviderRootOrderItem(toKey.removePrefix("provider_"), false)
+        toKey.startsWith("group_") -> ProviderRootOrderItem(toKey.removePrefix("group_"), true)
+        toKey.startsWith("heading_") -> ProviderRootOrderItem(toKey.removePrefix("heading_"), true)
+        else -> null
+    }
+
+    fun applyProviderPreview(id: String, target: ProviderRootOrderItem?, atStart: Boolean = false) {
+        val layout = ProviderDragLayout(orderedProviders, rootItems.map { it.toOrderItem() })
+        val next = moveProviderDrag(layout, id, target, atStart = atStart)
+        if (next == layout) return
+        orderedProviders = next.providers
+        val groups = rootItems.filterIsInstance<ProviderRootItem.GroupItem>().associateBy { it.id }
+        val byId = next.providers.associateBy { it.id }
+        rootItems = next.root.mapNotNull { item ->
+            if (item.isGroup) groups[item.id] else byId[item.id]?.let { ProviderRootItem.ProviderItem(it) }
+        }
+        liveOrderChanged = true
+    }
+
     fun previewMove(fromKey: String, toKey: String) {
         if (fromKey.startsWith("provider_")) {
-            val target = when {
-                toKey.startsWith("provider_") -> ProviderRootOrderItem(toKey.removePrefix("provider_"), false)
-                toKey.startsWith("group_") -> ProviderRootOrderItem(toKey.removePrefix("group_"), true)
-                toKey.startsWith("heading_") -> ProviderRootOrderItem(toKey.removePrefix("heading_"), true)
+            val id = fromKey.removePrefix("provider_")
+            val target = providerTarget(toKey)
+            val provider = orderedProviders.firstOrNull { it.id == id }
+            val targetGroupId = when {
+                target?.isGroup == true -> target.id
+                target != null -> orderedProviders.firstOrNull { it.id == target.id }?.groupId
                 else -> null
             }
-            val layout = ProviderDragLayout(orderedProviders, rootItems.map { it.toOrderItem() })
-            val next = moveProviderDrag(layout, fromKey.removePrefix("provider_"), target, atStart = toKey == "root:start")
-            if (next == layout) return
-            orderedProviders = next.providers
-            val groups = rootItems.filterIsInstance<ProviderRootItem.GroupItem>().associateBy { it.id }
-            val byId = next.providers.associateBy { it.id }
-            rootItems = next.root.mapNotNull { item ->
-                if (item.isGroup) groups[item.id] else byId[item.id]?.let { ProviderRootItem.ProviderItem(it) }
+            // A collapsed folder has no member slot to hover. Keep the provider in its source
+            // folder while the finger is over the folder header and commit the move only when
+            // the drag actually ends. This prevents a provider from visually disappearing into
+            // an unopened folder before the user has dropped it.
+            if (provider != null && target?.isGroup == true &&
+                targetGroupId != provider.groupId && target.id in collapsedSections
+            ) {
+                pendingProviderDrop = PendingProviderDrop(target)
+                return
             }
-            liveOrderChanged = true
+            pendingProviderDrop = null
+            applyProviderPreview(id, target, atStart = toKey == "root:start")
         } else {
+            pendingProviderDrop = null
             val fromId = fromKey.removePrefix("group_").removePrefix("heading_")
             val targetId = when {
                 toKey.startsWith("provider_") -> orderedProviders.firstOrNull { it.id == toKey.removePrefix("provider_") }
@@ -283,7 +315,11 @@ fun ProviderScreen(
             val previousProviders = dragProviderSnapshot.orEmpty()
             val previousRoot = dragRootSnapshot.orEmpty()
             val previousCollapsed = dragCollapsedSnapshot.orEmpty()
-            if (onPlaceProvider != null) scope.launch {
+            if (onPlaceProviderImmediately != null) {
+                // The persistence owner must outlive this screen. Calling this synchronously
+                // lets the ViewModel enqueue the write before navigation can dispose the screen.
+                onPlaceProviderImmediately(placement)
+            } else if (onPlaceProvider != null) scope.launch {
                 if (onPlaceProvider(placement).isFailure) {
                     if (pendingGridLayout == layout) {
                         pendingGridLayout = null
@@ -313,7 +349,14 @@ fun ProviderScreen(
             dragProviderSnapshot?.let { orderedProviders = it }
             dragCollapsedSnapshot?.let { collapsedSections = it }
         } else {
-            if (key.startsWith("provider_")) commitProviderMove(key.removePrefix("provider_"))
+            if (key.startsWith("provider_")) {
+                pendingProviderDrop?.let { pending ->
+                    // onMove is a hover callback. Apply a deferred collapsed-folder target only
+                    // after Calvin reports that the drag ended successfully.
+                    applyProviderPreview(key.removePrefix("provider_"), pending.target, pending.atStart)
+                }
+                commitProviderMove(key.removePrefix("provider_"))
+            }
             else if (liveOrderChanged) {
                 val order = rootItems.map { it.toOrderItem() }
                 pendingRootOrder = order
@@ -326,6 +369,7 @@ fun ProviderScreen(
         dragRootSnapshot = null
         dragProviderSnapshot = null
         dragCollapsedSnapshot = null
+        pendingProviderDrop = null
         liveOrderChanged = false
     }
 
@@ -595,6 +639,7 @@ fun ProviderScreen(
                                         onEditGroup = { groupToRename = group }, onDeleteGroup = { deletingGroup = group })
                                     group != null -> ProviderGroupCollapsedCard(
                                         group = group, isGrid = gridMode,
+                                        isDropTarget = pendingProviderDrop?.target?.id == group.id,
                                         modifier = Modifier.testTag("provider_group_${group.id}").then(dragModifier),
                                         onOpen = { toggleSection(group.id) })
                                 }
@@ -704,6 +749,7 @@ fun ProviderScreen(
 private fun ProviderGroupCollapsedCard(
     group: ProviderGroup,
     isGrid: Boolean,
+    isDropTarget: Boolean = false,
     modifier: Modifier = Modifier,
     onOpen: () -> Unit
 ) {
@@ -719,8 +765,13 @@ private fun ProviderGroupCollapsedCard(
 
     Surface(
         shape = RoundedCornerShape(corner),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = if (isDropTarget) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            width = if (isDropTarget) 2.dp else 1.5.dp,
+            color = if (isDropTarget) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outlineVariant
+        ),
         modifier = modifier
             .fillMaxWidth()
             .height(height)
@@ -737,6 +788,7 @@ private fun ProviderGroupCollapsedCard(
                 Text(
                     text = group.name,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isDropTarget) MaterialTheme.colorScheme.onPrimaryContainer else LocalContentColor.current,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.align(Alignment.BottomStart)
@@ -757,6 +809,7 @@ private fun ProviderGroupCollapsedCard(
                 Text(
                     text = group.name,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = if (isDropTarget) MaterialTheme.colorScheme.onPrimaryContainer else LocalContentColor.current,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)

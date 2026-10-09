@@ -1,5 +1,6 @@
 package org.starfall.multigateway.ui.chat
 
+import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.material3.Text
 import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString as libraryAnnotatedString
 import androidx.compose.material3.MaterialTheme
@@ -20,11 +21,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.TextUnit
 
 @Composable
-internal fun MarkdownClickableText(text: AnnotatedString, style: TextStyle, modifier: Modifier = Modifier) {
+internal fun MarkdownClickableText(
+    text: AnnotatedString,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    inlineContent: Map<String, InlineTextContent> = emptyMap()
+) {
     val presentation = rememberStreamingTextPresentation(text.text)
     val mergedStyle = style.copy(color = if (style.color != Color.Unspecified) style.color else MaterialTheme.colorScheme.onSurface)
     Text(text = text, style = mergedStyle, modifier = modifier.then(presentation.modifier),
-        onTextLayout = presentation.onTextLayout)
+        inlineContent = inlineContent, onTextLayout = presentation.onTextLayout)
 }
 
 @Composable

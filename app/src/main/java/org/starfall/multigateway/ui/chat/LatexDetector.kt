@@ -61,9 +61,8 @@ object LatexDetector {
     }
 
     /**
-     * Returns a formula only when the paragraph is a standalone math expression.
-     * This deliberately leaves prose containing inline math to the Markdown
-     * renderer; full inline layout is outside the first rendering version.
+     * Returns a formula only when the whole paragraph is one math expression.
+     * Paragraphs that mix prose and math are cut up by [MathSplitter] instead.
      */
     internal fun standaloneFormula(text: String): String? {
         val trimmed = text.trim()
@@ -92,7 +91,7 @@ object LatexDetector {
         return false
     }
 
-    private fun looksLikeMath(expression: String): Boolean {
+    internal fun looksLikeMath(expression: String): Boolean {
         val inner = expression.trim()
         if (inner.isEmpty()) return false
 
@@ -117,11 +116,13 @@ object LatexDetector {
         return inner.length == 1 && inner[0].isLetter()
     }
 
-    private fun isUsdPriceRange(fullText: String, match: MatchResult): Boolean {
-        val inner = match.groupValues[1].trim()
+    private fun isUsdPriceRange(fullText: String, match: MatchResult): Boolean =
+        looksLikeUsdRange(match.groupValues[1].trim(), fullText.substring(match.range.last + 1))
 
+    /** [inner] is the text between two dollar signs, [textAfterClose] what follows the second one. */
+    internal fun looksLikeUsdRange(inner: String, textAfterClose: String): Boolean {
         // 1. If inner starts with a price number (e.g. "10", "10.50", "1,000")
-        val startsWithNumber = inner.matches(Regex("""^\d+([.,]\d+)?.*"""))
+        val startsWithNumber = inner.matches(Regex("""^\d+([.,]\d+)?.*""", RegexOption.DOT_MATCHES_ALL))
         if (!startsWithNumber) return false
 
         // Check if inner ends with common price range connectors like "to", "-", "and", "~", ","
@@ -133,15 +134,7 @@ object LatexDetector {
             return true
         }
 
-        // Check surrounding context: what comes immediately after the second '$'?
-        val matchEnd = match.range.last + 1
-        val remainingText = fullText.substring(matchEnd).trimStart()
-
-        // If the remaining text starts with a number (e.g., "20", "20.00"), then "$10 ... $20" was matched
-        if (remainingText.matches(Regex("""^\d+([.,]\d+)?.*"""))) {
-            return true
-        }
-
-        return false
+        // If what follows the second '$' starts with a number, "$10 ... $20" was matched.
+        return textAfterClose.trimStart().matches(Regex("""^\d+([.,]\d+)?.*""", RegexOption.DOT_MATCHES_ALL))
     }
 }

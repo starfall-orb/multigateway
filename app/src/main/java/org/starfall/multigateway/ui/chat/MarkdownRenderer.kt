@@ -39,7 +39,7 @@ import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 
 /** Library primitives with app-owned code toolbar, error/LaTeX UI and streaming fades. */
 @Composable
-fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming: Boolean = false, latexMode: String = "AUTO") {
+fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming: Boolean = false, latexMode: String? = null) {
     if (content.isBlank()) return
     if (content.length > MAX_MARKDOWN_RENDER_CHARS) {
         SelectionContainer {
@@ -62,6 +62,8 @@ fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming
     }
     val type = MaterialTheme.typography
     val preferences = LocalCodeRenderingPreferences.current
+    // The Settings choice (ON / OFF / AUTO) is the default; nothing used to pass it down.
+    val effectiveLatexMode = latexMode ?: preferences.latexMode
     val bodySize = preferences.messageFontSize.sp
     val messageFont = preferences.messageFontFamily.toComposeFontFamily()
     Markdown(
@@ -86,7 +88,7 @@ fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming
                     isStreaming && !fence.closed && model.node.endOffset == model.content.length)
             },
             codeBlock = { model -> RenderCodeBlock("", model.node.getTextInNode(model.content).toString().trimEnd(), false) },
-            paragraph = { model -> RenderParagraph(model, latexMode) },
+            paragraph = { model -> RenderParagraph(model, effectiveLatexMode) },
             table = { model -> RenderMarkdownTable(model) }
         ),
         error = { Text(content, style = type.bodyLarge.copy(fontFamily = messageFont, fontSize = bodySize)) }
@@ -147,9 +149,9 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
     val context = LocalContext.current
     val presentation = rememberStreamingTextPresentation(text)
     val isError = remember(text) { isErrorText(text) }
-    val isLatex = remember(text, latexMode) { LatexDetector.shouldRenderLatex(text, latexMode) }
-    val standaloneFormula = remember(text, latexMode) {
-        if (isLatex) LatexDetector.standaloneFormula(text) else null
+    // Null when the paragraph holds no math (or rendering is disabled): the plain Markdown path is kept.
+    val mathPieces = remember(text, latexMode) {
+        MathSplitter.split(text, latexMode).takeIf { pieces -> pieces.any { it is MathPiece.Math } }
     }
     val preferences = LocalCodeRenderingPreferences.current
     val bodySize = preferences.messageFontSize.sp
@@ -205,8 +207,16 @@ private fun RenderParagraph(model: MarkdownComponentModel, latexMode: String) {
                 }
             }
         }
-        standaloneFormula != null -> {
-            RenderLatexBlock(source = text, formula = standaloneFormula)
+        mathPieces != null -> {
+            RenderMathParagraph(
+                pieces = mathPieces,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontFamily = messageFont,
+                    fontSize = bodySize,
+                    lineHeight = bodySize * 1.375f,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            )
         }
         else -> {
             val settings = annotatorSettings()

@@ -52,8 +52,9 @@ internal fun LatexFormulaRenderer(
     ) {
         value = withContext(Dispatchers.Default) {
             try {
-                LatexRenderResult.Ready(LatexDrawableCache.getOrCreate(cacheKey))
+                LatexRenderResult.Ready(LatexDrawables.getOrCreate(cacheKey))
             } catch (error: Throwable) {
+                android.util.Log.w("LatexRenderer", "Could not render formula: $formula", error)
                 LatexRenderResult.Fallback(formula, error)
             }
         }
@@ -115,11 +116,14 @@ internal fun latexCacheKey(
 /** The raw source is intentionally preserved when a formula cannot be parsed. */
 internal fun latexFallbackSource(source: String): String = source
 
-private object LatexDrawableCache {
-    private const val MAX_ENTRIES = 48
+internal object LatexDrawables {
+    private const val MAX_ENTRIES = 96
     private val cache = object : LruCache<LatexCacheKey, Drawable>(MAX_ENTRIES) {
         override fun sizeOf(key: LatexCacheKey, value: Drawable): Int = 1
     }
+
+    @Synchronized
+    fun peek(key: LatexCacheKey): Drawable? = cache.get(key)
 
     @Synchronized
     fun getOrCreate(key: LatexCacheKey): Drawable {
@@ -132,6 +136,18 @@ private object LatexDrawableCache {
         cache.put(key, drawable)
         return drawable
     }
+
+    /** Null entries are formulas that could not be laid out (they stay as their source text). */
+    fun peekAll(keys: List<LatexCacheKey>): List<Drawable?> = keys.map { peek(it) }
+
+    fun buildOrNull(key: LatexCacheKey): Drawable? = try {
+        getOrCreate(key)
+    } catch (error: Throwable) {
+        android.util.Log.w("LatexRenderer", "Could not render formula: ${key.formula}", error)
+        null
+    }
+
+    fun buildAll(keys: List<LatexCacheKey>): List<Drawable?> = keys.map { buildOrNull(it) }
 }
 
 @Composable
@@ -139,7 +155,7 @@ private fun rememberLatexDrawablePainter(drawable: Drawable): Painter {
     return androidx.compose.runtime.remember(drawable) { LatexDrawablePainter(drawable) }
 }
 
-private class LatexDrawablePainter(private val drawable: Drawable) : Painter() {
+internal class LatexDrawablePainter(private val drawable: Drawable) : Painter() {
     override val intrinsicSize = Size(
         drawable.intrinsicWidth.coerceAtLeast(1).toFloat(),
         drawable.intrinsicHeight.coerceAtLeast(1).toFloat()

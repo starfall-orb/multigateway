@@ -3,9 +3,13 @@ package org.starfall.multigateway.ui.chat
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -19,7 +23,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
@@ -42,22 +45,44 @@ internal fun rememberLiveThinkingScrollState(active: Boolean): ScrollState {
 
 @Composable
 internal fun LiveThinkingBlock(reasoning: String, active: Boolean) {
-    val scrollState = rememberLiveThinkingScrollState(active)
+    var expanded by remember { mutableStateOf(false) }
+    val scrollState = rememberLiveThinkingScrollState(active && !expanded)
     val density = LocalDensity.current
-    val previewHeight = with(density) { 48.sp.toDp() }
-    val fadeHeight = with(density) { 16.sp.toPx() }
+    val preferences = LocalCodeRenderingPreferences.current
+    val bodySize = preferences.messageFontSize.sp
+    val messageFont = preferences.messageFontFamily.toComposeFontFamily()
+    val bodyLineHeight = bodySize * 1.375f
+    val previewHeight = with(density) { (bodyLineHeight * 5f).toDp() }
+    val fadeHeight = with(density) { bodyLineHeight.toPx() }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = stringResource(if (active) R.string.thinking_streaming else R.string.processed),
                 style = MaterialTheme.typography.bodyMedium,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                color = MaterialTheme.colorScheme.outline
             )
+            Spacer(Modifier.weight(1f))
             if (active) {
                 Spacer(Modifier.width(6.dp))
-                CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                CircularProgressIndicator(
+                    Modifier.size(12.dp),
+                    strokeWidth = 1.5.dp,
+                    color = MaterialTheme.colorScheme.outline
+                )
             }
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = stringResource(if (expanded) R.string.collapse else R.string.expand),
+                tint = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.size(20.dp)
+            )
         }
         Spacer(Modifier.height(4.dp))
         val fadingEdges = if (!active) Modifier else Modifier
@@ -77,17 +102,28 @@ internal fun LiveThinkingBlock(reasoning: String, active: Boolean) {
                     drawRect(mask, blendMode = BlendMode.DstIn)
                 }
             }
-        Box(
+        val previewModifier = if (expanded) {
+            Modifier.fillMaxWidth()
+        } else {
             Modifier.fillMaxWidth().heightIn(max = previewHeight)
+        }
+        val scrollModifier = if (expanded) Modifier else Modifier.verticalScroll(scrollState)
+        Box(
+            previewModifier
                 .testTag("live-thinking-preview")
-                .then(fadingEdges).verticalScroll(scrollState)
+                .then(fadingEdges)
+                .then(scrollModifier)
+                .clickable { expanded = !expanded }
         ) {
             CompositionLocalProvider(LocalStreamingTextFade provides active) {
                 val presentation = rememberStreamingTextPresentation(reasoning)
                 Text(
                     reasoning,
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp, lineHeight = 16.sp),
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontFamily = messageFont,
+                        fontSize = bodySize,
+                        lineHeight = bodyLineHeight
+                    ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                     modifier = presentation.modifier,
                     onTextLayout = presentation.onTextLayout

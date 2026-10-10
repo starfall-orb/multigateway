@@ -5,8 +5,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -20,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -163,21 +164,30 @@ internal fun ProcessingDropdown(
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 visibleItems.forEachIndexed { index, item ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top
                     ) {
-                        Text(
-                            text = "${startNumber + index}.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier
-                                .width(28.dp)
-                                .padding(top = 1.dp)
-                        )
+                        Box(
+                            modifier = Modifier.width(28.dp),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(24.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = (startNumber + index).toString(),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                            }
+                        }
 
                         Box(modifier = Modifier.weight(1f)) {
                             when (item) {
@@ -196,6 +206,15 @@ internal fun ProcessingDropdown(
                             }
                         }
                     }
+                    if (index < visibleItems.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 11.5.dp)
+                                .width(1.dp)
+                                .height(8.dp)
+                                .background(MaterialTheme.colorScheme.outlineVariant)
+                        )
+                    }
                 }
             }
         }
@@ -209,15 +228,19 @@ private fun CollapsibleThinkingText(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val preferences = LocalCodeRenderingPreferences.current
+    val bodySize = preferences.messageFontSize.sp
+    val messageFont = preferences.messageFontFamily.toComposeFontFamily()
+    val bodyLineHeight = bodySize * 1.375f
     Text(
         text = reasoning,
-        style = MaterialTheme.typography.bodySmall.copy(
-            fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
-            lineHeight = 16.sp
+        style = MaterialTheme.typography.bodyLarge.copy(
+            fontFamily = messageFont,
+            fontSize = bodySize,
+            lineHeight = bodyLineHeight
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
-        maxLines = if (expanded) Int.MAX_VALUE else 3,
+        maxLines = if (expanded) Int.MAX_VALUE else 5,
         overflow = TextOverflow.Ellipsis,
         modifier = modifier
             .fillMaxWidth()

@@ -11,7 +11,10 @@ import android.os.Build
 import android.net.wifi.WifiManager
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import android.content.pm.ServiceInfo
 import org.starfall.multigateway.MainActivity
 
 /**
@@ -38,7 +41,23 @@ class ChatBackgroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = createNotification()
-        startForeground(NOTIFICATION_ID, notification)
+        // Pass the declared type explicitly. On Android 14+ this is required for a
+        // special-use foreground service and also makes the service notification a
+        // real FGS notification instead of an ordinary status-bar notification.
+        try {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } catch (error: Exception) {
+            // A device may reject a foreground-service type or permission. Do not let
+            // that asynchronous service callback become an application crash.
+            Log.e("ChatBackgroundService", "Unable to enter foreground", error)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         acquireLocks()
         // Generation belongs to the current process. Restarting an empty service
         // after process death would show "AI is thinking" with no live generation.
@@ -55,21 +74,31 @@ class ChatBackgroundService : Service() {
 
     private fun acquireLocks() {
         // Renewed on every start command so a long generation never outlives the timeout.
-        if (wakeLock == null) {
-            wakeLock = getSystemService(PowerManager::class.java)
-                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MultiGateway:Chat")
-                ?.apply { setReferenceCounted(false) }
+        // Locks are an optimization only: a device/vendor is allowed to reject either
+        // one, and that must never take down the foreground service or the app process.
+        runCatching {
+            if (wakeLock == null) {
+                wakeLock = getSystemService(PowerManager::class.java)
+                    ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MultiGateway:Chat")
+                    ?.apply { setReferenceCounted(false) }
+            }
+            wakeLock?.acquire(LOCK_TIMEOUT_MS)
+        }.onFailure {
+            wakeLock = null
         }
-        wakeLock?.acquire(LOCK_TIMEOUT_MS)
-        if (wifiLock == null) {
-            @Suppress("DEPRECATION")
-            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
-            else WifiManager.WIFI_MODE_FULL_HIGH_PERF
-            wifiLock = applicationContext.getSystemService(WifiManager::class.java)
-                ?.createWifiLock(mode, "MultiGateway:Chat")
-                ?.apply { setReferenceCounted(false) }
+        runCatching {
+            if (wifiLock == null) {
+                @Suppress("DEPRECATION")
+                val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                wifiLock = applicationContext.getSystemService(WifiManager::class.java)
+                    ?.createWifiLock(mode, "MultiGateway:Chat")
+                    ?.apply { setReferenceCounted(false) }
+            }
+            if (wifiLock?.isHeld != true) wifiLock?.acquire()
+        }.onFailure {
+            wifiLock = null
         }
-        runCatching { if (wifiLock?.isHeld != true) wifiLock?.acquire() }
     }
 
     private fun releaseLocks() {

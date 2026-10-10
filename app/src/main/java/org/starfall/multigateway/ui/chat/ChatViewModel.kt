@@ -226,6 +226,33 @@ class ChatViewModel(
                 if (!busy && !replacingGeneration && !maybeStartAutomaticSummary()) drainQueuedMessages()
             }
         }
+        restoreLastConversation()
+    }
+
+    /**
+     * Reopen the most recently updated persisted chat once this ViewModel is created.
+     * The repository and preferences flows intentionally do not emit until their first
+     * disk snapshot is ready, so this avoids racing the initial empty StateFlow values.
+     */
+    private fun restoreLastConversation() {
+        viewModelScope.launch {
+            val preferences = prefsRepo.appPreferencesFlow.first()
+            if (!preferences.continueLastConversation || _currentConversation.value != null) return@launch
+
+            val lastConversation = conversationRepo.allConversations.first()
+                .asSequence()
+                .filter { it.messages.isNotEmpty() }
+                .maxWithOrNull(compareBy<Conversation> { it.updatedAt }.thenBy { it.createdAt })
+                ?: return@launch
+
+            // Do not replace a selection made while Room was loading.
+            if (_currentConversation.value == null &&
+                !deletingAllConversations.value &&
+                lastConversation.id !in deletingConversations.value
+            ) {
+                selectConversation(lastConversation)
+            }
+        }
     }
 
     private fun drainQueuedMessages() {

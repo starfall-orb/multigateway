@@ -49,8 +49,9 @@ drawer consumes Back before the destination stack.
 ViewModels are Activity-scoped deliberately: switching screens or rotating must not
 stop an active chat stream. `ChatGeneration` owns each generation's snapshot and saves
 partial output on cancellation. After process death, stored conversations are available
-from Room, but an in-flight request is not restarted and the selected conversation is
-not automatically reopened. Editors still use local Compose state; unsaved editor
+from Room, but an in-flight request is not restarted. When the Continue Last
+Conversation preference is enabled, the most recently updated stored conversation is
+reopened after the initial Room/DataStore snapshots are ready. Editors still use local Compose state; unsaved editor
 forms are not guaranteed to survive process recreation.
 
 ## Local mutations and responsiveness

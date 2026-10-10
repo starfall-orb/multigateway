@@ -8,6 +8,8 @@ import org.starfall.multigateway.ui.components.EntityIcon
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -105,25 +107,16 @@ fun SystemToolsScreen(
                 val provider = providers.find { it.id == config.providerId }
                 val model = provider?.config?.modelConfigs?.get(config.modelId)
                 val available = systemMediaToolAvailable(name, config, providers)
-                SettingsCard {
-                    ToolSwitch(
-                        if (name == "generate_image") "Create image" else "Create video",
-                        config.enabled,
-                        enabled = true
-                    ) { onSave(name, config.copy(enabled = it)) }
-                    DefaultModelSelector(provider, config.modelId, model, onClick = { choosing = name })
-                    if (name == "generate_image") {
-                        TextButton(
-                            enabled = provider != null && model?.modelType == ModelType.IMAGE_GENERATION,
-                            onClick = { editingMedia = name }
-                        ) { Text("Image settings") }
-                    } else if (provider != null && (videoOptionFields(provider, config.modelId).isNotEmpty() || config.videoOptions.isNotEmpty())) {
-                        TextButton(
-                            enabled = model?.modelType == ModelType.VIDEO_GENERATION,
-                            onClick = { editingMedia = name }
-                        ) { Text("Video settings") }
-                    }
-                }
+                MediaDefaultModelCard(
+                    name = name,
+                    config = config,
+                    provider = provider,
+                    model = model,
+                    available = available,
+                    onEnabledChange = { onSave(name, config.copy(enabled = it)) },
+                    onChooseModel = { choosing = name },
+                    onOpenSettings = { editingMedia = name }
+                )
             }
 
             item {
@@ -273,6 +266,76 @@ private fun DefaultModelSelector(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun MediaDefaultModelCard(
+    name: String,
+    config: SystemToolConfig,
+    provider: LlmProviderInfo?,
+    model: ModelConfiguration?,
+    available: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    onChooseModel: () -> Unit,
+    onOpenSettings: () -> Unit
+) {
+    val image = name == "generate_image"
+    val title = if (image) "Image Generation" else "Video Generation"
+    val description = if (image) {
+        "Generate images from prompts using the selected model."
+    } else {
+        "Generate videos from prompts using the selected model."
+    }
+    val modelType = if (image) ModelType.IMAGE_GENERATION else ModelType.VIDEO_GENERATION
+    val settingsAvailable = provider != null && model?.modelType == modelType &&
+        (image || videoOptionFields(provider, config.modelId).isNotEmpty() || config.videoOptions.isNotEmpty())
+
+    SettingsCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = if (image) Icons.Outlined.Image else Icons.Outlined.Videocam,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Switch(checked = config.enabled, onCheckedChange = onEnabledChange)
+        }
+        Spacer(Modifier.height(14.dp))
+        DefaultModelSelector(provider, config.modelId, model, onClick = onChooseModel)
+        if (!available) {
+            Text(
+                "Select a compatible model to enable this tool.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(enabled = settingsAvailable, onClick = onOpenSettings) {
+                Text(if (image) "Image settings" else "Video settings")
+            }
         }
     }
 }

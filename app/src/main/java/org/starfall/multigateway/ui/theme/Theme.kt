@@ -210,9 +210,9 @@ private fun completeScheme(source: ColorScheme, dark: Boolean): ColorScheme = so
 private fun ColorScheme.withAmoledSurfaces(): ColorScheme = copy(
     background = Color.Black, surface = Color.Black,
     surfaceDim = Color.Black, surfaceContainerLowest = Color.Black,
-    surfaceContainerLow = Color(0xFF080808), surfaceContainer = Color(0xFF101010),
-    surfaceContainerHigh = Color(0xFF181818), surfaceContainerHighest = Color(0xFF202020),
-    surfaceBright = Color(0xFF242424), surfaceVariant = Color(0xFF202020)
+    surfaceContainerLow = Color.Black, surfaceContainer = Color.Black,
+    surfaceContainerHigh = Color.Black, surfaceContainerHighest = Color.Black,
+    surfaceBright = Color.Black, surfaceVariant = Color.Black
 )
 
 internal val LocalAmoledMode = staticCompositionLocalOf { false }

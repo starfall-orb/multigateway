@@ -2,6 +2,8 @@ package org.starfall.multigateway.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -26,6 +28,7 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.R
 import org.starfall.multigateway.ui.theme.modalScrimColor
+import org.starfall.multigateway.ui.theme.LocalAmoledMode
 import kotlin.math.roundToInt
 
 /** Let downward motion at the list start reach Material; contain overscroll at the list end. */
@@ -56,10 +59,13 @@ fun AppBottomSheet(
     var requestedHeight by remember { mutableStateOf<Float?>(null) }
     var measuredHeight by remember { mutableIntStateOf(0) }
     val resizeLabel = stringResource(R.string.sheet_resize)
+    val sheetModifier = if (LocalAmoledMode.current) {
+        modifier.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+    } else modifier
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         sheetState = sheetState,
-        modifier = modifier.testTag("app-bottom-sheet"),
+        modifier = sheetModifier.testTag("app-bottom-sheet"),
         shape = shape,
         containerColor = containerColor,
         scrimColor = modalScrimColor(BottomSheetDefaults.ScrimColor),

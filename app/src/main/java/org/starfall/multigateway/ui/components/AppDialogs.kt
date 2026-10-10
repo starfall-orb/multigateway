@@ -5,6 +5,9 @@ import android.content.ContextWrapper
 import android.graphics.drawable.ColorDrawable
 import android.view.View
 import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -16,6 +19,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import org.starfall.multigateway.ui.theme.AmoledModalScrim
@@ -104,7 +108,10 @@ fun AppDialog(
     AmoledDialogBackdrop()
     androidx.compose.ui.window.Dialog(onDismissRequest, properties = properties) {
         ConfigureAmoledDialogWindow()
-        Box(Modifier.safeDrawingPadding().imePadding()) {
+        val modalBorder = if (LocalAmoledMode.current) {
+            Modifier.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), MaterialTheme.shapes.extraLarge)
+        } else Modifier
+        Box(Modifier.safeDrawingPadding().imePadding().then(modalBorder)) {
             content()
         }
     }
@@ -128,10 +135,13 @@ fun AppAlertDialog(
     properties: DialogProperties = DialogProperties()
 ) {
     AmoledDialogBackdrop()
+    val modalModifier = if (LocalAmoledMode.current) {
+        modifier.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+    } else modifier
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = { ConfigureAmoledDialogWindow(); confirmButton() },
-        modifier = modifier, dismissButton = dismissButton, icon = icon, title = title, text = text,
+        modifier = modalModifier, dismissButton = dismissButton, icon = icon, title = title, text = text,
         shape = shape, containerColor = containerColor, iconContentColor = iconContentColor,
         titleContentColor = titleContentColor, textContentColor = textContentColor,
         tonalElevation = tonalElevation, properties = properties

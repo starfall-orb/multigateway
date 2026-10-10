@@ -11,6 +11,8 @@ import org.starfall.multigateway.ui.components.windowWidth
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.chat.modelInitial
+import org.starfall.multigateway.ui.theme.LocalAmoledMode
 import java.util.UUID
 
 @Composable
@@ -86,9 +89,15 @@ fun ConversationsDrawer(
     LaunchedEffect(isOpen) { if (!isOpen) stopSelecting() }
     BackHandler(enabled = selecting && isOpen) { stopSelecting() }
 
+    val drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp)
+    val drawerModifier = modifier.windowWidth(0.85f).let {
+        if (LocalAmoledMode.current) {
+            it.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), drawerShape)
+        } else it
+    }
     ModalDrawerSheet(
-        modifier = modifier.windowWidth(0.85f),
-        drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
+        modifier = drawerModifier,
+        drawerShape = drawerShape,
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(Modifier.fillMaxSize()) {

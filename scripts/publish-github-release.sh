@@ -24,8 +24,15 @@ commit="$(git rev-parse HEAD)"
 short_commit="$(git rev-parse --short=12 HEAD)"
 shopt -s nullglob
 apk_dir="${RELEASE_APK_DIR:-app/build/outputs/apk/release}"
-apks=("$apk_dir"/*.apk)
-(( ${#apks[@]} > 0 )) || { echo 'Missing release APKs.' >&2; exit 1; }
+# Skip unsigned APKs (AGP convention: "*unsigned*.apk") — only signed builds are published.
+apks=()
+for candidate in "$apk_dir"/*.apk; do
+  case "$(basename "$candidate")" in
+    *unsigned*) continue ;;
+  esac
+  apks+=("$candidate")
+done
+(( ${#apks[@]} > 0 )) || { echo 'Missing signed release APKs.' >&2; exit 1; }
 checksums=()
 for apk in "${apks[@]}"; do
   checksum="$apk.sha1"

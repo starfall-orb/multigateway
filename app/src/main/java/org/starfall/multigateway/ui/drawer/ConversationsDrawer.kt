@@ -86,7 +86,11 @@ fun ConversationsDrawer(
     LaunchedEffect(isOpen) { if (!isOpen) stopSelecting() }
     BackHandler(enabled = selecting && isOpen) { stopSelecting() }
 
-    ModalDrawerSheet(modifier = modifier.windowWidth(0.85f), drawerContainerColor = MaterialTheme.colorScheme.surface) {
+    ModalDrawerSheet(
+        modifier = modifier.windowWidth(0.85f),
+        drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
+        drawerContainerColor = MaterialTheme.colorScheme.surface
+    ) {
         Column(Modifier.fillMaxSize()) {
             SelectableOutlinedTextField(
                 value = search, onValueChange = { search = it }, singleLine = true,

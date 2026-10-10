@@ -106,7 +106,9 @@ private data class ProviderDragSession(
     val key: String,
     val size: IntSize,
     val grab: Offset,
-    val fromFolderId: String? = null
+    val fromFolderId: String? = null,
+    val folderTile: Boolean = fromFolderId != null,
+    val isGrid: Boolean = true
 )
 
 /** Where the drag surface and the folder container sit; read from gesture callbacks, never from composition. */
@@ -414,13 +416,7 @@ fun ProviderScreen(
             val layout = currentLayout()
             val next = ejectProviderFromFolder(layout, session.key.removePrefix("provider_"), folderId)
             if (next != layout) applyLayout(next)
-            val cell = rootTiles().firstOrNull()?.rect
-            val size = cell?.let { IntSize(it.width.roundToInt(), it.height.roundToInt()) } ?: session.size
-            dragSession = session.copy(
-                size = size,
-                grab = Offset(size.width / 2f, size.height / 2f),
-                fromFolderId = null
-            )
+            dragSession = session.copy(fromFolderId = null)
             openGroupId = null
             return
         }
@@ -428,7 +424,6 @@ fun ProviderScreen(
         val tile = hitTile(tiles, point)
         if (tile == null || tile.key == session.key) {
             dropFolderId = null
-            dragHoverKey = null
             // Empty space is still a valid root drop position. Pick the closest visible cell so
             // a provider leaving a folder can be placed above, between, or after root items.
             if (tile == null && surfaces.layoutGate == 0) {
@@ -439,7 +434,10 @@ fun ProviderScreen(
                         val dy = point.y - candidate.rect.center.y
                         dx * dx + dy * dy
                     }
-                if (nearest != null) moveRootItem(session.key, nearest.key)
+                if (nearest != null && surfaces.layoutGate == 0) {
+                    dragHoverKey = nearest.key
+                    moveRootItem(session.key, nearest.key)
+                } else dragHoverKey = null
             }
             return
         }
@@ -464,7 +462,8 @@ fun ProviderScreen(
             key = tile.key,
             size = IntSize(tile.rect.width.roundToInt(), tile.rect.height.roundToInt()),
             grab = point - tile.rect.topLeft,
-            fromFolderId = openGroupId
+            fromFolderId = openGroupId,
+            isGrid = isGridView
         )
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
     }
@@ -482,8 +481,11 @@ fun ProviderScreen(
         if (wasInFolder && dragSession?.fromFolderId == null) updateDragTarget(finalDrop = true)
         val session = dragSession ?: return
         val folder = dropFolderId
-        if (folder != null && session.key.startsWith("provider_")) {
-            applyProviderPreview(session.key.removePrefix("provider_"), ProviderRootOrderItem(folder, true))
+        if (session.key.startsWith("provider_")) {
+            val id = session.key.removePrefix("provider_")
+            val layout = currentLayout()
+            val next = if (folder != null) moveProviderDrag(layout, id, ProviderRootOrderItem(folder, true)) else layout
+            if (next != layout) applyLayout(next)
         }
         dragSession = null
         dropFolderId = null
@@ -703,7 +705,10 @@ fun ProviderScreen(
                                 IconButton(onClick = { creatingGroup = true }) {
                                     Icon(Icons.Outlined.CreateNewFolder, stringResource(R.string.add_provider_group))
                                 }
-                                IconButton(onClick = { createProvider() }) {
+                                IconButton(
+                                    onClick = { createProvider(openGroupId) },
+                                    modifier = Modifier.testTag("add_provider")
+                                ) {
                                     Icon(Icons.Default.Add, stringResource(R.string.add_provider))
                                 }
                             }
@@ -789,10 +794,10 @@ fun ProviderScreen(
                         ProviderFolderOverlay(
                             group = group,
                             providers = if (folderMatches) members else members.filter(::matches),
+                            isGrid = isGridView,
                             surfaces = surfaces,
                             draggingKey = dragSession?.key,
                             onDismiss = { openGroupId = null },
-                            onAddProvider = { createProvider(group.id) },
                             onEditGroup = { groupToRename = group },
                             onDeleteGroup = { deletingGroup = group; openGroupId = null },
                             onEditProvider = { editor = ProviderEditor(it, false) },
@@ -814,23 +819,30 @@ fun ProviderScreen(
                                         (dragPointer.y - session.grab.y).roundToInt()
                                     )
                                 }
-                                .size(with(density) { session.size.width.toDp() }, with(density) { session.size.height.toDp() })
-                                .zIndex(10f)
-                                .graphicsLayer {
-                                    scaleX = 1.05f
-                                    scaleY = 1.05f
-                                    alpha = 0.96f
-                                }
+                                 .size(with(density) { session.size.width.toDp() }, with(density) { session.size.height.toDp() })
+                                 .zIndex(10f)
+                                 .graphicsLayer {
+                                     // Keep the drag ghost the same size and shape as the source
+                                     // tile; only its z-order distinguishes it while dragging.
+                                     alpha = 1f
+                                 }
                                 .then(if (provider != null) Modifier.testTag("dragged_provider") else Modifier)
                         ) {
-                            when {
-                                 provider != null && session.fromFolderId != null ->
-                                     ProviderFolderProviderTile(provider, {}, {}, {}, testTag = false)
+                             when {
+                                 provider != null && session.folderTile ->
+                                     ProviderFolderProviderTile(
+                                         provider = provider,
+                                         isGrid = session.isGrid,
+                                         onEdit = {},
+                                         onMoveToGroup = {},
+                                         onDelete = {},
+                                         testTag = false
+                                     )
                                 provider != null || groupItem != null -> Box(Modifier.fillMaxSize().padding(6.dp)) {
                             ProviderRootCard(
                                         item = groupItem ?: ProviderRootItem.ProviderItem(provider!!),
                                         members = groupItem?.let { g -> orderedProviders.filter { it.groupId == g.id } }.orEmpty(),
-                                        isGrid = isGridView,
+                                         isGrid = session.isGrid,
                                         isDropTarget = false,
                                         testTag = false,
                                         onEditProvider = {}, onMoveProvider = {}, onDeleteProvider = {}, onOpenGroup = {}
@@ -1111,10 +1123,10 @@ private fun ProviderFolderMiniGrid(groupId: String, providers: List<LlmProviderI
 private fun ProviderFolderOverlay(
     group: ProviderGroup,
     providers: List<LlmProviderInfo>,
+    isGrid: Boolean,
     surfaces: ProviderDragSurfaces,
     draggingKey: String?,
     onDismiss: () -> Unit,
-    onAddProvider: () -> Unit,
     onEditGroup: () -> Unit,
     onDeleteGroup: () -> Unit,
     onEditProvider: (LlmProviderInfo) -> Unit,
@@ -1178,12 +1190,6 @@ private fun ProviderFolderOverlay(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        IconButton(
-                            onClick = onAddProvider,
-                            modifier = Modifier.testTag("add_provider_to_group_${group.id}")
-                        ) {
-                            Icon(Icons.Default.Add, stringResource(R.string.add_provider))
-                        }
                         ProviderGroupOverflowMenu(onEditGroup, onDeleteGroup)
                         IconButton(onClick = onDismiss) {
                             Icon(Icons.Default.Close, stringResource(R.string.common_close))
@@ -1211,7 +1217,7 @@ private fun ProviderFolderOverlay(
                     } else {
                         LazyVerticalGrid(
                             state = gridState,
-                            columns = GridCells.Adaptive(minSize = 128.dp),
+                            columns = GridCells.Fixed(if (isGrid) 2 else 1),
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
@@ -1224,6 +1230,7 @@ private fun ProviderFolderOverlay(
                             items(providers, key = { "provider_${it.id}" }) { provider ->
                                 ProviderFolderProviderTile(
                                     provider = provider,
+                                    isGrid = isGrid,
                                     onEdit = { onEditProvider(provider) },
                                     onMoveToGroup = { onMoveProvider(provider) },
                                     onDelete = { onDeleteProvider(provider.id) },
@@ -1247,17 +1254,30 @@ private fun ProviderFolderOverlay(
 @Composable
 private fun ProviderFolderProviderTile(
     provider: LlmProviderInfo,
+    isGrid: Boolean,
     onEdit: () -> Unit,
     onMoveToGroup: () -> Unit,
     onDelete: () -> Unit,
     testTag: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val taggedModifier = modifier.then(
+        if (testTag) Modifier.testTag("provider_folder_provider_${provider.id}") else Modifier
+    )
+    if (!isGrid) {
+        ProviderUnifiedCard(
+            provider = provider,
+            isGrid = false,
+            modifier = taggedModifier,
+            onEdit = onEdit,
+            onMoveToGroup = onMoveToGroup,
+            onDelete = onDelete,
+            compact = true
+        )
+        return
+    }
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(132.dp)
-            .then(if (testTag) Modifier.testTag("provider_folder_provider_${provider.id}") else Modifier),
+        modifier = taggedModifier.fillMaxWidth().height(132.dp),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
@@ -1420,25 +1440,75 @@ private fun ProviderGroupPickerDialog(
         text = {
             LazyColumn(Modifier.fillMaxWidth().windowHeightIn(maxFraction = 0.6f)) {
                 item(key = UNGROUPED_SECTION) {
-                    ListItem(
-                        headlineContent = { Text(stringResource(R.string.ungrouped)) },
-                        leadingContent = { RadioButton(selected = provider.groupId == null, onClick = null) },
-                        modifier = Modifier.clickable { onSelect(null) }
+                    ProviderGroupChoiceCard(
+                        title = stringResource(R.string.ungrouped),
+                        icon = null,
+                        selected = provider.groupId == null,
+                        onClick = { onSelect(null) }
                     )
                 }
                 items(groups, key = { it.id }) { group ->
-                    ListItem(
-                        headlineContent = { Text(group.name) },
-                        leadingContent = { RadioButton(selected = provider.groupId == group.id, onClick = null) },
-                        modifier = Modifier.clickable { onSelect(group.id) }
+                    ProviderGroupChoiceCard(
+                        title = group.name,
+                        icon = group.icon,
+                        selected = provider.groupId == group.id,
+                        onClick = { onSelect(group.id) }
                     )
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        }
+        confirmButton = {}
     )
+}
+
+@Composable
+private fun ProviderGroupChoiceCard(
+    title: String,
+    icon: String?,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            EntityIcon(
+                image = icon,
+                modifier = Modifier.size(44.dp),
+                text = title.take(2).uppercase(),
+                fallback = Icons.Outlined.Folder,
+                matchName = title
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (selected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
 }
 
 @Composable

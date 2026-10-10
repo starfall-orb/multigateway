@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.outlined.Delete
@@ -39,7 +38,10 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
     val testingAny = tests.batchRunning.value || textModels.any { tests.running[it] == true }
     val unavailable = textModels.filter { tests.results[it]?.isFailure == true && it !in removals.pending }.toSet()
     val hasRemovals = removals.pending.isNotEmpty()
-    fun close() = removals.close(remove = { ids -> tests.forget(ids); onRemoveModels(ids) }, dismiss = onDismiss)
+    fun close() {
+        if (testingAny) tests.cancelAll()
+        removals.close(remove = { ids -> tests.forget(ids); onRemoveModels(ids) }, dismiss = onDismiss)
+    }
     AlertDialog(onDismissRequest = ::close,
          title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -49,13 +51,15 @@ internal fun ModelConnectionDialog(provider: LlmProviderInfo, tests: ModelConnec
                      if (testingAny) Icon(Icons.Outlined.Close, stringResource(R.string.common_cancel))
                      else Icon(Icons.Outlined.NetworkCheck, "Test all text models")
                 }
-                IconButton(onClick = ::close) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.common_close)) }
-                IconButton(onClick = { if (hasRemovals) removals.restoreAll() else removals.mark(unavailable) },
-                    enabled = hasRemovals || unavailable.isNotEmpty()) {
+                 IconButton(onClick = { if (hasRemovals) removals.restoreAll() else removals.mark(unavailable) },
+                     enabled = hasRemovals || unavailable.isNotEmpty()) {
                     Icon(if (hasRemovals) Icons.Outlined.Restore else Icons.Outlined.DeleteSweep,
                         stringResource(if (hasRemovals) R.string.restore_removed_models else R.string.remove_unavailable_models),
-                        tint = if (hasRemovals) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                }
+                         tint = if (hasRemovals) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                 }
+                 IconButton(onClick = ::close) {
+                     Icon(Icons.Outlined.Close, stringResource(R.string.common_close))
+                 }
             }
         },
         text = {

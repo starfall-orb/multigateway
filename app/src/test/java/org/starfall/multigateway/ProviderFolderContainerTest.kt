@@ -4,7 +4,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -92,13 +91,10 @@ class ProviderFolderContainerTest {
     }
 
     @Test
-    fun folderAddButtonIsInTheHeaderAndCreatesAMember() {
+    fun commonAddButtonCreatesAProviderForTheOpenFolder() {
         showFolder()
         compose.onNodeWithTag("provider_group_g").performClick()
-        val add = compose.onNodeWithTag("add_provider_to_group_g")
-        val panel = compose.onNodeWithTag("provider_folder_dialog_g").fetchSemanticsNode().boundsInRoot
-        assertTrue(add.fetchSemanticsNode().boundsInRoot.center.y < panel.center.y)
-        add.performClick()
+        compose.onNodeWithTag("add_provider", useUnmergedTree = true).performClick()
         compose.onNodeWithTag("provider_folder_dialog_g").assertDoesNotExist()
     }
 

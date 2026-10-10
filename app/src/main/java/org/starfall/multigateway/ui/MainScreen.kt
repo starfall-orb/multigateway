@@ -52,6 +52,8 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val chatOnTop = navBackStackEntry?.destination?.route == AppDestination.CHAT.route
     fun navigate(destination: AppDestination) {
         navController.navigate(destination.route) {
             popUpTo(AppDestination.CHAT.route) { saveState = true }
@@ -117,6 +119,9 @@ fun MainScreen(
             configurationViewModel.clearProviderImportError()
         }
     }
+    LaunchedEffect(chatOnTop) {
+        if (!chatOnTop) drawerState.close()
+    }
 
 
     CompositionLocalProvider(org.starfall.multigateway.ui.chat.LocalCodeRenderingPreferences provides appPrefs, LocalChatAttachmentSelection provides chatAttachments, LocalToolControls provides ToolControls(
@@ -128,6 +133,7 @@ fun MainScreen(
     )) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            gesturesEnabled = chatOnTop,
             scrimColor = modalScrimColor(DrawerDefaults.scrimColor),
             drawerContent = {
                 ConversationsDrawer(
@@ -171,8 +177,6 @@ fun MainScreen(
             // The chat screen stays composed whatever page is open: NavHost disposes a destination's
             // composition when another page is on top, which used to wipe the scroll position, the typed
             // draft, open sheets and every other piece of chat UI state. Other pages draw over it.
-            val navBackStackEntry by navController.currentBackStackEntryAsState()
-            val chatOnTop = navBackStackEntry?.destination?.route == AppDestination.CHAT.route
             val focusManager = LocalFocusManager.current
             LaunchedEffect(chatOnTop) {
                 if (!chatOnTop) focusManager.clearFocus(force = true)

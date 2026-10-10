@@ -1,13 +1,19 @@
 package org.starfall.multigateway.ui.chat
 
 import org.starfall.multigateway.ui.components.AppBottomSheet
+import org.starfall.multigateway.ui.components.EntityIcon
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.tools.*
@@ -56,11 +62,53 @@ fun QuickActionsSheet(onDismiss: () -> Unit) {
                 )
             }
             controls.servers.forEach { server ->
-                ToolSwitch(
-                    server.name,
-                    controls.settings.quickMcp[server.id] != false,
-                    enabled = true
-                ) { controls.setMcp(server.id, it) }
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant
+                    )
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        EntityIcon(
+                            image = server.icon,
+                            modifier = Modifier.size(44.dp),
+                            text = server.name.take(2).uppercase(),
+                            fallback = Icons.Outlined.Extension,
+                            matchName = server.name
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                server.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                server.resolvedUrl().orEmpty().ifBlank { "MCP server" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                "${server.cachedTools?.size ?: 0} cached tools",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+                        Switch(
+                            checked = controls.settings.quickMcp[server.id] != false,
+                            onCheckedChange = { controls.setMcp(server.id, it) }
+                        )
+                    }
+                }
             }
         }
     }

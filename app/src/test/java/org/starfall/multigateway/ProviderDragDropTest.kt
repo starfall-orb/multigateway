@@ -87,7 +87,12 @@ class ProviderDragDropTest {
         val writes = mutableListOf<ProviderPlacement>()
         show(rootProviders + members, listOf(g), writes)
 
-        drag(center("provider_a"), center("provider_c"))
+        val originalPosition = center("provider_a")
+        drag(originalPosition, center("provider_c"), release = false)
+        assertEquals("the following item moves before release", originalPosition, center("provider_b"))
+        assertTrue("preview must not write storage", writes.isEmpty())
+        compose.onRoot().performTouchInput { up() }
+        compose.waitForIdle()
 
         val placement = writes.single()
         assertEquals("a", placement.providerId)

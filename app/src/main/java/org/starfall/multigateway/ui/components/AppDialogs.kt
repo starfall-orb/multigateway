@@ -20,6 +20,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import org.starfall.multigateway.ui.theme.AmoledModalScrim
 import org.starfall.multigateway.ui.theme.LocalAmoledMode
+import org.starfall.multigateway.ui.theme.LocalDarkMode
 import java.util.IdentityHashMap
 
 /** One tint on the activity background, even when a dialog is opened from a sheet. */
@@ -62,29 +63,35 @@ internal fun acquireAmoledDialogBackdrop(host: View): () -> Unit {
 
 @Composable
 private fun AmoledDialogBackdrop() {
+    val dark = LocalDarkMode.current
     val amoled = LocalAmoledMode.current
     // The composition can live inside a sheet/dialog window. Its root overlay would
     // tint that foreground surface too; always put the tint on the activity behind it.
     val host = amoledDialogBackdropHost(LocalView.current)
-    DisposableEffect(host, amoled) {
-        val release = if (amoled) acquireAmoledDialogBackdrop(host) else ({})
+    DisposableEffect(host, dark, amoled) {
+        // AMOLED uses the platform's black dim layer: empty areas stay #000000
+        // while content already drawn behind the dialog is dimmed naturally.
+        val release = if (dark && !amoled) acquireAmoledDialogBackdrop(host) else ({})
         onDispose { release() }
     }
 }
 
 @Composable
 private fun ConfigureAmoledDialogWindow() {
+    val dark = LocalDarkMode.current
     val amoled = LocalAmoledMode.current
     var view: View? = LocalView.current
     var window: android.view.Window? = null
     while (view != null && window == null) {
         if (view is DialogWindowProvider) window = view.window else view = view.parent as? View
     }
-    DisposableEffect(window, amoled) {
+    DisposableEffect(window, dark, amoled) {
         val target = window
         val oldDimAmount = target?.attributes?.dimAmount
-        if (amoled) target?.setDimAmount(0f)
-        onDispose { if (amoled && oldDimAmount != null) target?.setDimAmount(oldDimAmount) }
+        // The activity backdrop supplies the theme-aware dim color. Disable the
+        // platform black dim layer so dark mode does not turn the background pure black.
+        if (dark && !amoled) target?.setDimAmount(0f)
+        onDispose { if (dark && !amoled && oldDimAmount != null) target.setDimAmount(oldDimAmount) }
     }
 }
 

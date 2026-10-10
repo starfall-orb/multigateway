@@ -216,11 +216,18 @@ private fun ColorScheme.withAmoledSurfaces(): ColorScheme = copy(
 )
 
 internal val LocalAmoledMode = staticCompositionLocalOf { false }
+internal val LocalDarkMode = staticCompositionLocalOf { false }
 internal val AmoledModalScrim = Color(0xFF606060)
 
 @Composable
 internal fun modalScrimColor(default: Color): Color =
-    if (LocalAmoledMode.current) AmoledModalScrim.copy(alpha = default.alpha) else default
+    when {
+        // AMOLED must keep empty background areas at true black. The normal black
+        // scrim dims content already drawn behind the modal without lifting black.
+        LocalAmoledMode.current -> default
+        LocalDarkMode.current -> AmoledModalScrim.copy(alpha = default.alpha)
+        else -> default
+    }
 
 @Composable
 fun MultiGatewayTheme(
@@ -254,7 +261,10 @@ fun MultiGatewayTheme(
         if (isAmoled) it.withAmoledSurfaces() else it
     }
 
-    CompositionLocalProvider(LocalAmoledMode provides isAmoled) {
+    CompositionLocalProvider(
+        LocalAmoledMode provides isAmoled,
+        LocalDarkMode provides isDark
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography(),

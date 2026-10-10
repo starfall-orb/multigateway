@@ -3,6 +3,7 @@ package org.starfall.multigateway
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -80,7 +81,29 @@ class ProviderFolderContainerTest {
     }
 
     @Test
-    fun draggingAProviderOverFolderDoesNotChangeMembership() {
+    fun searchShowsMatchingMembersDirectlyWithoutFolders() {
+        showFolder()
+        compose.onNodeWithContentDescription("Search providers").performClick()
+        compose.onNodeWithTag("provider_group_g").assertDoesNotExist()
+        compose.onNodeWithTag("provider_search").performTextInput("Member")
+        compose.onNodeWithTag("provider_member-a").assertExists()
+        compose.onNodeWithTag("provider_member-b").assertExists()
+        compose.onNodeWithTag("provider_root").assertDoesNotExist()
+    }
+
+    @Test
+    fun folderAddButtonIsInTheHeaderAndCreatesAMember() {
+        showFolder()
+        compose.onNodeWithTag("provider_group_g").performClick()
+        val add = compose.onNodeWithTag("add_provider_to_group_g")
+        val panel = compose.onNodeWithTag("provider_folder_dialog_g").fetchSemanticsNode().boundsInRoot
+        assertTrue(add.fetchSemanticsNode().boundsInRoot.center.y < panel.center.y)
+        add.performClick()
+        compose.onNodeWithTag("provider_folder_dialog_g").assertDoesNotExist()
+    }
+
+    @Test
+    fun droppingAProviderOnFolderMovesItInWithoutOpeningTheDialog() {
         val writes = mutableListOf<ProviderPlacement>()
         showFolder(
             source = listOf(
@@ -89,21 +112,18 @@ class ProviderFolderContainerTest {
             ),
             writes = writes
         )
-        val list = compose.onNodeWithTag("provider_list")
-        val sourceBounds = compose.onNodeWithTag("provider_source").fetchSemanticsNode().boundsInRoot
-        val folderBounds = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot
-        val listBounds = list.fetchSemanticsNode().boundsInRoot
+        val sourceCenter = compose.onNodeWithTag("provider_source").fetchSemanticsNode().boundsInRoot.center
+        val folderCenter = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot.center
 
-        list.performTouchInput {
-            down(sourceBounds.center - listBounds.topLeft)
-            advanceEventTime(700)
-            moveTo(folderBounds.center - listBounds.topLeft)
-            advanceEventTime(100)
-            up()
-        }
+        compose.onRoot().performTouchInput { down(sourceCenter) }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onRoot().performTouchInput { moveTo(folderCenter) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.onRoot().performTouchInput { up() }
         compose.waitForIdle()
 
-        assertTrue(writes.isEmpty())
+        assertEquals("g", writes.single().groupId)
+        assertEquals(listOf("member", "source"), writes.single().groupOrders.getValue("g"))
         compose.onNodeWithTag("provider_folder_dialog_g", useUnmergedTree = true).assertDoesNotExist()
     }
 }

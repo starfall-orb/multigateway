@@ -46,12 +46,15 @@ fun EntityIcon(
     matchName: String? = null,
     model: Boolean = false,
     useDarkVariant: Boolean? = null,
-    backgroundColor: Color? = null
+    backgroundColor: Color? = null,
+    /** Drawn instead of [fallback]/[text] once the lookup finished without finding an image. */
+    fallbackContent: (@Composable BoxScope.() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val revision by IconStore.lookupRevision.collectAsState()
     val dark = useDarkVariant ?: (MaterialTheme.colorScheme.background.luminance() < 0.5f)
     var data by remember(context, image, matchName, model, dark) { mutableStateOf<Any?>(null) }
+    var resolved by remember(context, image, matchName, model, dark) { mutableStateOf(false) }
     var explicitFailed by remember(image, matchName, dark, revision) { mutableStateOf(false) }
     LaunchedEffect(image, matchName, model, revision, context, dark, explicitFailed) {
         data = withContext(Dispatchers.IO) {
@@ -59,12 +62,16 @@ fun EntityIcon(
             (if (explicitFailed) null else store.imageData(image, dark))
                 ?: store.imageData(matchName?.let { store.resolve(it, model) }, dark)
         }
+        resolved = true
     }
     Surface(modifier = modifier, shape = RoundedCornerShape(12.dp),
         color = backgroundColor ?: MaterialTheme.colorScheme.surfaceContainerHighest) {
         Box(contentAlignment = Alignment.Center) {
             if (data == null) {
-                if (fallback != null) Icon(fallback, contentDescription = null,
+                if (fallbackContent != null) {
+                    // Wait for the first lookup so a folder logo never flashes the substitute first.
+                    if (resolved) fallbackContent()
+                } else if (fallback != null) Icon(fallback, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary, modifier = Modifier.fillMaxSize().padding(9.dp))
                 else Text(text?.takeIf { it.isNotBlank() } ?: "?",
                     style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)

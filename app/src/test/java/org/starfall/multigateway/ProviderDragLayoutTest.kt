@@ -70,4 +70,16 @@ class ProviderDragLayoutTest {
         val start = moveProviderDrag(next, "outside", null, atStart = true)
         assertEquals(slot("outside"), start.root.first())
     }
+
+    @Test fun ejectingAMemberPlacesItRightAfterItsFolderInTheRoot() {
+        val next = ejectProviderFromFolder(original, "a", "g")
+        assertNull(next.providers.first { it.id == "a" }.groupId)
+        assertEquals(listOf("b"), next.members("g"))
+        assertEquals(listOf(slot("outside"), slot("g", true), slot("a"), slot("tail")), next.root)
+    }
+
+    @Test fun ejectingARootProviderIsANoOp() {
+        assertEquals(original, ejectProviderFromFolder(original, "outside", "g"))
+        assertEquals(original, ejectProviderFromFolder(original, "missing", "g"))
+    }
 }

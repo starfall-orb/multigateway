@@ -12,7 +12,7 @@ import org.starfall.multigateway.data.model.ProviderPlacement
 import org.starfall.multigateway.data.model.ProviderType
 import org.starfall.multigateway.ui.providers.ProviderScreen
 
-/** Folder interaction is deliberately separate from the root reorder surface. */
+/** Phone-style drag and drop: reorder, drop into a folder, drag out of an open folder. */
 class ProviderDragBehaviorTest {
     @get:Rule val compose = createComposeRule()
 
@@ -60,7 +60,7 @@ class ProviderDragBehaviorTest {
     }
 
     @Test
-    fun draggingRootProviderOverFolderDoesNotCommitAnImplicitMove() {
+    fun droppingRootProviderOnFolderMovesItInWithoutOpeningTheDialog() {
         val writes = mutableListOf<ProviderPlacement>()
         setScreen(
             listOf(
@@ -69,21 +69,19 @@ class ProviderDragBehaviorTest {
             ),
             writes
         )
-        val list = compose.onNodeWithTag("provider_list")
-        val root = list.fetchSemanticsNode().boundsInRoot
-        val source = compose.onNodeWithTag("provider_root").fetchSemanticsNode().boundsInRoot
-        val folder = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot
+        val source = compose.onNodeWithTag("provider_root").fetchSemanticsNode().boundsInRoot.center
+        val folder = compose.onNodeWithTag("provider_group_g").fetchSemanticsNode().boundsInRoot.center
 
-        list.performTouchInput {
-            down(source.center - root.topLeft)
+        compose.onRoot().performTouchInput {
+            down(source)
             advanceEventTime(700)
-            moveTo(folder.center - root.topLeft)
+            moveTo(folder)
             advanceEventTime(100)
             up()
         }
         compose.waitForIdle()
 
-        assertTrue(writes.isEmpty())
+        assertTrue(writes.single().groupId == "g")
         compose.onNodeWithTag("provider_folder_dialog_g", useUnmergedTree = true).assertDoesNotExist()
     }
 }

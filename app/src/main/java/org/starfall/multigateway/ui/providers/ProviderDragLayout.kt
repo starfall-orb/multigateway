@@ -49,3 +49,18 @@ internal fun moveProviderDrag(layout: ProviderDragLayout, id: String, target: Pr
     }
     return ProviderDragLayout(remaining, root)
 }
+
+/**
+ * Take a provider out of its folder and place it in the root order right after that folder.
+ * Used when a member is dragged out of the open folder container, before the pointer has
+ * picked a more specific root slot.
+ */
+internal fun ejectProviderFromFolder(layout: ProviderDragLayout, id: String, afterGroupId: String): ProviderDragLayout {
+    val provider = layout.providers.firstOrNull { it.id == id } ?: return layout
+    if (provider.groupId == null) return layout
+    val providers = layout.providers.map { if (it.id == id) it.copy(groupId = null) else it }
+    val root = layout.root.filterNot { !it.isGroup && it.id == id }.toMutableList()
+    val folderIndex = root.indexOfFirst { it.isGroup && it.id == afterGroupId }
+    root.add(if (folderIndex >= 0) folderIndex + 1 else root.size, ProviderRootOrderItem(id, false))
+    return ProviderDragLayout(providers, root)
+}

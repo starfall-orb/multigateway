@@ -13,136 +13,115 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.starfall.multigateway.data.model.LlmProviderInfo
 import org.starfall.multigateway.data.model.ProviderGroup
+import org.starfall.multigateway.data.model.ProviderPlacement
 import org.starfall.multigateway.data.model.ProviderType
 import org.starfall.multigateway.ui.providers.ProviderScreen
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28], qualifiers = "w360dp-h800dp-xhdpi")
 class ProviderAutoscrollRobolectricTest {
-    @Test
-    fun testManualScroll() {
-        val initial = listOf(LlmProviderInfo("outside", "Outside", ProviderType.OPENAI, baseUrl = "", sortOrder = 0)) +
-            (0..35).map { LlmProviderInfo("member-$it", "Member $it", ProviderType.OPENAI,
-                baseUrl = "", groupId = "long", sortOrder = it) } +
-            LlmProviderInfo("tail", "Tail", ProviderType.OPENAI, baseUrl = "", sortOrder = 2)
-        compose.setContent {
-            MaterialTheme {
-                ProviderScreen(
-                    providers = initial,
-                    providerGroups = listOf(ProviderGroup("long", "Long folder", 1)),
-                    isGridView = true,
-                    onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
-                    onDeleteProvider = {}, onReorderProviders = {}, onBack = {}
-                )
-            }
-        }
-        compose.waitForIdle()
-        val surface = compose.onNodeWithTag("provider_list")
-        val before = surface.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
-        surface.performTouchInput {
-            swipeUp()
-        }
-        compose.waitForIdle()
-        val after = surface.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
-        println("MANUAL SCROLL: before=$before, after=$after")
-        assertTrue("Manual scroll must succeed", after > before)
-    }
-
     @get:Rule
     val compose = createComposeRule()
 
-    @Test
-    fun testListEdgeTransfer() = checkEdgeTransfer(false)
+    private fun provider(id: String, group: String? = null, order: Int = 0) =
+        LlmProviderInfo(id, id, ProviderType.OPENAI, baseUrl = "", groupId = group, sortOrder = order)
 
-    @Test
-    fun testGridEdgeTransfer() = checkEdgeTransfer(true)
+    private val manyRoot = (0..39).map { provider("p$it", order = it) }
+    private val longFolder = listOf(provider("outside", order = 0)) +
+        (0..35).map { provider("member-$it", "long", it) }
 
-    private fun checkEdgeTransfer(grid: Boolean) {
-        val initial = listOf(LlmProviderInfo("outside", "Outside", ProviderType.OPENAI, baseUrl = "", sortOrder = 0)) +
-            (0..35).map { LlmProviderInfo("member-$it", "Member $it", ProviderType.OPENAI,
-                baseUrl = "", groupId = "long", sortOrder = it) } +
-            LlmProviderInfo("tail", "Tail", ProviderType.OPENAI, baseUrl = "", sortOrder = 2)
-        val writes = mutableListOf<org.starfall.multigateway.data.model.ProviderPlacement>()
+    private fun show(
+        providers: List<LlmProviderInfo>,
+        groups: List<ProviderGroup>,
+        grid: Boolean,
+        writes: MutableList<ProviderPlacement> = mutableListOf()
+    ) {
         compose.setContent {
             MaterialTheme {
                 ProviderScreen(
-                    providers = initial,
-                    providerGroups = listOf(ProviderGroup("long", "Long folder", 1)),
+                    providers = providers,
+                    providerGroups = groups,
                     isGridView = grid,
                     onSaveProvider = {}, onSaveModels = { _, _ -> }, onReorderModels = { _, _ -> },
-                    onDeleteProvider = {}, onReorderProviders = {}, onBack = {}, onPlaceProvider = {
-                        writes += it
-                        Result.success(Unit)
-                    }
+                    onDeleteProvider = {}, onReorderProviders = {}, onBack = {},
+                    onPlaceProvider = { writes += it; Result.success(Unit) }
                 )
             }
         }
         compose.waitForIdle()
-        val surface = compose.onNodeWithTag("provider_list")
-        val root = surface.fetchSemanticsNode().boundsInRoot
-        val sourceNode = compose.onNodeWithTag("provider_outside").fetchSemanticsNode().boundsInRoot
-        val source = sourceNode.center - root.topLeft
-        val height = root.height
+    }
 
-        fun scrollPosition(): Float = surface.fetchSemanticsNode()
-            .config[SemanticsProperties.VerticalScrollAxisRange].value()
+    private fun scrollPosition(tag: String): Float = compose.onNodeWithTag(tag, useUnmergedTree = true)
+        .fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
 
-        val before = scrollPosition()
-        println("BEFORE scrollPosition: $before, source=$source, grid=$grid")
+    /** Dispatch each step before advancing frames: performTouchInput batches events until its block returns. */
+    private fun hold(milliseconds: Long) {
+        compose.mainClock.advanceTimeBy(milliseconds)
+        compose.waitForIdle()
+    }
 
-        var forward = before
-        var reversed = before
+    private fun moveFinger(point: Offset) {
+        compose.onRoot().performTouchInput { moveTo(point) }
+        hold(50)
+    }
 
-        val col1 = root.width * 0.75f
-        val targetX = if (grid) col1 else source.x
-        val targetY = height - 20f
+    @Test
+    fun manualScrollStillWorksWithTheDragGestureInstalled() {
+        show(manyRoot, emptyList(), grid = true)
+        val before = scrollPosition("provider_list")
+        compose.onNodeWithTag("provider_list").performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        assertTrue("Manual scroll must succeed", scrollPosition("provider_list") > before)
+    }
 
-        // Dispatch each step before advancing frames: performTouchInput batches
-        // events until its block returns, so frames inside that block cannot scroll.
-        fun holdFinger(milliseconds: Long) {
-            surface.performTouchInput { advanceEventTime(milliseconds) }
-            compose.mainClock.advanceTimeBy(milliseconds)
-            compose.waitForIdle()
-        }
-        fun moveFinger(point: Offset) {
-            surface.performTouchInput {
-                advanceEventTime(50)
-                moveTo(point)
-            }
-            compose.mainClock.advanceTimeBy(50)
-            compose.waitForIdle()
-        }
-        surface.performTouchInput {
-            down(source)
-            advanceEventTime(650)
-            moveBy(Offset(0f, 1f))
-        }
-        holdFinger(50)
+    @Test fun rootGridAutoscrollsWhileDraggingAtTheEdgesInGrid() = checkRootAutoscroll(grid = true)
+    @Test fun rootListAutoscrollsWhileDraggingAtTheEdgesInList() = checkRootAutoscroll(grid = false)
+
+    private fun checkRootAutoscroll(grid: Boolean) {
+        val writes = mutableListOf<ProviderPlacement>()
+        show(manyRoot, emptyList(), grid, writes)
+        val list = compose.onNodeWithTag("provider_list").fetchSemanticsNode().boundsInRoot
+        val source = compose.onNodeWithTag("provider_p0").fetchSemanticsNode().boundsInRoot.center
+        val before = scrollPosition("provider_list")
+
+        compose.onRoot().performTouchInput { down(source) }
+        hold(600)
         compose.onNodeWithTag("dragged_provider").assertExists()
-        var currentY = source.y
-        while (currentY < targetY) {
-            currentY = (currentY + 20f).coerceAtMost(targetY)
-            val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
-            moveFinger(Offset(currentX, currentY))
-        }
-        repeat(30) { holdFinger(100) }
-        compose.onNodeWithTag("dragged_provider").assertExists()
-        forward = scrollPosition()
-        val topY = 20f
-        while (currentY > topY) {
-            currentY = (currentY - 20f).coerceAtLeast(topY)
-            val currentX = source.x + (targetX - source.x) * (currentY - source.y) / (targetY - source.y)
-            moveFinger(Offset(currentX, currentY))
-        }
-        repeat(30) { holdFinger(100) }
-        reversed = scrollPosition()
-        surface.performTouchInput { cancel() }
+        moveFinger(Offset(source.x, list.bottom - 20f))
+        repeat(30) { hold(100) }
+        val forward = scrollPosition("provider_list")
+        assertTrue("Dragging at the bottom edge must scroll: before=$before after=$forward", forward > before)
+
+        moveFinger(Offset(source.x, list.top + 20f))
+        repeat(30) { hold(100) }
+        assertTrue("Dragging at the top edge must scroll back", scrollPosition("provider_list") < forward)
+
+        compose.onRoot().performTouchInput { cancel() }
+        compose.waitForIdle()
+        assertTrue("Cancelling must not save anything", writes.isEmpty())
+    }
+
+    @Test
+    fun openFolderScrollsItsMembersWhileDraggingAtItsEdge() {
+        val writes = mutableListOf<ProviderPlacement>()
+        show(longFolder, listOf(ProviderGroup("long", "Long folder", 1)), grid = true, writes = writes)
+        compose.onNodeWithTag("provider_group_long", useUnmergedTree = true).performClick()
+        compose.waitForIdle()
+        val grid = compose.onNodeWithTag("provider_folder_grid_long", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val source = compose.onNodeWithTag("provider_folder_provider_member-0", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.center
+        val before = scrollPosition("provider_folder_grid_long")
+
+        compose.onRoot().performTouchInput { down(source) }
+        hold(600)
+        moveFinger(Offset(source.x, grid.bottom - 12f))
+        repeat(20) { hold(100) }
+        val after = scrollPosition("provider_folder_grid_long")
+        compose.onRoot().performTouchInput { cancel() }
         compose.waitForIdle()
 
-        println("RESULTS: grid=$grid, before=$before, forward=$forward, reversed=$reversed, writes=$writes")
-        assertTrue("Library must scroll through folder members while the finger stays at the edge: before=$before after=$forward", forward > before)
-        assertTrue("Autoscroll preview must not persist", writes.isEmpty())
-        assertTrue("Reversing at the edge must reverse autoscroll", reversed < forward)
-        assertTrue("Cancellation must not save membership or order", writes.isEmpty())
+        assertTrue("Folder members must autoscroll: before=$before after=$after", after > before)
+        assertTrue(writes.isEmpty())
     }
 }

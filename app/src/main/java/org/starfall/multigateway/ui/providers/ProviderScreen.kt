@@ -18,6 +18,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import org.starfall.multigateway.ui.theme.LocalAmoledMode
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -63,6 +64,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
@@ -1133,6 +1135,7 @@ private fun ProviderFolderOverlay(
     onMoveProvider: (LlmProviderInfo) -> Unit,
     onDeleteProvider: (String) -> Unit
 ) {
+    val amoled = LocalAmoledMode.current
     val gridState = rememberLazyGridState()
     SideEffect { surfaces.folderGrid = gridState }
     DisposableEffect(Unit) {
@@ -1166,8 +1169,11 @@ private fun ProviderFolderOverlay(
                     .onGloballyPositioned { surfaces.panelBounds = it.boundsInRoot() }
                     .testTag("provider_folder_dialog_${group.id}"),
                 shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                tonalElevation = 6.dp
+                // AMOLED: true black with the same 1dp outline as dialogs. Tonal elevation must be off,
+                // otherwise Surface tints the black (it equals colorScheme.surface) and lifts it to gray.
+                color = if (amoled) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = if (amoled) 0.dp else 6.dp,
+                border = if (amoled) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null
             ) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -11,8 +11,6 @@ import org.starfall.multigateway.ui.components.windowWidth
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import org.starfall.multigateway.data.model.*
 import org.starfall.multigateway.ui.components.EntityIcon
 import org.starfall.multigateway.ui.chat.modelInitial
+import org.starfall.multigateway.ui.components.AmoledBorderEdge
+import org.starfall.multigateway.ui.components.amoledEdgeBorder
 import org.starfall.multigateway.ui.theme.LocalAmoledMode
 import java.util.UUID
 
@@ -92,7 +92,8 @@ fun ConversationsDrawer(
     val drawerShape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp)
     val drawerModifier = modifier.windowWidth(0.85f).let {
         if (LocalAmoledMode.current) {
-            it.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), drawerShape)
+            // Only the edge facing the chat is outlined; top/bottom/start sit against the screen edge.
+            it.amoledEdgeBorder(drawerShape, MaterialTheme.colorScheme.outlineVariant, 1.dp, AmoledBorderEdge.End)
         } else it
     }
     ModalDrawerSheet(

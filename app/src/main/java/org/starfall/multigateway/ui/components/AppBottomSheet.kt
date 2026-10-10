@@ -2,8 +2,6 @@ package org.starfall.multigateway.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalOverscrollConfiguration
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -60,7 +58,7 @@ fun AppBottomSheet(
     var measuredHeight by remember { mutableIntStateOf(0) }
     val resizeLabel = stringResource(R.string.sheet_resize)
     val sheetModifier = if (LocalAmoledMode.current) {
-        modifier.border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
+        modifier.amoledSheetBorder(sheetState, shape, MaterialTheme.colorScheme.outlineVariant, 1.dp)
     } else modifier
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,

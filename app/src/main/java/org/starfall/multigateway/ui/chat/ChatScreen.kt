@@ -29,7 +29,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -53,6 +55,10 @@ import org.starfall.multigateway.data.model.SummaryRole
 
 // Far larger than any item; clamped to the bottom by the first LazyColumn measure.
 private const val OPEN_AT_BOTTOM_OFFSET = 10_000_000
+
+// The opening veil lifts after the list has stayed at its newest message with no background work
+// pending for this many frames.
+private const val OPENING_STABLE_FRAMES = 4
 
 @Composable
 fun ChatScreen(
@@ -111,6 +117,10 @@ fun ChatScreen(
         )
     }
     var followBottom by remember(conversationKey) { mutableStateOf(true) }
+    var openingAtBottom by remember(conversationKey) { mutableStateOf(true) }
+    var openingLayoutRevision by remember(conversationKey) { mutableIntStateOf(0) }
+    val settleTracker = remember(conversationKey) { ChatSettleTracker() }
+    var revealed by remember(conversationKey) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val seenMessageIds = remember(conversationKey) { mutableSetOf<String>() }
     val context = LocalContext.current
@@ -143,6 +153,18 @@ fun ChatScreen(
     val unansweredMessages = remember(conversationMessages) { unansweredUserMessageIds(conversationMessages) }
     // Streaming text is followed by the per-frame loop below; stepping on text length made the scroll jump per chunk.
     val autoScrollTick = if (!autoScroll || streamingHere) null else lastMessage?.activeVersionIndex
+    // A chat that was already settled at its newest message earlier in this process, and whose parsed
+    // content is still in the (evictable) RAM cache, opens at its final size on the first frame and needs
+    // no veil. Otherwise the first open hides the chat until it is fully loaded and at the latest message.
+    val renderEnvironment = chatRenderEnvironmentKey()
+    val openSignature = remember(conversationMessages, streamingHere) {
+        if (streamingHere) 0 else chatOpenSignature(conversationMessages)
+    }
+    val hasSavedMessages = conversationMessages.isNotEmpty()
+    val openedWarm = remember(conversationKey, hasSavedMessages, openSignature, renderEnvironment) {
+        hasSavedMessages && ChatOpenCache.isWarm(conversationKey, openSignature, renderEnvironment)
+    }
+    val veilActive = openingAtBottom && !revealed && hasSavedMessages && !openedWarm && !streamingHere
     fun whenIdle(action: () -> Unit) {
         if (!isGenerating) action()
     }
@@ -160,6 +182,7 @@ fun ChatScreen(
                 // finger drag. This lets a reverse swipe take control immediately while the
                 // response is still streaming.
                 if (source == NestedScrollSource.UserInput) {
+                    openingAtBottom = false
                     followBottom = false
                 }
                 return Offset.Zero
@@ -184,31 +207,67 @@ fun ChatScreen(
         val index = (if (includeQueued) messages.lastIndex else conversationMessages.lastIndex) +
             messageIndexOffset
         if (index < 0) return
-        listState.scrollToItem(index)
-        val height = listState.layoutInfo.visibleItemsInfo
-            .firstOrNull { it.index == index }?.size ?: 0
-        val layout = listState.layoutInfo
-        val offset = height - (layout.viewportEndOffset - layout.viewportStartOffset) +
-            layout.afterContentPadding
-        listState.scrollToItem(index, offset)
+        listState.scrollToItem(index, OPEN_AT_BOTTOM_OFFSET)
     }
     val messageIds = remember(conversationMessages) { conversationMessages.map { it.id } }
     LaunchedEffect(conversation?.id, messageIds, autoScroll) {
         val hasNewMessage = messageIds.any { it !in seenMessageIds }
         val firstLoad = seenMessageIds.isEmpty()
         seenMessageIds.addAll(messageIds)
+        if (hasNewMessage && !firstLoad) openingAtBottom = false
         if (firstLoad && messageIds.isNotEmpty()) {
             // The conversation can arrive after ChatScreen was first composed. Wait until its
             // items have been measured before correcting the initial state.
-            followBottom = true
             snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
-            if (!isNearBottom()) scrollToBottom(includeQueued = true)
+            if (openingAtBottom) {
+                withFrameNanos { }
+                followBottom = true
+                scrollToBottom(includeQueued = true)
+            }
         } else if (hasNewMessage && !firstLoad && (!autoScroll || followBottom)) {
             // A user message or a newly started response should be shown once, even when the
             // preference is disabled; subsequent streamed text is handled by the smooth loop.
             scrollToBottom()
             followBottom = true
         }
+    }
+    LaunchedEffect(listState, openingAtBottom, streamingHere, messages.size, messageIndexOffset) {
+        if (!openingAtBottom || messages.isEmpty()) return@LaunchedEffect
+        // Markdown parsing, media loading and input-area measurement can grow the layout
+        // after the first scroll. Keep a reopened chat at the end until the user takes
+        // control or a new message arrives, even when streaming auto-scroll is disabled.
+        snapshotFlow { listState.canScrollForward }.collect { canScrollForward ->
+            if (openingAtBottom && canScrollForward) openingLayoutRevision++
+        }
+    }
+    LaunchedEffect(openingLayoutRevision, openingAtBottom, streamingHere, messages.size, messageIndexOffset) {
+        if (!openingAtBottom || messages.isEmpty()) return@LaunchedEffect
+        // Run outside the snapshot observer that noticed the layout change.
+        withFrameNanos { }
+        if (openingAtBottom) scrollToBottom()
+    }
+    LaunchedEffect(conversationKey, veilActive) {
+        if (!veilActive) return@LaunchedEffect
+        // Wait until the newest items exist, then until the list has stopped changing: nothing is still
+        // being parsed or loaded and the view has stayed at the latest message for a few frames.
+        snapshotFlow { listState.layoutInfo.totalItemsCount }.first { it > 0 }
+        var stableFrames = 0
+        while (true) {
+            withFrameNanos { }
+            val settled = settleTracker.pending == 0 && !listState.canScrollForward && !listState.isScrollInProgress
+            stableFrames = if (settled) stableFrames + 1 else 0
+            if (stableFrames >= OPENING_STABLE_FRAMES) break
+        }
+        revealed = true
+    }
+    LaunchedEffect(conversationKey, openSignature, revealed, openedWarm, streamingHere) {
+        if (!(revealed || openedWarm) || streamingHere || !hasSavedMessages) return@LaunchedEffect
+        // Remember the settled state so the next open of this chat is instant. Only record while the
+        // view is at the newest message and idle, never a half-scrolled or still-loading layout.
+        snapshotFlow {
+            settleTracker.pending == 0 && !listState.isScrollInProgress && !listState.canScrollForward
+        }.first { it }
+        ChatOpenCache.remember(conversationKey, openSignature, renderEnvironment, settleTracker.readyAssets())
     }
     LaunchedEffect(
         conversation?.id,
@@ -321,6 +380,8 @@ fun ChatScreen(
                 )
             }
         } else {
+            ChatOpeningVeil(active = veilActive, modifier = Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalChatSettleTracker provides settleTracker) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -440,6 +501,8 @@ fun ChatScreen(
                     }
                 }
             }
+            }
+            }
         }
 
         Column(
@@ -510,10 +573,12 @@ fun ChatScreen(
                 isGenerating = isGenerating,
                 onSendMedia = { request ->
                     inlineChatError = null
+                    revealed = true
                     onSendMedia(request).also { if (it) followBottom = true }
                 },
                 onSendMessage = { text, files ->
                     inlineChatError = null
+                    revealed = true
                     onSendMessage(text, files).also { if (it && !isGenerating) followBottom = true }
                 },
                 onEditMessage = { id, text, files ->
@@ -522,6 +587,7 @@ fun ChatScreen(
                         onEditQueuedMessage(id, text, files)
                     } else {
                         inlineChatError = null
+                        revealed = true
                         onEditMessage(id, text, files).also { if (it) followBottom = true }
                     }
                 },
@@ -645,4 +711,32 @@ fun ChatScreen(
             }
         )
     }
+}
+
+/** Changes whenever the saved messages change, so a cached open is never reused for different content. */
+private fun chatOpenSignature(messages: List<StoredMessage>): Int =
+    messages.fold(messages.size) { hash, message ->
+        var h = 31 * hash + message.id.hashCode()
+        h = 31 * h + message.activeVersionIndex
+        h = 31 * h + message.content.hashCode()
+        31 * h + message.files.hashCode()
+    }
+
+/** Everything besides the messages that changes how they are laid out. */
+@Composable
+private fun chatRenderEnvironmentKey(): Int {
+    val preferences = LocalCodeRenderingPreferences.current
+    val density = LocalDensity.current
+    val widthDp = LocalConfiguration.current.screenWidthDp
+    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+    return java.util.Objects.hash(
+        preferences.messageFontSize,
+        preferences.messageFontFamily,
+        preferences.latexMode,
+        preferences.wordWrapMode,
+        density.density,
+        density.fontScale,
+        widthDp,
+        dark
+    )
 }

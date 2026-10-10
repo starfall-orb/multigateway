@@ -78,6 +78,8 @@ private fun InlineMathFlow(pieces: List<MathPiece>, style: TextStyle) {
     }
     // A null entry is a formula that is not ready yet, or one that could not be laid out; both show as source.
     val drawables = keys.map { built[it] ?: LatexDrawables.peek(it) }
+    TrackPendingWork(keys.any { it !in built && LatexDrawables.peek(it) == null })
+    TrackReadyAssets(keys.filterIndexed { index, _ -> drawables[index] != null }.map { AssetKey.Latex(it) })
 
     val primary = colors.primary
     val codeBackground = colors.surfaceContainerHighest

@@ -21,6 +21,8 @@ import org.starfall.multigateway.ui.mcp.McpScreen
 import org.starfall.multigateway.ui.providers.ProviderScreen
 import org.starfall.multigateway.ui.providers.ProviderEditScreen
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.Alignment
 import android.widget.Toast
 import org.starfall.multigateway.ui.settings.SettingsScreen
@@ -39,6 +41,15 @@ import androidx.navigation.compose.rememberNavController
 import androidx.activity.compose.BackHandler
 import org.starfall.multigateway.ui.navigation.AppDestination
 import org.starfall.multigateway.ui.tools.*
+import org.starfall.multigateway.data.service.JsonExportKind
+import org.starfall.multigateway.data.service.buildJsonExport
+import org.starfall.multigateway.data.service.parseConversationsExport
+import org.starfall.multigateway.data.service.parseMcpExport
+import org.starfall.multigateway.data.service.parseProvidersExport
+import org.starfall.multigateway.data.service.parseSpeechServicesExport
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.OutputStreamWriter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +100,71 @@ fun MainScreen(
     val importedProviderId by configurationViewModel.importedProviderId.collectAsStateWithLifecycle()
     val providerImportError by configurationViewModel.providerImportError.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var pendingExport by remember { mutableStateOf<Pair<JsonExportKind, String>?>(null) }
+    var pendingImportKind by remember { mutableStateOf<JsonExportKind?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val payload = pendingExport?.second
+        pendingExport = null
+        if (uri == null || payload == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    OutputStreamWriter(output, Charsets.UTF_8).use { it.write(payload) }
+                } ?: error("Could not open the selected file.")
+            }.onSuccess {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "JSON file exported", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Export failed: ${error.message.orEmpty()}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    fun exportJson(kind: JsonExportKind) {
+        coroutineScope.launch {
+            val payload = withContext(Dispatchers.Default) {
+                buildJsonExport(kind, providers, mcpServers, speechServices, conversations)
+            }
+            pendingExport = kind to payload
+            exportLauncher.launch(kind.fileName)
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val kind = pendingImportKind
+        pendingImportKind = null
+        if (uri == null || kind == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            try {
+                val raw = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?: error("Could not open the selected file.")
+                }
+                val count = when (kind) {
+                    JsonExportKind.PROVIDERS -> withContext(Dispatchers.Default) { parseProvidersExport(raw) }
+                        .also { withContext(Dispatchers.IO) { configurationViewModel.importProviders(it) } }.size
+                    JsonExportKind.MCP_SERVERS -> withContext(Dispatchers.Default) { parseMcpExport(raw) }
+                        .also { withContext(Dispatchers.IO) { configurationViewModel.importMcpServers(it) } }.size
+                    JsonExportKind.SPEECH_SERVICES -> withContext(Dispatchers.Default) { parseSpeechServicesExport(raw) }
+                        .also { withContext(Dispatchers.IO) { configurationViewModel.importSpeechServices(it) } }.size
+                    JsonExportKind.CONVERSATIONS -> withContext(Dispatchers.Default) { parseConversationsExport(raw) }
+                        .also { withContext(Dispatchers.IO) { viewModel.importConversations(it) } }.size
+                }
+                Toast.makeText(context, "$count item(s) imported", Toast.LENGTH_SHORT).show()
+            } catch (error: Exception) {
+                Toast.makeText(context, "Import failed: ${error.message.orEmpty()}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    fun importJson(kind: JsonExportKind) {
+        pendingImportKind = kind
+        importLauncher.launch(arrayOf("application/json", "text/*"))
+    }
     // The app preference is the default for new chats. Existing chats keep showing
     // the model they last used, independently of that default.
     val conversationModel = currentConv?.takeIf { appPrefs.persistSelectedModel && it.modelId.isNotBlank() }?.let { conversation ->
@@ -453,8 +529,10 @@ fun MainScreen(
                             onNavigateToMcp = { openConfiguration(AppDestination.MCP) },
                             onNavigateToSpeech = { openConfiguration(AppDestination.SPEECH) },
                             onNavigateToSystemTools = { openConfiguration(AppDestination.SYSTEM_TOOLS) },
-                            onNavigateToStorage = { openConfiguration(AppDestination.STORAGE) },
-                            onBack = { navController.popBackStack() }
+                             onNavigateToStorage = { openConfiguration(AppDestination.STORAGE) },
+                             onExportJson = ::exportJson,
+                             onImportJson = ::importJson,
+                             onBack = { navController.popBackStack() }
                         )
                     }
 

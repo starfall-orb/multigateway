@@ -42,6 +42,10 @@ class ConfigurationViewModel(
         }
     }
 
+    suspend fun importProviders(providers: List<LlmProviderInfo>) {
+        providers.forEach { llmRepo.saveProvider(it) }
+    }
+
     fun providerImportOpened(id: String) { _importedProviderId.compareAndSet(id, null) }
     fun clearProviderImportError() { _providerImportError.value = null }
 
@@ -246,6 +250,10 @@ class ConfigurationViewModel(
         }
     }
 
+    suspend fun importMcpServers(servers: List<McpInfo>) {
+        servers.forEach { mcpRepo.saveServer(it) }
+    }
+
     fun deleteMcpServer(serverId: String) {
         viewModelScope.launch(LocalWriteErrors.handler) {
             mcpRepo.deleteServer(serverId)
@@ -256,6 +264,10 @@ class ConfigurationViewModel(
         viewModelScope.launch(LocalWriteErrors.handler) {
             speechRepo.saveService(service)
         }
+    }
+
+    suspend fun importSpeechServices(services: List<SpeechService>) {
+        services.forEach { speechRepo.saveService(it) }
     }
 
     fun deleteSpeechService(serviceId: String) {

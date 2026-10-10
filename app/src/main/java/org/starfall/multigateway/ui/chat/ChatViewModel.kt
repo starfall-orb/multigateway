@@ -399,6 +399,10 @@ class ChatViewModel(
         }
     }
 
+    suspend fun importConversations(items: List<Conversation>) {
+        items.forEach { conversationRepo.saveConversation(it) }
+    }
+
     fun deleteAllUserData() {
         clearAllConversations()
         viewModelScope.launch(LocalWriteErrors.handler) { prefsRepo.setSelectedProfileId(null) }

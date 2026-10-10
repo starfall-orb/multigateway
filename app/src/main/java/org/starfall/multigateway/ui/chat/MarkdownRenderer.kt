@@ -52,13 +52,27 @@ fun MarkdownRenderer(content: String, modifier: Modifier = Modifier, isStreaming
         return
     }
     val latestContent by rememberUpdatedState(content)
-    var parsed by remember { mutableStateOf<State>(State.Loading()) }
+    val streamingNow by rememberUpdatedState(isStreaming)
+    // A tree parsed earlier in this process is shown on the very first frame, so a reopened chat has its
+    // final height immediately instead of growing once the background parse finishes.
+    var parsed by remember { mutableStateOf<State>(MarkdownParseCache.get(content) ?: State.Loading()) }
+    val settledParse = parsed
+    TrackPendingWork(settledParse is State.Loading)
+    TrackReadyAssets(if (settledParse is State.Success) listOf(AssetKey.Markdown(settledParse.content)) else emptyList())
     LaunchedEffect(Unit) {
         // Finish each off-main parse and retain its result while the next chunk is
         // parsed. Fast token updates must not cancel parsing or flash a blank UI.
         snapshotFlow { latestContent }.conflate().collect { input ->
-            parsed = withContext(Dispatchers.Default) { parseLibraryMarkdown(input) }
+            parsed = MarkdownParseCache.get(input)
+                ?: withContext(Dispatchers.Default) { parseLibraryMarkdown(input) }.also {
+                    // Partial text of a streaming answer is never worth keeping.
+                    if (!streamingNow) MarkdownParseCache.put(input, it)
+                }
         }
+    }
+    LaunchedEffect(isStreaming, settledParse) {
+        // The last chunk is parsed while still "streaming"; keep it once the answer is final.
+        if (!isStreaming && settledParse is State.Success) MarkdownParseCache.put(settledParse.content, settledParse)
     }
     val type = MaterialTheme.typography
     val preferences = LocalCodeRenderingPreferences.current

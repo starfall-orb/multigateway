@@ -47,6 +47,7 @@ import org.starfall.multigateway.data.local.preferences.MessageFontFamily
 import org.starfall.multigateway.data.local.preferences.AppPreferences
 import org.starfall.multigateway.data.local.preferences.DEFAULT_TOOL_ROUND_LIMIT
 import org.starfall.multigateway.data.local.preferences.MAX_TOOL_ROUND_LIMIT
+import org.starfall.multigateway.data.service.JsonExportKind
 import org.starfall.multigateway.ui.components.SelectableOutlinedTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.platform.testTag
@@ -87,6 +88,8 @@ fun SettingsScreen(
     onNavigateToSpeech: () -> Unit = {},
     onNavigateToSystemTools: () -> Unit = {},
     onNavigateToStorage: () -> Unit = {},
+    onExportJson: (JsonExportKind) -> Unit = {},
+    onImportJson: (JsonExportKind) -> Unit = {},
     onTtsReadCodeBlocksChange: (Boolean) -> Unit = {},
     onWordWrapModeChange: (WordWrapMode) -> Unit = {},
     onWordWrapColumnChange: (Int) -> Unit = {},
@@ -202,7 +205,9 @@ fun SettingsScreen(
                             conversationCount = conversationCount,
                             providerCount = providerCount,
                             onClearAllConversations = onClearAllConversations,
-                            onResetAllData = onResetAllData
+                            onResetAllData = onResetAllData,
+                            onExportJson = onExportJson,
+                            onImportJson = onImportJson
                         )
                     }
 
@@ -398,7 +403,9 @@ fun UserDataSettingsView(
     conversationCount: Int,
     providerCount: Int,
     onClearAllConversations: () -> Unit,
-    onResetAllData: () -> Unit
+    onResetAllData: () -> Unit,
+    onExportJson: (JsonExportKind) -> Unit = {},
+    onImportJson: (JsonExportKind) -> Unit = {}
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -429,6 +436,40 @@ fun UserDataSettingsView(
                     Icon(Icons.Outlined.Warning, null, modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("Reset All Application Data")
+                }
+            }
+        }
+        item {
+            SettingsSection("Export data") {
+                Text(
+                    "Save configuration or chat history as JSON files.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                ExportDataButton("Export Providers JSON", Icons.Outlined.CloudQueue) {
+                    onExportJson(JsonExportKind.PROVIDERS)
+                }
+                ExportDataButton("Export MCP JSON", Icons.Outlined.Extension) {
+                    onExportJson(JsonExportKind.MCP_SERVERS)
+                }
+                ExportDataButton("Export Speech Services JSON", Icons.Outlined.RecordVoiceOver) {
+                    onExportJson(JsonExportKind.SPEECH_SERVICES)
+                }
+                ExportDataButton("Export Chats JSON", Icons.Outlined.Chat) {
+                    onExportJson(JsonExportKind.CONVERSATIONS)
+                }
+                Spacer(Modifier.height(8.dp))
+                ExportDataButton("Import Providers JSON", Icons.Outlined.FileOpen) {
+                    onImportJson(JsonExportKind.PROVIDERS)
+                }
+                ExportDataButton("Import MCP JSON", Icons.Outlined.FileOpen) {
+                    onImportJson(JsonExportKind.MCP_SERVERS)
+                }
+                ExportDataButton("Import Speech Services JSON", Icons.Outlined.FileOpen) {
+                    onImportJson(JsonExportKind.SPEECH_SERVICES)
+                }
+                ExportDataButton("Import Chats JSON", Icons.Outlined.FileOpen) {
+                    onImportJson(JsonExportKind.CONVERSATIONS)
                 }
             }
         }
@@ -476,6 +517,19 @@ fun UserDataSettingsView(
                 TextButton(onClick = { showResetConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+@Composable
+private fun ExportDataButton(title: String, icon: ImageVector, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(title)
     }
 }
 

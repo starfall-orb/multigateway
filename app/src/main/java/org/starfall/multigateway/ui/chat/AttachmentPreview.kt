@@ -41,7 +41,7 @@ import org.starfall.multigateway.ui.components.MediaPreviewDialog
 import org.starfall.multigateway.ui.components.ChatFilePreview
 import org.starfall.multigateway.ui.components.mediaThumbnail
 
-private data class AttachmentPreviewData(
+internal data class AttachmentPreviewData(
     val name: String,
     val mimeType: String,
     val bitmap: ImageBitmap? = null,
@@ -99,9 +99,14 @@ private fun AttachmentTile(
 ) {
     val context = LocalContext.current
     var showPreview by remember(reference) { mutableStateOf(false) }
-    val data by produceState<AttachmentPreviewData?>(initialValue = null, reference) {
-        value = withContext(Dispatchers.IO) { loadPreview(context, reference) }
+    val data by produceState<AttachmentPreviewData?>(initialValue = AttachmentPreviewCache.get(reference), reference) {
+        value = AttachmentPreviewCache.get(reference)
+            ?: withContext(Dispatchers.IO) { loadPreview(context, reference) }
+                .also { AttachmentPreviewCache.put(reference, it) }
     }
+    // An inline preview changes the item's height when it arrives; a fixed-size tile does not.
+    TrackPendingWork(inlinePreview && data == null)
+    TrackReadyAssets(if (inlinePreview && data != null) listOf(AssetKey.Attachment(reference)) else emptyList())
     val width = if (compact) 116.dp else 132.dp
     val height = if (compact) 72.dp else 92.dp
     val shape = RoundedCornerShape(if (compact) 26.dp else 18.dp)
@@ -205,6 +210,21 @@ private fun AttachmentTile(
     val preview = data
     if (showPreview && preview != null) {
         MediaPreviewDialog(reference, preview.name, preview.mimeType) { showPreview = false }
+    }
+}
+
+/** Decoded thumbnails kept in evictable RAM so reopened chats show their images without decoding again. */
+internal object AttachmentPreviewCache {
+    private const val MAX_KILOBYTES = 24 * 1024
+    private val cache = SoftLruCache<String, AttachmentPreviewData>(MAX_KILOBYTES)
+
+    fun get(reference: String): AttachmentPreviewData? = cache.get(reference)
+
+    fun contains(reference: String): Boolean = cache.contains(reference)
+
+    fun put(reference: String, data: AttachmentPreviewData) {
+        val kilobytes = data.bitmap?.let { it.width.toLong() * it.height * 4 / 1024 }?.toInt() ?: 1
+        cache.put(reference, data, kilobytes)
     }
 }
 

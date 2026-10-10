@@ -47,7 +47,7 @@ internal fun LatexFormulaRenderer(
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val cacheKey = latexCacheKey(formula, textSizePx, color.toArgb(), isDarkTheme)
     val result by produceState<LatexRenderResult>(
-        initialValue = LatexRenderResult.Loading,
+        initialValue = LatexDrawables.peek(cacheKey)?.let { LatexRenderResult.Ready(it) } ?: LatexRenderResult.Loading,
         key1 = cacheKey
     ) {
         value = withContext(Dispatchers.Default) {
@@ -60,6 +60,8 @@ internal fun LatexFormulaRenderer(
         }
     }
 
+    TrackPendingWork(result == LatexRenderResult.Loading)
+    TrackReadyAssets(if (result is LatexRenderResult.Ready) listOf(AssetKey.Latex(cacheKey)) else emptyList())
     when (val renderResult = result) {
         LatexRenderResult.Loading -> LatexFallbackText(formula, textStyle, modifier)
         is LatexRenderResult.Fallback -> LatexFallbackText(renderResult.source, textStyle, modifier)
@@ -116,10 +118,19 @@ internal fun latexCacheKey(
 /** The raw source is intentionally preserved when a formula cannot be parsed. */
 internal fun latexFallbackSource(source: String): String = source
 
-internal object LatexDrawables {
+internal object LatexDrawables : EvictableCache {
     private const val MAX_ENTRIES = 96
     private val cache = object : LruCache<LatexCacheKey, Drawable>(MAX_ENTRIES) {
         override fun sizeOf(key: LatexCacheKey, value: Drawable): Int = 1
+    }
+
+    init {
+        ChatRenderCaches.register(this)
+    }
+
+    @Synchronized
+    override fun trimToFraction(fraction: Float) {
+        if (fraction <= 0f) cache.evictAll() else cache.trimToSize((MAX_ENTRIES * fraction).toInt())
     }
 
     @Synchronized

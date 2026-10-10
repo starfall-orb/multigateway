@@ -56,7 +56,7 @@ fun QuickActionsSheet(onDismiss: () -> Unit) {
                     ) {
                         if (modelName != null) {
                             EntityIcon(
-                                image = model?.icon,
+                                image = model.icon,
                                 modifier = Modifier.size(44.dp),
                                 text = modelName.take(2).uppercase(),
                                 fallback = if (name == "generate_image") Icons.Outlined.Image else Icons.Outlined.Videocam,
